@@ -1,0 +1,46 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- Node ----------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+dist/
+build/
+
+# ---------- Secretos ----------
+# .env lleva las claves reales y NUNCA se sube. La plantilla .env.example si.
+.env
+.env.*
+!.env.example
+
+# ---------- Datos crudos (pesados y pueden traer datos personales) ----------
+# Se ignora el CONTENIDO, pero el .gitkeep conserva la carpeta al clonar.
+ml/data/raw/*
+!ml/data/raw/.gitkeep
+ml/data/processed/*
+!ml/data/processed/.gitkeep
+
+# ---------- Modelos entrenados (se regeneran entrenando) ----------
+ml/models/*.joblib
+
+# ---------- Base de datos local (SQLite) ----------
+*.db
+*.sqlite3
+
+# ---------- Editor / sistema operativo ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

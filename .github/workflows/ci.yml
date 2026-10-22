@@ -1,0 +1,21 @@
+# Integracion continua (CI): GitHub corre las pruebas en cada push,
+# para que nadie suba codigo roto al repo.
+#
+# Todavia NO es un workflow funcional: solo describe los pasos previstos.
+#
+# Que ira aqui:
+#
+# name: CI
+#
+# on: push y pull_request sobre la rama main
+#
+# jobs:
+#   pruebas:
+#     - Descargar el codigo del repo              (actions/checkout)
+#     - Instalar Python 3.13                      (actions/setup-python)
+#     - Instalar ml/requirements.txt y api/requirements.txt
+#     - Correr pytest sobre ml/tests/ y api/tests/
+#
+# Nota: el CI no entrena el modelo ni descarga los datasets.
+# ml/data/raw/ y ml/models/ estan fuera de Git, asi que las pruebas
+# deben funcionar sin ellos (con datos de ejemplo pequenos).

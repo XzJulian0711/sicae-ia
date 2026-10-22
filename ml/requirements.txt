@@ -1,0 +1,10 @@
+# Dependencias del modulo de machine learning (Python 3.13).
+#
+# Que ira aqui:
+# - scikit-learn  -> entrenar el clasificador phishing vs legitimo
+# - pandas        -> cargar y limpiar SpaPhish y SpearPhishMX
+# - joblib        -> guardar y cargar el modelo entrenado
+# - pytest        -> pruebas de ml/tests/
+#
+# Las versiones exactas se fijan al instalar (pip freeze), para que el
+# entrenamiento sea reproducible y el jurado pueda repetirlo.

@@ -1,0 +1,12 @@
+# Dependencias de la API (Python 3.13).
+#
+# Que ira aqui:
+# - fastapi      -> el framework de la API
+# - uvicorn      -> el servidor que la levanta
+# - pydantic     -> validar lo que entra y sale (esquemas)
+# - sqlalchemy   -> hablar con la base de datos
+# - python-dotenv-> leer las variables de .env
+# - pytest       -> pruebas de api/tests/
+# - httpx        -> cliente de pruebas para los endpoints
+#
+# SQLite viene incluido en Python, no se instala.
