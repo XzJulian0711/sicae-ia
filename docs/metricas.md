@@ -253,3 +253,79 @@ Transparencia: el conjunto de prueba ya se había evaluado una vez con la rejill
 nueva selección no usó la prueba, pero esa prueba ya no es un dato totalmente "virgen"; por eso
 se registran los dos resultados. En la regresión logística C = 100 vuelve a quedar en el borde.
 No se amplió otra vez porque no cambia el modelo elegido (sigue por debajo del SVM).
+
+## Evaluación (paso 1.5)
+
+[`ml/src/evaluate.py`](../ml/src/evaluate.py) analiza los resultados del paso 1.4 **sin reentrenar
+el modelo final ni cambiar la selección**. Repite la misma división y carga
+`ml/models/clasificador.joblib`. Un `assert` comprueba que el modelo cargado da exactamente las
+métricas y la matriz de `resultados_prueba.json`. Las figuras están en escala de grises, a 300 dpi.
+
+### Matrices de confusión de validación cruzada
+
+`cross_val_predict` con los hiperparámetros elegidos y los mismos 5 pliegues por grupo de
+`GridSearchCV`. Cada correo de entrenamiento (1.109) se predice una sola vez, con el modelo del
+pliegue que no lo vio.
+
+![Matrices de confusión de validación cruzada](../ml/reports/matrices_cv.png)
+
+| Modelo | Legítimo bien | Legítimo → phishing (FP) | Phishing → legítimo (FN) | Phishing bien |
+|---|---|---|---|---|
+| Naive Bayes (α = 0,5) | 520 | 8 | **97** | 484 |
+| Regresión logística (C = 100) | 511 | 17 | 39 | 542 |
+| **SVM lineal (C = 30)** | 514 | 14 | 39 | 542 |
+
+- Naive Bayes casi no se equivoca con los legítimos (8), pero deja pasar 97 de 581 correos de
+  phishing (16,7 %). Para un filtro de seguridad es el error más grave.
+- La regresión logística y el SVM detectan los mismos 542 phishing. El SVM gana porque marca
+  3 legítimos menos como phishing (14 frente a 17).
+- El F1 macro calculado con todas las predicciones juntas (0,905; 0,949; 0,952) coincide con la
+  media por pliegue de `resultados_cv.json`.
+
+### Matriz de confusión en prueba
+
+![Matriz de confusión en prueba](../ml/reports/matriz_prueba.png)
+
+Es la misma matriz del paso 1.4, [[126, 6], [4, 140]], ahora como figura: 97,2 % de los phishing
+detectados y 4,5 % de los legítimos marcados por error.
+
+### Comparación de modelos
+
+![F1 macro de los tres modelos](../ml/reports/comparacion_modelos.png)
+
+La diferencia entre el SVM (0,952 ± 0,010) y la regresión logística (0,950 ± 0,011) es mucho
+menor que su desviación entre pliegues: en la práctica rinden igual. Se eligió el SVM por la
+regla fijada antes de entrenar (mayor F1 macro medio), no porque sea claramente superior. Naive
+Bayes queda unos 5 puntos por debajo y varía más entre pliegues (± 0,021).
+
+### Análisis de errores en prueba
+
+Detalle en [`ml/reports/errores_prueba.md`](../ml/reports/errores_prueba.md): los 4 falsos
+negativos y los 6 falsos positivos, con asunto, inicio del texto y puntaje del SVM.
+
+- 7 de los 10 errores tienen un puntaje entre -0,3 y 0,3: el modelo dudó.
+- Los dos errores más seguros son notificaciones reales de entrega (Shein). "paquete" y
+  "entrega" son de los términos con más peso hacia phishing, porque las campañas de paquete
+  falso dominan esa clase.
+- Un falso negativo de Amazon usa caracteres invisibles (U+00AD, U+034F, U+206A–U+206F,
+  U+17B4) para partir las palabras. La limpieza del paso 1.3 no los quita, y aparecen en 24
+  correos de phishing y 3 legítimos.
+
+### Palabras clave del modelo
+
+Detalle en [`ml/reports/palabras_clave.md`](../ml/reports/palabras_clave.md): los 10 términos con
+más peso hacia cada clase y en cuántos correos de entrenamiento de cada clase aparecen. Junto a
+señales de contenido esperables ("paquete", "entrega", "haga clic" hacia phishing; "saludos",
+"invitación" hacia legítimo) aparecen **atajos que quedan en los datos**:
+
+| Atajo | Evidencia | Riesgo |
+|---|---|---|
+| Nombres de anonimización fuera de la lista | "ricardo lópez" pesa +0,92 hacia phishing (en el conjunto completo aparece en 42 phishing y 17 legítimos); "genovevo" pesa -1,20 hacia legítimo (17 legítimos y 5 phishing). Son nombres de relleno del dataset, como "pablito", que no se incluyeron en `NOMBRES_ANONIMIZADOS` | El modelo aprende el nombre, no el contenido |
+| `urltoken` hacia legítimo | Es el término con más peso de todo el modelo (-1,94). En el texto aparece en el 51 % de los legítimos y en el 11 % de los phishing, aunque el 96 % de los phishing tiene URLs según `n_urls`: en SpaPhish los enlaces del phishing casi nunca están en el texto plano | Es una característica del formato del dataset. En correos reales un phishing con el enlace visible podría pasar como legítimo |
+| Adjuntos y longitud hacia legítimo | `n_adjuntos` pesa -1,67 (38 % de los legítimos con adjunto frente al 3 % de los phishing) y `long_cuerpo` -1,25 | Un phishing con adjunto o largo se parece a un legítimo |
+| Términos memorizados de 1 o 2 correos | "10 marzo", "satélite", "sábado 18" tienen pesos cercanos a ±0,9 | Con C = 30 (poca regularización) el SVM memoriza detalles de pocos correos |
+
+**Estos atajos no se corrigieron en este paso.** Corregirlos implica cambiar el preprocesamiento
+del paso 1.3 (más nombres en la lista, quitar los caracteres invisibles, decidir qué hacer con
+`urltoken`) y volver a entrenar, y eso lo decide el equipo. Mientras tanto, el F1 macro de 0,964
+debe leerse como el rendimiento **dentro de SpaPhish**, no como el esperado en correos reales.
