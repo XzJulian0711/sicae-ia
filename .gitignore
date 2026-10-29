@@ -11,6 +11,9 @@ env/
 .coverage
 htmlcov/
 
+# ---------- Jupyter ----------
+.ipynb_checkpoints/
+
 # ---------- Node ----------
 node_modules/
 npm-debug.log*
@@ -32,12 +35,20 @@ ml/data/raw/*
 ml/data/processed/*
 !ml/data/processed/.gitkeep
 
+# ---------- Correos exportados de cuentas de prueba ----------
+# Son correos reales: nunca se suben, esten en la carpeta que esten.
+*.eml
+*.msg
+
 # ---------- Modelos entrenados (se regeneran entrenando) ----------
 ml/models/*.joblib
 
 # ---------- Base de datos local (SQLite) ----------
 *.db
 *.sqlite3
+
+# ---------- Logs ----------
+*.log
 
 # ---------- Editor / sistema operativo ----------
 .vscode/
