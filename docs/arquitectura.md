@@ -11,7 +11,7 @@
 
 ## 2. Modulo ML (`ml/`)
 
-<!-- Datasets usados (SpaPhish, SpearPhishMX), preprocesamiento, algoritmo
+<!-- Dataset usado (SpaPhish; ver metricas.md), preprocesamiento, algoritmo
      elegido y metricas obtenidas. -->
 
 ## 3. API (`api/`)

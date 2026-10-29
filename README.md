@@ -20,9 +20,9 @@ Definido por el equipo. No se modifica sin aprobación conjunta.
 - **Prototipo en entorno controlado.** No es un producto listo para producción.
 - **Nunca borra ni envía correos reales.** La limpieza y el envío son **simulados**: el sistema
   muestra qué haría, pero no ejecuta ninguna acción sobre el buzón.
-- **Datos:** SpaPhish, SpearPhishMX y cuentas de prueba creadas por el equipo.
-- **Modelo:** clasificación phishing vs. legítimo, entrenado con SpaPhish y SpearPhishMX (correos
-  en español).
+- **Datos:** SpaPhish y cuentas de prueba creadas por el equipo.
+- **Modelo:** clasificación phishing vs. legítimo, entrenado solo con SpaPhish (correos en
+  español). SpearPhishMX se descartó; las razones están en [docs/metricas.md](docs/metricas.md).
 - **Publicidad y spam:** se detectan por reglas, no por el modelo — cabecera `List-Unsubscribe` y
   señales de envío masivo.
 - **Salida al usuario:** una de tres categorías (legítimo, publicidad, phishing) y una prioridad
@@ -49,6 +49,7 @@ Definido por el equipo. No se modifica sin aprobación conjunta.
 sicae-ia/
 ├── ml/                       Modelo de machine learning
 │   ├── src/                  Código del modelo
+│   │   ├── load_data.py      Carga y depuración de SpaPhish
 │   │   └── publicidad.py     Regla de publicidad (List-Unsubscribe, envío masivo)
 │   ├── tests/                Pruebas del modelo
 │   ├── data/
@@ -69,7 +70,8 @@ sicae-ia/
 │       └── panel.html        Interfaz del panel lateral
 │
 ├── docs/
-│   └── arquitectura.md       Documentación de arquitectura y decisiones
+│   ├── arquitectura.md       Documentación de arquitectura y decisiones
+│   └── metricas.md           Dataset usado y métricas del modelo
 │
 ├── .github/workflows/
 │   └── ci.yml                Integración continua (pruebas en cada push)
@@ -81,6 +83,31 @@ sicae-ia/
 
 Las rutas marcadas **fuera de Git** no se versionan: los datasets son pesados y pueden contener
 datos personales, y los modelos se regeneran entrenando. Las carpetas sí existen al clonar, vacías.
+
+## Cómo obtener los datos
+
+Los datos no están en Git, así que cada integrante los descarga una vez:
+
+1. Descarga SpaPhish de Mendeley Data: <https://data.mendeley.com/datasets/hz2d6gz7pc/5>
+2. Copia estos tres archivos a `ml/data/raw/spaphish/`:
+   - `Spaphish dataset - DiB.csv`
+   - `README.txt`
+   - `dataset_schema.json`
+3. Instala las dependencias del módulo ML:
+
+   ```bash
+   pip install -r ml/requirements.txt
+   ```
+
+4. Ejecuta la carga y depuración desde la raíz del proyecto:
+
+   ```bash
+   python ml/src/load_data.py
+   ```
+
+   El script verifica los conteos, quita las filas inválidas y guarda
+   `ml/data/processed/correos.csv`. Las cifras de cada paso están en
+   [docs/metricas.md](docs/metricas.md).
 
 ## Cómo contribuir
 
