@@ -2,7 +2,7 @@
 #
 # Que ira aqui:
 # - scikit-learn  -> entrenar el clasificador phishing vs legitimo
-# - pandas        -> cargar y limpiar SpaPhish y SpearPhishMX
+# - pandas        -> cargar y limpiar SpaPhish
 # - joblib        -> guardar y cargar el modelo entrenado
 # - pytest        -> pruebas de ml/tests/
 #
