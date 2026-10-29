@@ -5,9 +5,13 @@
 # - pandas        -> cargar y limpiar SpaPhish
 # - joblib        -> guardar y cargar el modelo entrenado
 # - pytest        -> pruebas de ml/tests/
+# - matplotlib    -> gráficas del notebook de exploración
+# - ipykernel     -> ejecutar los notebooks de ml/notebooks/ con este entorno
 #
 # Las versiones exactas se fijan al instalar (pip freeze), para que el
 # entrenamiento sea reproducible y el jurado pueda repetirlo.
 
+ipykernel==7.4.0
+matplotlib==3.11.2
 pandas==3.1.0
 pytest==9.2.0
