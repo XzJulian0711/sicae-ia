@@ -1,11 +1,11 @@
 {
   "modelo": "svm_lineal",
-  "correos": 276,
-  "accuracy": 0.9638,
-  "precision_phishing": 0.9589,
-  "recall_phishing": 0.9722,
-  "f1_phishing": 0.9655,
-  "f1_macro": 0.9637,
+  "correos": 277,
+  "accuracy": 0.9531,
+  "precision_phishing": 0.9714,
+  "recall_phishing": 0.9379,
+  "f1_phishing": 0.9544,
+  "f1_macro": 0.953,
   "matriz_confusion": {
     "orden": [
       "legitimo",
@@ -13,12 +13,12 @@
     ],
     "filas_real_columnas_predicho": [
       [
-        126,
-        6
+        128,
+        4
       ],
       [
-        4,
-        140
+        9,
+        136
       ]
     ]
   }

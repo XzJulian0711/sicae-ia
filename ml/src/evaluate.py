@@ -18,7 +18,6 @@ import json
 import sys
 from pathlib import Path
 
-import joblib
 import matplotlib
 
 matplotlib.use("Agg")  # sin ventanas: solo guarda archivos
@@ -34,6 +33,7 @@ if str(CARPETA_ML) not in sys.path:
     sys.path.insert(0, str(CARPETA_ML))
 
 from src.features import COLUMNAS_ENTRADA  # noqa: E402
+from src.preprocess import calcular_palabras_comunes  # noqa: E402
 from src.texto import limpiar_texto  # noqa: E402
 from src.train import (  # noqa: E402
     ETIQUETAS,
@@ -43,6 +43,7 @@ from src.train import (  # noqa: E402
     RUTA_PRUEBA,
     construir_modelos,
     dividir_entrenamiento_prueba,
+    cargar_modelo,
     elegir_mejor,
     evaluar,
     pliegues,
@@ -65,40 +66,27 @@ NOMBRES = {
 CLASES = ["Legítimo", "Phishing"]  # mismo orden que ETIQUETAS
 LARGO_EXTRACTO = 200
 
-# Escrito a mano después de leer los errores de prueba del SVM lineal (C = 30).
+# Escrito a mano después de leer los errores de prueba del SVM lineal (C = 10), paso 1.5b.
 # Si cambia el modelo o los datos, hay que volver a leer la tabla y reescribirlo.
-ANALISIS_ERRORES = """\
-Los 10 errores se concentran en **temas que comparten las dos clases**: entregas de paquetes,
-cuentas y seguridad. El modelo decide por el vocabulario del tema más que por señales de
-fraude (remitente, enlaces que no coinciden), que no ve. 7 de los 10 tienen un puntaje entre
--0,3 y 0,3: el modelo dudó.
+ANALISIS_ERRORES = """Hay 13 errores: 9 falsos negativos y 4 falsos positivos. 11 de los 13 tienen un puntaje
+entre -0,3 y 0,3: el modelo dudó. Ya no aparecen errores por nombres, por "urltoken" ni por
+caracteres invisibles.
 
-- **Falsos positivos de entregas (#1 y #2, Shein).** Son los errores más seguros (1,16 y 0,94).
-  "paquete", "entrega" y "estimado cliente" son de los términos con más peso hacia phishing,
-  porque las campañas de paquete falso dominan esa clase (225 correos de phishing con
-  "paquete" en entrenamiento frente a 4 legítimos). Una notificación de entrega real se
-  parece demasiado a la falsa.
-- **Llamados a iniciar sesión (#3 FP, buzón tributario).** "Ingresa" e "inicia sesión" son la
-  llamada a la acción típica del phishing, aunque aquí venga de una entidad real.
-- **Falsos negativos por señales de formato de SpaPhish (#1 y #2 FN).**
-  - El "recibo de su compra" (#1 FN) trae un adjunto. En entrenamiento, el 38 % de los
-    legítimos tiene adjuntos y solo el 3 % de los phishing, así que `n_adjuntos` pesa -1,67
-    hacia legítimo.
-  - El correo de "MDR en acción" (#2 FN) tiene URLs escritas en el texto. "urltoken" aparece en
-    el 51 % de los legítimos y en el 11 % de los phishing (en el phishing de SpaPhish los
-    enlaces casi nunca están en el texto plano), y es el término con más peso hacia legítimo
-    (-1,94).
-  - Las dos son características del formato del dataset, no del fraude.
-- **Nombre fuera de la lista de anonimización (#4 FN).** "andros, informe de riesgo
-  disponible en tu cuenta" usa un tema de cuenta genérico y nombres ("andros", "mendoza") que
-  no están en `NOMBRES_ANONIMIZADOS`.
-- **Evasión con caracteres invisibles (#3 FN, Amazon).** El asunto "s⁪u ⁪c­u⁪ent­a ... bloqueada"
-  mete caracteres invisibles (U+00AD, U+034F, U+206A–U+206F, U+17B4) que la limpieza del paso
-  1.3 no quita. Las palabras quedan partidas y el modelo no reconoce "cuenta bloqueada".
-  Hay 24 correos de phishing y 3 legítimos con estos caracteres.
-- **Correos legítimos de marketing o muy cortos (#4–#6 FP).** Duolingo, la verificación de
-  Samsung ("account" pesa hacia phishing) y un aviso de misa con casi solo una imagen. Quedaron
-  justo encima de la frontera (puntaje < 0,13)."""
+- **Phishing dentro de un reenvío (#1, #2 y #4 FN).** Asuntos con "rv:", "fwd:" o "fw:" y
+  cabeceras de reenvío ("mensaje reenviado", "de:", "para:"). Esa forma es típica de los
+  correos legítimos entre personas, y el phishing que la imita pasa como legítimo.
+- **Suplantación de plataformas con poco texto (#5, #8 y #9 FN).** Son tres correos de la
+  misma campaña ("error en la reunión programada", logo de "Zoon"). Quedan justo debajo de la
+  frontera (puntajes entre -0,16 y -0,01): sin URL en el texto, solo queda un aviso corto y
+  neutro. También #7, un supuesto documento completado de un banco.
+- **Phishing con tono de evento o de marketing (#3 y #6 FN).** La invitación a un evento de
+  seguridad ("MDR en acción") y un texto en inglés de venta de cursos usan el vocabulario de
+  los boletines legítimos.
+- **Legítimos con vocabulario de oferta o de premio (#2 y #3 FP).** "Premio", "gratis",
+  "oferta" y "oportunidades" pesan hacia phishing, aunque aquí sean de servicios reales.
+- **Legítimos con avisos de envío masivo o adjuntos (#1 y #4 FP).** Un aviso que pide revisar
+  la carpeta de spam y un protocolo "en archivo anexo" quedaron apenas encima de la frontera
+  (puntaje < 0,22)."""
 
 
 # ---------------------------------------------------------------------------
@@ -137,15 +125,19 @@ def f1_macro_matriz(matriz):
 # ---------------------------------------------------------------------------
 
 
-def cargar_division(ruta_limpios=RUTA_DATOS, ruta_original=RUTA_ORIGINAL):
+def cargar_division(ruta_limpios=RUTA_DATOS, ruta_original=RUTA_ORIGINAL, palabras_comunes=None):
     """La misma división de train.py, con una columna extra "asunto" (limpio) para leer errores.
 
     La división solo mira etiqueta y grupo, así que la columna extra no la cambia.
+    palabras_comunes: la lista guardada en el modelo; si no se da, se calcula igual que en
+    preprocess.py.
     """
     df = pd.read_csv(ruta_limpios, sep=",", encoding="utf-8-sig")
-    original = pd.read_csv(ruta_original, sep=",", encoding="utf-8-sig", usecols=["asunto"])
+    original = pd.read_csv(ruta_original, sep=",", encoding="utf-8-sig", usecols=["asunto", "cuerpo"])
     assert len(df) == len(original), "correos.csv y correos_limpios.csv no tienen las mismas filas"
-    df["asunto"] = [limpiar_texto(a) for a in original["asunto"]]
+    if palabras_comunes is None:
+        palabras_comunes = calcular_palabras_comunes(original)
+    df["asunto"] = [limpiar_texto(a, palabras_comunes) for a in original["asunto"]]
     return dividir_entrenamiento_prueba(df)
 
 
@@ -446,8 +438,17 @@ def main():
     elegido = elegir_mejor(resultados_cv)
     assert elegido == esperado["modelo"], "La selección por CV no coincide con el modelo guardado"
 
-    entrenamiento, prueba = cargar_division()
-    assert len(prueba) == esperado["correos"], "La división no es la del paso 1.4"
+    guardado = cargar_modelo(RUTA_MODELO)
+    modelo = guardado["pipeline"]
+    palabras_comunes = guardado["palabras_minuscula"]
+    original = pd.read_csv(RUTA_ORIGINAL, sep=",", encoding="utf-8-sig", usecols=["asunto", "cuerpo"])
+    assert palabras_comunes == calcular_palabras_comunes(original), (
+        "La lista de palabras del modelo no coincide con correos.csv: ¿cambiaron los datos?"
+    )
+    print(f"0) Modelo {guardado['version']} ({len(palabras_comunes)} palabras en minúscula)")
+
+    entrenamiento, prueba = cargar_division(palabras_comunes=palabras_comunes)
+    assert len(prueba) == esperado["correos"], "La división no es la del entrenamiento"
     print(f"1) División repetida: {len(entrenamiento)} entrenamiento, {len(prueba)} prueba")
 
     print("2) Matrices de validación cruzada (filas real, columnas predicho; legítimo, phishing):")
@@ -460,7 +461,6 @@ def main():
                for m in matrices}
     print(f"   Guardado en {figura_matrices(titulos, RUTA_MATRICES_CV)}")
 
-    modelo = joblib.load(RUTA_MODELO)
     matriz, predicho = matriz_prueba(modelo, elegido, prueba, esperado)
     print(f"3) Prueba con el modelo guardado: {matriz.tolist()} = resultados_prueba.json (assert OK)")
     titulo = titulo_modelo(elegido, resultados_cv[elegido]["mejores_hiperparametros"])

@@ -77,7 +77,9 @@ def test_f1_macro_matriz():
 def test_cargar_division_agrega_asunto_limpio(tmp_path):
     df = correos_inventados()
     df.to_csv(tmp_path / "limpios.csv", index=False, encoding="utf-8-sig")
-    pd.DataFrame({"asunto": [f"Pablito, aviso {i}" for i in range(len(df))]}).to_csv(
+    pd.DataFrame(
+        {"asunto": [f"Pablito, aviso {i}" for i in range(len(df))], "cuerpo": ["hola"] * len(df)}
+    ).to_csv(
         tmp_path / "original.csv", index=False, encoding="utf-8-sig"
     )
     entrenamiento, prueba = cargar_division(tmp_path / "limpios.csv", tmp_path / "original.csv")

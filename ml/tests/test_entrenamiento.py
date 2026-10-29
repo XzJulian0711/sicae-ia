@@ -9,7 +9,17 @@ import pandas as pd
 import pytest
 
 from src.features import COLUMNAS_ENTRADA, construir_preprocesador
-from src.train import construir_modelos, dividir_entrenamiento_prueba, elegir_mejor, evaluar
+import joblib
+
+from src.train import (
+    VERSION_MODELO,
+    cargar_modelo,
+    construir_modelos,
+    dividir_entrenamiento_prueba,
+    elegir_mejor,
+    evaluar,
+    guardar_modelo,
+)
 
 TEXTO_PHISHING = [
     "nombretoken su paquete está detenido pague la tasa urltoken",
@@ -123,3 +133,29 @@ def test_elegir_mejor_usa_f1_macro():
 def test_elegir_mejor_desempata_por_recall_de_phishing():
     resultados = {"a": resumen(0.95, 0.90), "b": resumen(0.95, 0.97)}
     assert elegir_mejor(resultados) == "b"
+
+
+# ----- modelo guardado (v1.0) -----
+
+
+def test_guardar_y_cargar_modelo_conserva_todo(tmp_path):
+    df = correos_inventados()
+    pipeline, _ = construir_modelos()["svm_lineal"]
+    pipeline.fit(df[COLUMNAS_ENTRADA], df["etiqueta"])
+    ruta = guardar_modelo(pipeline, {"tienes", "aviso"}, tmp_path / "modelo.joblib")
+
+    cargado = cargar_modelo(ruta)
+    assert cargado["version"] == VERSION_MODELO == "v1.0"
+    assert cargado["palabras_minuscula"] == frozenset({"tienes", "aviso"})
+    antes = pipeline.predict(df[COLUMNAS_ENTRADA])
+    despues = cargado["pipeline"].predict(df[COLUMNAS_ENTRADA])
+    assert (antes == despues).all()
+
+
+def test_cargar_modelo_rechaza_el_formato_viejo(tmp_path):
+    # Antes de v1.0 se guardaba solo el pipeline, sin la lista de palabras.
+    pipeline, _ = construir_modelos()["naive_bayes"]
+    ruta = tmp_path / "viejo.joblib"
+    joblib.dump(pipeline, ruta)
+    with pytest.raises(AssertionError):
+        cargar_modelo(ruta)

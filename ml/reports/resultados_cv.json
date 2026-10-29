@@ -1,77 +1,77 @@
 {
   "naive_bayes": {
     "mejores_hiperparametros": {
-      "modelo__alpha": 0.5
+      "modelo__alpha": 0.1
     },
     "accuracy": {
-      "media": 0.9053,
-      "desviacion": 0.0206
+      "media": 0.9152,
+      "desviacion": 0.016
     },
     "precision_phishing": {
-      "media": 0.9842,
-      "desviacion": 0.0101
+      "media": 0.9809,
+      "desviacion": 0.0169
     },
     "recall_phishing": {
-      "media": 0.833,
-      "desviacion": 0.0454
+      "media": 0.8552,
+      "desviacion": 0.0351
     },
     "f1_phishing": {
-      "media": 0.9014,
-      "desviacion": 0.0249
+      "media": 0.9131,
+      "desviacion": 0.0181
     },
     "f1_macro": {
-      "media": 0.9051,
-      "desviacion": 0.0209
+      "media": 0.9151,
+      "desviacion": 0.0161
     }
   },
   "regresion_logistica": {
     "mejores_hiperparametros": {
-      "modelo__C": 100.0
+      "modelo__C": 30.0
     },
     "accuracy": {
-      "media": 0.9495,
-      "desviacion": 0.0113
+      "media": 0.9395,
+      "desviacion": 0.0153
     },
     "precision_phishing": {
-      "media": 0.9696,
-      "desviacion": 0.0071
+      "media": 0.9576,
+      "desviacion": 0.0101
     },
     "recall_phishing": {
-      "media": 0.9329,
-      "desviacion": 0.0206
+      "media": 0.9259,
+      "desviacion": 0.0364
     },
     "f1_phishing": {
-      "media": 0.9508,
-      "desviacion": 0.0116
+      "media": 0.9409,
+      "desviacion": 0.0162
     },
     "f1_macro": {
-      "media": 0.9495,
-      "desviacion": 0.0113
+      "media": 0.9395,
+      "desviacion": 0.0153
     }
   },
   "svm_lineal": {
     "mejores_hiperparametros": {
-      "modelo__C": 30.0
+      "modelo__C": 10.0
     },
     "accuracy": {
-      "media": 0.9522,
-      "desviacion": 0.0101
+      "media": 0.9467,
+      "desviacion": 0.0171
     },
     "precision_phishing": {
-      "media": 0.9749,
-      "desviacion": 0.0064
+      "media": 0.9613,
+      "desviacion": 0.0109
     },
     "recall_phishing": {
-      "media": 0.9329,
-      "desviacion": 0.02
+      "media": 0.9362,
+      "desviacion": 0.0347
     },
     "f1_phishing": {
-      "media": 0.9533,
-      "desviacion": 0.0104
+      "media": 0.9482,
+      "desviacion": 0.0177
     },
     "f1_macro": {
-      "media": 0.9522,
-      "desviacion": 0.0101
+      "media": 0.9467,
+      "desviacion": 0.017
     }
   }
 }
