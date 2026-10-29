@@ -94,7 +94,7 @@ Si quedaría en una sola, se borra, porque un token exclusivo de una clase sigue
 | Nombres de la anonimización: pablito (172), ezequiela (84), miguelina (83), guadalupe (58), robles (54), missxtranger (52), salas (43), jiménez (42), garcía/garcia (41), vargas (39), pancracio (34), durán/duran (34), martínez/martinez (46) | `nombretoken` | 782 | Cada nombre estaba en una sola clase. El token queda en ambas: 333 correos de phishing y 184 legítimos |
 | Direcciones ficticias de los pies de página ("escriba a: 128 Willow Crest Rd Ste 402#5912, Northwood, VT, 05744", "Or write to: …", "correo electrónico à: …", "escribiendo a …") | se borra la dirección; se conserva "escriba a:" | 149 | Solo aparecen en phishing (120 correos). Antes dejaban "ste" en 105 correos de phishing y 0 legítimos; ahora en 0 |
 | Lugares: hidalgo (33), ciudad central (17) | se borran | 50 | Sin las direcciones, `lugartoken` quedaba en 35 legítimos y 0 de phishing. "northwood" solo estaba dentro de direcciones |
-| Organización "myown" | se borra | 127 | Solo en legítimos; `orgtoken` quedaba en 51 legítimos y 0 de phishing |
+| Organizaciones (`ORGS_ANONIMIZADAS`): myown (127), cietec (81), estelar (81), sni (29) | se borran | 318 | Solo en legítimos: myown en 52 correos, cietec en 24, sni en 22 y estelar en 21, ninguna en phishing. Un `orgtoken` quedaría en una sola clase |
 | Mayúsculas y espacios repetidos | minúsculas, un espacio | — | "URGENTE" y "urgente" son la misma palabra |
 
 ### Qué se dejó y por qué
@@ -139,13 +139,11 @@ asuntos genéricos, no campañas.
   | luna | 1 | 37 | Persona (apellido) | "Roberto G. Luna", "Fernando Ramos Luna" |
   | sol | 1 | 28 | Lugar | "Villa del Sol", "Banco del Sol", "Cerrada del Sol" |
   | santa | 2 | 27 | Lugar | "Santa María", "Santa Rosa" |
-  | cietec | 0 | 24 | Organización | "Director General CIETEC" |
   | alcaldía | 1 | 22 | Lugar (dirección) | "Alcaldía Coyoacán", "Alcaldía Central" |
-  | estelar | 0 | 21 | Organización | "Instituto de Ciencia Estelar y Microelectrónica" |
-  | sni | 0 | 21 | Organización | Sistema Nacional de Investigadores |
 
-  No se agregaron a las listas en este paso. "luna", "sol", "flores" y "santa" también son
-  palabras normales, y borrarlas tendría el mismo problema que "salas".
+  Se dejan a propósito: las cinco también son palabras normales (luna, sol, flores, santa,
+  alcaldía) y borrarlas tendría el mismo problema que "salas". En cambio, "cietec", "estelar" y
+  "sni" no tienen otro uso en el dataset y se agregaron a `ORGS_ANONIMIZADAS`.
 - **Lista hecha a mano.** Los nombres y lugares salieron del análisis de palabras exclusivas de
   una clase (20 o más correos en una y 2 o menos en la otra). Puede haber otros por debajo de ese
   umbral, como "982 Willow Park Ave" (1 correo de phishing), una dirección que no va después de

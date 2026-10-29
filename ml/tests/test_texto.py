@@ -138,6 +138,16 @@ def test_limpiar_no_borra_texto_que_no_es_direccion():
 
 def test_limpiar_borra_organizacion():
     assert limpiar_texto("Titular del MyOwn 2025") == "titular del 2025"
+    assert limpiar_texto("Director General CIETEC") == "director general"
+    assert limpiar_texto("Instituto de Ciencia Estelar y Microelectrónica") == (
+        "instituto de ciencia y microelectrónica"
+    )
+    assert limpiar_texto("Convocatoria SNI 2019") == "convocatoria 2019"
+
+
+def test_limpiar_borra_organizacion_solo_como_palabra_completa():
+    # "sni" no se toca dentro de "snif"; "estelar" no dentro de "constelaria".
+    assert limpiar_texto("snif constelaria") == "snif constelaria"
 
 
 def test_limpiar_no_reemplaza_dentro_de_otras_palabras():

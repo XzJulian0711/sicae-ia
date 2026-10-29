@@ -86,7 +86,7 @@ NOMBRES_ANONIMIZADOS = [
 # quedaría en una sola clase y seguiría siendo un atajo. Los nombres sí aparecen en
 # ambas clases, por eso se cambian por "nombretoken".
 LUGARES_ANONIMIZADOS = ["ciudad central", "hidalgo", "northwood"]
-ORGS_ANONIMIZADAS = ["myown"]
+ORGS_ANONIMIZADAS = ["myown", "cietec", "estelar", "sni"]
 
 # Direcciones ficticias de los pies de página de phishing, por ejemplo
 # "escriba a: 128 Willow Crest Rd Ste 402#5912, Northwood, VT, 05744".
