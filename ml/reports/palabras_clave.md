@@ -7,34 +7,34 @@ Un término fuerte que solo sale en una clase y en pocos correos puede ser un at
 
 ## Hacia phishing
 
-| # | Término | Peso | Correos phishing (de 581) | Correos legítimos (de 528) |
+| # | Término | Peso | Correos phishing (de 580) | Correos legítimos (de 528) |
 |---|---|---|---|---|
-| 1 | paquete | 1,201 | 225 | 4 |
-| 2 | account | 1,152 | 7 | 1 |
-| 3 | cliente | 1,028 | 76 | 23 |
-| 4 | ricardo lópez | 0,918 | 39 | 14 |
-| 5 | entrega | 0,909 | 219 | 21 |
-| 6 | plazo | 0,871 | 38 | 7 |
-| 7 | 10 marzo | 0,871 | 1 | 1 |
-| 8 | satélite | 0,871 | 1 | 1 |
-| 9 | universidad | 0,865 | 28 | 30 |
-| 10 | haga clic | 0,855 | 105 | 10 |
+| 1 | aerolínea | 1,202 | 1 | 1 |
+| 2 | paquete | 1,186 | 232 | 6 |
+| 3 | cuenta | 1,027 | 159 | 107 |
+| 4 | entrega | 1,017 | 229 | 25 |
+| 5 | account | 0,888 | 13 | 2 |
+| 6 | re | 0,869 | 28 | 35 |
+| 7 | campus | 0,834 | 13 | 4 |
+| 8 | documento | 0,823 | 13 | 35 |
+| 9 | tarjeta | 0,819 | 32 | 13 |
+| 10 | plazo | 0,816 | 36 | 7 |
 
 ## Hacia legítimo
 
-| # | Término | Peso | Correos phishing (de 581) | Correos legítimos (de 528) |
+| # | Término | Peso | Correos phishing (de 580) | Correos legítimos (de 528) |
 |---|---|---|---|---|
-| 1 | urltoken | -1,936 | 68 | 267 |
-| 2 | genovevo | -1,202 | 4 | 13 |
-| 3 | saludos | -1,117 | 22 | 141 |
-| 4 | cloud | -1,006 | 1 | 8 |
-| 5 | puerto | -0,972 | 0 | 12 |
-| 6 | día | -0,938 | 32 | 147 |
-| 7 | puedes | -0,927 | 42 | 98 |
-| 8 | descarga | -0,908 | 0 | 18 |
-| 9 | invitación | -0,886 | 0 | 40 |
-| 10 | sábado 18 | -0,881 | 0 | 2 |
+| 1 | interjet | -1,234 | 0 | 2 |
+| 2 | descarga | -1,141 | 0 | 19 |
+| 3 | hola nombretoken | -1,104 | 12 | 81 |
+| 4 | contraseña | -1,053 | 13 | 31 |
+| 5 | cloud | -1,044 | 1 | 8 |
+| 6 | plataforma | -0,980 | 3 | 28 |
+| 7 | liga | -0,969 | 4 | 46 |
+| 8 | verifica | -0,946 | 1 | 6 |
+| 9 | saludos | -0,928 | 21 | 148 |
+| 10 | soporte | -0,813 | 11 | 15 |
 
 ## Columnas numéricas
 
-Pesos (tras log1p y escala a [0, 1]): `n_urls` -0,137, `n_adjuntos` -1,665, `long_cuerpo` -1,246.
+Pesos (tras log1p y escala a [0, 1]): `n_urls` -0,252, `n_adjuntos` -1,808, `long_cuerpo` -1,354.

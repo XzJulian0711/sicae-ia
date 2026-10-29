@@ -81,6 +81,20 @@ NOMBRES_ANONIMIZADOS = [
     "pablito", "ezequiela", "miguelina", "missxtranger", "pancracio", "guadalupe",
     "robles", "salas", "garcía", "garcia", "jiménez", "jimenez", "vargas",
     "durán", "duran", "martínez", "martinez",
+    # Paso 1.5b: nombres que aparecen en 5 o más correos de una clase y en 1 o menos de
+    # la otra (análisis de docs/metricas.md). Los que también son palabras comunes o
+    # lugares (flores, luna, sol, rosa, cruz...) se dejan como limitación.
+    "javier pérez", "roberto luna", "daniel flores", "mariana solís", "javier soto",
+    "marcos díaz", "andrea sofía", "diana soto", "ricardo salgado",
+    "alejandro", "rodolfo", "fernando", "vidal", "jimena", "manuel", "hernández",
+    "calderón", "valeria", "ortega", "sánchez", "sanchez", "guzmán", "beltrán",
+    "francisco", "lopez", "inés", "eric", "alfredo", "smith", "madero", "josé",
+    "romero", "arturo", "isabel",
+    # Al final: "ricardo vargas" y "ricardo salas" ya quedaron como "ricardo nombretoken".
+    "ricardo nombretoken",
+    # Después de lo anterior: nombres de relleno que la regla de saludos no cubre porque
+    # las plantillas los escriben en minúscula ("fallo en la entrega para ricardo!").
+    "ricardo", "lópez", "genovevo",
 ]
 # Lugares y organizaciones se BORRAN (no se cambian por "lugartoken"/"orgtoken"):
 # quitadas las direcciones, solo aparecen en legítimos, así que un token también
@@ -110,12 +124,124 @@ _HTML_ETIQUETA = re.compile(
     r"</?(?:" + "|".join(map(re.escape, _ETIQUETAS_HTML)) + r")\b[^<>]*>",
     re.IGNORECASE,
 )
-# Caracteres invisibles que deja &zwnj; y similares.
-_INVISIBLES = re.compile(r"[​-\u200F⁠﻿]")
+# Caracteres invisibles: los deja &zwnj; y similares, y el phishing los mete dentro de las
+# palabras para partirlas ("c\u00adu\u2060enta" se ve como "cuenta"). NFKC no los quita.
+# Guion suave, combinador invisible, marcas de dirección, rellenos de Hangul y Mongol,
+# espacios de ancho cero, selectores de variación y BOM.
+_INVISIBLES = re.compile(
+    "[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f"
+    "\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0]"
+)
+# Número suelto como palabra: "10", "2020", "14,520.75", "24/7", "55-1234". No toca códigos
+# con letras ("9qpnp-f9utof") ni números pegados a letras ("id2092").
+_NUMERO = re.compile(r"(?<!\w)\d+(?:[.,:/-]\d+)*(?!\w)")
 # URL: http(s):// o www. hasta un espacio, comilla o < >. Va antes que el correo.
 _URL_LIMPIEZA = re.compile(r"(?:https?://|www\.)[^\s<>\"']+")
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _ESPACIOS = re.compile(r"\s+")
+
+# Regla de saludos (paso 1.5b): el nombre que sigue a un saludo o título se cambia por
+# "nombretoken", aunque no esté en NOMBRES_ANONIMIZADOS. Se aplica ANTES de pasar a
+# minúsculas, porque se reconoce el nombre por la mayúscula inicial.
+#   "Estimada Sra. María López:"  ->  "Estimada Sra. nombretoken:"
+# Los saludos y títulos se pueden encadenar ("Estimado Dr.") y no distinguen mayúsculas.
+# Sr., Sra., Srta., Dr. y Dra. solo cuentan CON punto: sin punto "Dr" suele ser "Drive" en
+# una dirección ("550 Technology Dr Ste 100").
+# Los nombres: de 1 a 3 palabras en la misma línea, cada una con mayúscula inicial y el
+# resto en minúscula ("Juan", no "SAT").
+_SALUDO = re.compile(
+    r"(?i:(?<!\w)(?:(?:estimad[oa]s?|hola|querid[oa]s?"
+    r"|(?:sr|dr)\.?/(?:sra|dra)\.|(?:srta|sra|sr|dra|dr)\.)[ \t]*,?[ \t]*)+)"
+    r"(?P<nombres>[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+(?:[ \t]+[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+){0,2})(?!\w)"
+)
+# Palabra escrita toda en minúscula, suelta: no pegada a "@" ni parte de "laura.mendez".
+_MINUSCULA = re.compile(r"(?<![\w@.])[a-záéíóúüñ]+(?![\w@]|\.\w)")
+# Palabras con mayúscula después de un saludo que NO son nombres ("Estimado Cliente").
+SALUDOS_GENERICOS = frozenset(
+    """
+    cliente clientes usuario usuaria usuarios usuarias equipo equipos señor señora
+    señores señoras amigo amiga amigos amigas colega colegas compañero compañera
+    compañeros compañeras todos todas
+    doctor doctora doctores asegurado asegurada profesor profesora profesores
+    """.split()
+)
+
+
+def _quitar_html_y_ocultos(texto, conteo):
+    """Entidades HTML, NFKC, caracteres invisibles, comentarios y etiquetas HTML.
+
+    Es el primer paso de limpiar_texto_contando() y de palabras_minuscula().
+    """
+    texto = html.unescape(texto)
+    # NFKC convierte letras "decoradas" en normales: "𝐇𝐞𝐦𝐨𝐬" -> "Hemos". El phishing las
+    # usa para esquivar filtros; sin esto, "𝐞𝐧" y "en" serían palabras distintas.
+    texto = unicodedata.normalize("NFKC", texto)
+    texto, n = _INVISIBLES.subn("", texto)
+    conteo["invisibles"] += n
+    texto, n = _HTML_COMENTARIO.subn(" ", texto)
+    conteo["html"] += n
+    texto, n = _HTML_ETIQUETA.subn(" ", texto)
+    conteo["html"] += n
+    return texto
+
+
+def palabras_minuscula(textos, minimo=3):
+    """Palabras que aparecen escritas en minúscula al menos `minimo` veces en los textos.
+
+    Sirve para que la regla de saludos no tome como nombre una palabra normal que va con
+    mayúscula por empezar la frase ("Querido Luis Tienes (1) mensaje": "tienes" sale muchas
+    veces en minúscula; "Luis" casi nunca). Antes de contar se quitan URLs y correos, porque
+    los nombres aparecen en minúscula dentro de ellos ("ricardo.lopez@...").
+    Solo recibe textos: no usa las etiquetas phishing / legítimo.
+    """
+    conteo = Counter()
+    for texto in textos:
+        if not isinstance(texto, str):
+            continue
+        texto = _quitar_html_y_ocultos(texto, Counter())
+        texto = _EMAIL.sub(" ", _URL_LIMPIEZA.sub(" ", texto))
+        conteo.update(_MINUSCULA.findall(texto))
+    return frozenset(palabra for palabra, veces in conteo.items() if veces >= minimo)
+
+
+def _es_corte(palabra, palabras_comunes):
+    """True si la palabra con mayúscula NO parece nombre: la regla de saludos se detiene ahí."""
+    minuscula = palabra.lower()
+    return (
+        minuscula in SALUDOS_GENERICOS
+        or minuscula in STOPWORDS_ES
+        or minuscula in STOPWORDS_EN
+        or minuscula in palabras_comunes
+    )
+
+
+def _reemplazar_saludo(coincidencia, palabras_comunes=frozenset()):
+    """Cambia por "nombretoken" las palabras iniciales que parecen nombre.
+
+    Se detiene en la primera palabra genérica, vacía o común en minúscula:
+    "Hola Juan Para" -> "Hola nombretoken Para". Si la primera ya es de corte
+    ("Estimado Cliente"), no cambia nada.
+    """
+    nombres = coincidencia.group("nombres")
+    palabras = nombres.split()
+    n = 0
+    for palabra in palabras:
+        if _es_corte(palabra, palabras_comunes):
+            break
+        n += 1
+    if n == 0:
+        return coincidencia.group(0)
+    resto = " ".join(palabras[n:])
+    inicio = coincidencia.group(0)[: coincidencia.start("nombres") - coincidencia.start()]
+    return inicio + "nombretoken" + (" " + resto if resto else "")
+
+
+def _contar_saludo(coincidencia, conteo, palabras_comunes):
+    """_reemplazar_saludo() que además suma 1 a conteo["nombretoken: saludo"] si cambió algo."""
+    nuevo = _reemplazar_saludo(coincidencia, palabras_comunes)
+    if nuevo != coincidencia.group(0):
+        conteo["nombretoken: saludo"] += 1
+    return nuevo
 
 
 def _patron_palabra_completa(frase):
@@ -137,34 +263,33 @@ _REEMPLAZOS_ANONIMIZADOS = [
 ]
 
 
-def limpiar_texto_contando(texto):
+def limpiar_texto_contando(texto, palabras_comunes=frozenset()):
     """Igual que limpiar_texto(), pero también devuelve cuántos reemplazos hizo.
 
     Devuelve (texto_limpio, conteo). Las claves del conteo son "html", "urltoken",
-    "emailtoken", "borrado: dirección", "<token>: <término>" (por ejemplo
-    "nombretoken: pablito") y "borrado: <término>" (por ejemplo "borrado: myown").
+    "emailtoken", "borrado: dirección", "nombretoken: saludo", "<token>: <término>"
+    (por ejemplo "nombretoken: pablito") y "borrado: <término>" (por ejemplo "borrado: myown").
+    palabras_comunes: salida de palabras_minuscula(); ver limpiar_texto().
     """
     conteo = Counter()
     if not isinstance(texto, str):
         return "", conteo
 
-    # 1. HTML: entidades (&aacute; -> á), comentarios y etiquetas reales.
-    texto = html.unescape(texto)
-    # NFKC convierte letras "decoradas" en normales: "𝐇𝐞𝐦𝐨𝐬" -> "Hemos". El phishing las
-    # usa para esquivar filtros; sin esto, "𝐞𝐧" y "en" serían palabras distintas.
-    texto = unicodedata.normalize("NFKC", texto)
-    texto = _INVISIBLES.sub("", texto)
-    texto, n = _HTML_COMENTARIO.subn(" ", texto)
-    conteo["html"] += n
-    texto, n = _HTML_ETIQUETA.subn(" ", texto)
-    conteo["html"] += n
+    # 1. HTML: entidades (&aacute; -> á), NFKC, invisibles, comentarios y etiquetas reales.
+    texto = _quitar_html_y_ocultos(texto, conteo)
+
+    # 1b. Nombre después de un saludo o título (necesita las mayúsculas, va antes del paso 2).
+    texto = _SALUDO.sub(lambda m: _contar_saludo(m, conteo, palabras_comunes), texto)
 
     # 2. Minúsculas.
     texto = texto.lower()
 
     # 3. URLs y luego correos (así un correo dentro de una URL no se cuenta dos veces).
-    texto, n = _URL_LIMPIEZA.subn(" urltoken ", texto)
-    conteo["urltoken"] += n
+    # Las URL se BORRAN: en SpaPhish casi nunca están en el texto del phishing (van en la
+    # columna urls), así que "urltoken" era un atajo hacia legítimo. La cantidad de enlaces
+    # sigue llegando al modelo en la columna numérica n_urls.
+    texto, n = _URL_LIMPIEZA.subn(" ", texto)
+    conteo["borrado: url"] += n
     texto, n = _EMAIL.subn(" emailtoken ", texto)
     conteo["emailtoken"] += n
 
@@ -178,18 +303,27 @@ def limpiar_texto_contando(texto):
         if n:
             conteo[f"{token or 'borrado'}: {termino}"] += n
 
-    # 6. Espacios: tabs, saltos de línea y espacios repetidos -> un espacio.
+    # 6. Números sueltos -> "numtoken" (después de las direcciones, que necesitan los dígitos).
+    # Evita que el modelo memorice fechas o cantidades de un solo correo ("10 marzo").
+    texto, n = _NUMERO.subn("numtoken", texto)
+    conteo["numtoken"] += n
+
+    # 7. Espacios: tabs, saltos de línea y espacios repetidos -> un espacio.
     texto = _ESPACIOS.sub(" ", texto).strip()
     return texto, +conteo  # +conteo quita las claves en cero
 
 
-def limpiar_texto(texto):
+def limpiar_texto(texto, palabras_comunes=frozenset()):
     """Deja el texto listo para el modelo.
 
-    Quita HTML, pasa a minúsculas, cambia URLs por "urltoken", correos por
-    "emailtoken" y nombres anonimizados por "nombretoken". Borra las direcciones
-    ficticias (conservando "escriba a:"), los lugares y las organizaciones
-    anonimizadas. Termina normalizando espacios.
-    Un valor no textual (None, NaN) da "".
+    Quita HTML, cambia por "nombretoken" el nombre que sigue a un saludo, pasa a
+    minúsculas, cambia URLs por "urltoken", correos por "emailtoken" y nombres
+    anonimizados por "nombretoken". Borra las direcciones ficticias (conservando
+    "escriba a:"), los lugares y las organizaciones anonimizadas. Termina normalizando
+    espacios. Un valor no textual (None, NaN) da "".
+
+    palabras_comunes: palabras que aparecen muchas veces en minúscula en el corpus
+    (palabras_minuscula()). La regla de saludos no las toma como nombre. Sin ellas, la
+    regla solo se detiene en palabras genéricas y stopwords.
     """
-    return limpiar_texto_contando(texto)[0]
+    return limpiar_texto_contando(texto, palabras_comunes)[0]

@@ -2,8 +2,8 @@
 
 Generado por `ml/src/evaluate.py` con `svm_lineal` (`ml/models/clasificador.joblib`).
 
-- **Falsos negativos** (phishing clasificado como legítimo): 4
-- **Falsos positivos** (legítimo clasificado como phishing): 6
+- **Falsos negativos** (phishing clasificado como legítimo): 9
+- **Falsos positivos** (legítimo clasificado como phishing): 4
 
 El texto es el que ve el modelo: ya limpio (urltoken, emailtoken, nombretoken, sin HTML).
 **Puntaje**: salida de `decision_function`. Mayor que 0 empuja hacia phishing; cerca de 0
@@ -13,52 +13,43 @@ significa que el modelo dudó. Cada tabla va del error más seguro al más dudos
 
 | # | Asunto (limpio) | Primeros 200 caracteres del texto limpio | Puntaje |
 |---|---|---|---|
-| 1 | recibo de su compra reciente | recibo de su compra reciente se adjuntan los recibos de su compra reciente. ¡gracias por su compra! se adjuntan los recibos de su compra reciente. ¡gracias por su compra! | -0,284 |
-| 2 | 👾mdr en acción: protege tu empresa con seguridad 24/7 | 👾mdr en acción: protege tu empresa con seguridad 24/7 texto descriptivo la seguridad no se trata solo de prevenir ataques, sino de detectarlos y responder en el menor tiempo posible. en este evento ex | -0,151 |
-| 3 | s⁪u ⁪c­u⁪ent­a d⁪e ⁪a⁭m⁪a⁭z­o⁫n឴ ⁪ha ­si⁪do b⁭l⁪o⁬q­u⁬eada­. ⁫i⁪d⁪ ⁫:⁭ 9qpnp-f9utof | s⁪u ⁪c­u⁪ent­a d⁪e ⁪a⁭m⁪a⁭z­o⁫n឴ ⁪ha ­si⁪do b⁭l⁪o⁬q­u⁬eada­. ⁫i⁪d⁪ ⁫:⁭ 9qpnp-f9utof ó ó ͏͏͏͏y0pmgr cl͏͏͏͏y0pmgrie͏͏͏͏y0pmgrnte, ͏͏͏͏y0pmgr ͏͏͏͏y0pmgr ͏͏͏͏y0pmgrá͏͏͏͏y0pmgr͏͏͏͏y0pmgr ͏͏͏͏y0pmgr ͏͏͏͏y0p | -0,095 |
-| 4 | andros, informe de riesgo disponible en tu cuenta | andros, informe de riesgo disponible en tu cuenta informe de riesgo informe de riesgo en tu cuenta. tu cuenta sr/sra. mendoza nos hemos dado cuenta de que ha pasado mucho tiempo desde que usaste nuest | -0,080 |
+| 1 | rv: product-tef4017(rqf) | rv: product-tef4017(rqf) buenos dias, me gustaría invitar a su empresa a proporcionarnos los productos adjuntos. algunos de los productos que podemos solicitar pueden estar fuera de su alcance de trab | -0,715 |
+| 2 | fwd: muchos saludos | fwd: muchos saludos no suele recibir correos electrónicos de emailtoken . por qué esto es importante se le invita a conocer nuestro aviso de privacidad en el siguiente enlace. la información contenida | -0,419 |
+| 3 | 👾mdr en acción: protege tu empresa con seguridad numtoken | 👾mdr en acción: protege tu empresa con seguridad numtoken texto descriptivo la seguridad no se trata solo de prevenir ataques, sino de detectarlos y responder en el menor tiempo posible. en este event | -0,243 |
+| 4 | fw: buenas tardes emailtoken notificacion de infracciones numtoken. | fw: buenas tardes emailtoken notificacion de infracciones numtoken. ese día ni manejé ----- mensaje reenviado ----- de: numtoken - secretaria vial - numtoken < emailtoken >para: " emailtoken " < email | -0,233 |
+| 5 | error en la reunión programada | error en la reunión programada [logo de zoon.] hola, emailtoken : hemos encontrado un problema con su reunión. revise sus configuraciones a continuación: revisar la configuración revise su configuraci | -0,164 |
+| 6 | acción requerida | acción requerida i personally believe digital copywriter will secure your financial future as a writer ... but i don’t want you to take my word for it. >> go here for a numtoken-day test drive ( ). fo | -0,056 |
+| 7 | ¡gracias por usar nuestros servicios bancarios! | ¡gracias por usar nuestros servicios bancarios! su documento ha sido completado revisar documento banco bbva emailtoken todas las partes han completado el documento. gracias por usar nuestros servicio | -0,043 |
+| 8 | error en la reunión programada | error en la reunión programada hola, emailtoken : hemos encontrado un problema con su reunión. revise sus configuraciones a continuación: revisar la configuración revise su configuración para ingresar | -0,015 |
+| 9 | error en la reunión programada | error en la reunión programada hola, emailtoken : hemos encontrado un problema con su reunión. revise sus configuraciones a continuación: revisar la configuración revise su configuración para ingresar | -0,012 |
 
 ## Falsos positivos (legítimo marcado como phishing)
 
 | # | Asunto (limpio) | Primeros 200 caracteres del texto limpio | Puntaje |
 |---|---|---|---|
-| 1 | notificación del reparto del paquete shein | notificación del reparto del paquete shein mercado chic estimado cliente, su pedido mchqwe99990yykk con número de seguimiento 9024567789012, ha salido a reparto. por favor, asegúrese de tener el teléf | 1,158 |
-| 2 | notificación de entrega shein | notificación de entrega shein mercado chic estimado cliente, su pedido mchqwe99990yykk con número de seguimiento 9024567789012, ha sido entregado. en el caso de que no lo haya recibido, le sugerimos q | 0,935 |
-| 3 | nuevo mensaje en el buzón tributario de buml821201am3 | nuevo mensaje en el buzón tributario de buml821201am3 tienes un mensaje en tu buzón fiscal. ingresa a hacienda.gob.mx, inicia sesión en tu buzón fiscal, elige mis registros, y selecciona mis notificac | 0,519 |
-| 4 | 🥳 ¡feliz 6.o duoaniversario, ismaela1216! | 🥳 ¡feliz 6.o duoaniversario, ismaela1216! duolingo descubre cuánto has aprendido. ¡feliz 6.o duoaniversario, marianaribas87! tuviste un gran comienzo y aprendiste 54 palabras. ¡sigue progresando con u | 0,126 |
-| 5 | verifica fácilmente con una “permiso de un solo uso para samsung account” | verifica fácilmente con una “permiso de un solo uso para samsung account” verifica fácilmente con una “permiso de un solo uso para samsung account” verifica fácilmente con una “permiso de un solo uso | 0,098 |
-| 6 | misa unción de los enfermos | misa unción de los enfermos [image: whatsapp image 2022-11-30 at 2.39.52 pm (1).jpeg] | 0,041 |
+| 1 | documentos amparo | documentos amparo buen día, les pedimos por favor que revisen su bandeja de spam, ya que nos reportan que algunos correos se están marcando así, por el envío masivo que estamos realizando para la docu | 0,219 |
+| 2 | dale la bienvenida a tu premio: suscripción gratis a spotify premium - numtoken meses | dale la bienvenida a tu premio: suscripción gratis a spotify premium - numtoken meses disfrútalo ahora. gracias por completar la oferta “busca con orion en navegador atlas por numtoken días” ahora dis | 0,144 |
+| 3 | ¿buscas nuevas oportunidades laborales? | ¿buscas nuevas oportunidades laborales? no te pierdas ni una sola oferta de trabajo dinos qué ofertas de trabajo te interesan, te costará sólo un minuto ¿estás buscando trabajo? no pierdas tu oportuni | 0,125 |
+| 4 | protocolo de actuación con perspectiva de género | protocolo de actuación con perspectiva de género compartimos con la comunidad del en archivo anexo de pdf el *protocolo de actuación con perspectiva de género en sede administrativa en la investigació | 0,064 |
 
 ## Patrones comunes
 
-Los 10 errores se concentran en **temas que comparten las dos clases**: entregas de paquetes,
-cuentas y seguridad. El modelo decide por el vocabulario del tema más que por señales de
-fraude (remitente, enlaces que no coinciden), que no ve. 7 de los 10 tienen un puntaje entre
--0,3 y 0,3: el modelo dudó.
+Hay 13 errores: 9 falsos negativos y 4 falsos positivos. 11 de los 13 tienen un puntaje
+entre -0,3 y 0,3: el modelo dudó. Ya no aparecen errores por nombres, por "urltoken" ni por
+caracteres invisibles.
 
-- **Falsos positivos de entregas (#1 y #2, Shein).** Son los errores más seguros (1,16 y 0,94).
-  "paquete", "entrega" y "estimado cliente" son de los términos con más peso hacia phishing,
-  porque las campañas de paquete falso dominan esa clase (225 correos de phishing con
-  "paquete" en entrenamiento frente a 4 legítimos). Una notificación de entrega real se
-  parece demasiado a la falsa.
-- **Llamados a iniciar sesión (#3 FP, buzón tributario).** "Ingresa" e "inicia sesión" son la
-  llamada a la acción típica del phishing, aunque aquí venga de una entidad real.
-- **Falsos negativos por señales de formato de SpaPhish (#1 y #2 FN).**
-  - El "recibo de su compra" (#1 FN) trae un adjunto. En entrenamiento, el 38 % de los
-    legítimos tiene adjuntos y solo el 3 % de los phishing, así que `n_adjuntos` pesa -1,67
-    hacia legítimo.
-  - El correo de "MDR en acción" (#2 FN) tiene URLs escritas en el texto. "urltoken" aparece en
-    el 51 % de los legítimos y en el 11 % de los phishing (en el phishing de SpaPhish los
-    enlaces casi nunca están en el texto plano), y es el término con más peso hacia legítimo
-    (-1,94).
-  - Las dos son características del formato del dataset, no del fraude.
-- **Nombre fuera de la lista de anonimización (#4 FN).** "andros, informe de riesgo
-  disponible en tu cuenta" usa un tema de cuenta genérico y nombres ("andros", "mendoza") que
-  no están en `NOMBRES_ANONIMIZADOS`.
-- **Evasión con caracteres invisibles (#3 FN, Amazon).** El asunto "s⁪u ⁪c­u⁪ent­a ... bloqueada"
-  mete caracteres invisibles (U+00AD, U+034F, U+206A–U+206F, U+17B4) que la limpieza del paso
-  1.3 no quita. Las palabras quedan partidas y el modelo no reconoce "cuenta bloqueada".
-  Hay 24 correos de phishing y 3 legítimos con estos caracteres.
-- **Correos legítimos de marketing o muy cortos (#4–#6 FP).** Duolingo, la verificación de
-  Samsung ("account" pesa hacia phishing) y un aviso de misa con casi solo una imagen. Quedaron
-  justo encima de la frontera (puntaje < 0,13).
+- **Phishing dentro de un reenvío (#1, #2 y #4 FN).** Asuntos con "rv:", "fwd:" o "fw:" y
+  cabeceras de reenvío ("mensaje reenviado", "de:", "para:"). Esa forma es típica de los
+  correos legítimos entre personas, y el phishing que la imita pasa como legítimo.
+- **Suplantación de plataformas con poco texto (#5, #8 y #9 FN).** Son tres correos de la
+  misma campaña ("error en la reunión programada", logo de "Zoon"). Quedan justo debajo de la
+  frontera (puntajes entre -0,16 y -0,01): sin URL en el texto, solo queda un aviso corto y
+  neutro. También #7, un supuesto documento completado de un banco.
+- **Phishing con tono de evento o de marketing (#3 y #6 FN).** La invitación a un evento de
+  seguridad ("MDR en acción") y un texto en inglés de venta de cursos usan el vocabulario de
+  los boletines legítimos.
+- **Legítimos con vocabulario de oferta o de premio (#2 y #3 FP).** "Premio", "gratis",
+  "oferta" y "oportunidades" pesan hacia phishing, aunque aquí sean de servicios reales.
+- **Legítimos con avisos de envío masivo o adjuntos (#1 y #4 FP).** Un aviso que pide revisar
+  la carpeta de spam y un protocolo "en archivo anexo" quedaron apenas encima de la frontera
+  (puntaje < 0,22).

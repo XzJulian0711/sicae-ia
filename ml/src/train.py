@@ -38,8 +38,12 @@ if str(CARPETA_ML) not in sys.path:
     sys.path.insert(0, str(CARPETA_ML))
 
 from src.features import COLUMNAS_ENTRADA, construir_preprocesador  # noqa: E402
+from src.preprocess import RUTA_ENTRADA, calcular_palabras_comunes  # noqa: E402
 
 RUTA_DATOS = CARPETA_ML / "data" / "processed" / "correos_limpios.csv"
+# Versión del modelo guardado. v1.0 = modelo congelado del paso 1.5b (ver docs/metricas.md).
+VERSION_MODELO = "v1.0"
+CLAVES_MODELO = {"version", "pipeline", "palabras_minuscula"}
 RUTA_CV = CARPETA_ML / "reports" / "resultados_cv.json"
 RUTA_PRUEBA = CARPETA_ML / "reports" / "resultados_prueba.json"
 RUTA_MODELO = CARPETA_ML / "models" / "clasificador.joblib"
@@ -174,6 +178,36 @@ def evaluar(modelo, prueba):
     }
 
 
+def guardar_modelo(pipeline, palabras_comunes, ruta, version=VERSION_MODELO):
+    """Guarda en un solo archivo todo lo que el API necesita para clasificar un correo.
+
+    - "pipeline": características + clasificador entrenado.
+    - "palabras_minuscula": lista que usa limpiar_texto() para la regla de saludos.
+    - "version": para saber qué modelo está cargado.
+    """
+    ruta = Path(ruta)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(
+        {"version": version, "pipeline": pipeline, "palabras_minuscula": sorted(palabras_comunes)},
+        ruta,
+    )
+    return ruta
+
+
+def cargar_modelo(ruta):
+    """Lee el archivo de guardar_modelo(). Devuelve un dict con version, pipeline y
+    palabras_minuscula (como frozenset, listo para limpiar_texto()).
+
+    Falla con AssertionError si el archivo tiene otro formato (por ejemplo, el de antes
+    de v1.0, que guardaba solo el pipeline).
+    """
+    datos = joblib.load(ruta)
+    assert isinstance(datos, dict) and set(datos) == CLAVES_MODELO, (
+        f"{ruta} no tiene el formato esperado {sorted(CLAVES_MODELO)}: vuelva a correr train.py"
+    )
+    return {**datos, "palabras_minuscula": frozenset(datos["palabras_minuscula"])}
+
+
 def guardar_json(datos, ruta):
     ruta = Path(ruta)
     ruta.parent.mkdir(parents=True, exist_ok=True)
@@ -226,9 +260,12 @@ def main():
           f"{resultados_prueba['matriz_confusion']['filas_real_columnas_predicho']}")
     print(f"   Guardado en {RUTA_PRUEBA}")
 
-    RUTA_MODELO.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(modelo, RUTA_MODELO)
-    print(f"6) Modelo guardado en {RUTA_MODELO}")
+    # Misma lista que usó preprocess.py para limpiar (se calcula igual, desde correos.csv).
+    correos = pd.read_csv(RUTA_ENTRADA, sep=",", encoding="utf-8-sig")
+    palabras_comunes = calcular_palabras_comunes(correos)
+    guardar_modelo(modelo, palabras_comunes, RUTA_MODELO)
+    print(f"6) Modelo {VERSION_MODELO} guardado en {RUTA_MODELO} "
+          f"(pipeline + {len(palabras_comunes)} palabras en minúscula)")
 
 
 if __name__ == "__main__":

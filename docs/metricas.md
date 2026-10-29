@@ -329,3 +329,221 @@ señales de contenido esperables ("paquete", "entrega", "haga clic" hacia phishi
 del paso 1.3 (más nombres en la lista, quitar los caracteres invisibles, decidir qué hacer con
 `urltoken`) y volver a entrenar, y eso lo decide el equipo. Mientras tanto, el F1 macro de 0,964
 debe leerse como el rendimiento **dentro de SpaPhish**, no como el esperado en correos reales.
+
+## Correcciones (paso 1.5b)
+
+Corrige los atajos que encontró el paso 1.5 y vuelve a entrenar con el **mismo protocolo**:
+- la misma rejilla de hiperparámetros y la misma semilla;
+- la selección se hace solo por validación cruzada;
+- la prueba se evalúa una sola vez.
+
+Los resultados del paso 1.4 quedan en el historial de Git (`ml/reports/*.json` del commit
+83cd3e7).
+
+### Qué se cambió y por qué
+
+| Corrección | Dónde | Por qué | Cuánto se aplicó |
+|---|---|---|---|
+| 38 nombres más en `NOMBRES_ANONIMIZADOS` | `texto.py` | Nombres de relleno de la anonimización que quedaban en una sola clase ("rodolfo" 0/15, "ricardo nombretoken" 0/29) o muy desbalanceados ("ricardo lópez" 42/17, "genovevo" 5/17) | Los más frecuentes: "ricardo" 198 veces y "lópez" 114 |
+| Regla de saludos | `texto.py` | Cubre nombres que no están en ninguna lista (ver abajo) | 424 reemplazos en 289 correos |
+| Más caracteres invisibles (U+00AD, U+034F, U+17B4, U+2060–U+206F, selectores de variación, etc.) | `texto.py` | El phishing los mete dentro de las palabras para partirlas | 8.579 caracteres en 90 correos (56 phishing, 34 legítimos) |
+| Las URL se **borran** del texto en lugar de cambiarse por `urltoken` | `texto.py` | `urltoken` era el término con más peso hacia legítimo (-1,94): en SpaPhish los enlaces del phishing casi nunca están en el texto. La cantidad de enlaces sigue en la columna `n_urls` | 1.583 URL en 410 correos |
+| Números sueltos → `numtoken` | `texto.py` | El modelo memorizaba fechas y cantidades de pocos correos ("10 marzo", "sábado 18") | 7.853 números. Va después de borrar direcciones, que necesitan los dígitos. "numtoken" no cuenta para el grupo |
+
+### Nombres de relleno: lista y regla de saludos
+
+1. **Lista.** Se agregaron a `NOMBRES_ANONIMIZADOS` dos grupos de nombres:
+   - Los 35 nombres y apellidos que aparecen en 5 o más correos de una clase y en 1 o menos de
+     la otra, entre ellos "rodolfo", "javier pérez" y "ricardo nombretoken".
+   - "ricardo", "lópez" y "genovevo". Las plantillas los escriben en minúscula ("fallo en la
+     entrega para ricardo!"), así que la regla de saludos no los cubre.
+
+   Las 18 palabras que también son comunes o lugares (flores, luna, sol, rosa, cruz,
+   montes...) se dejan como limitación.
+2. **Regla de saludos** (`ml/src/texto.py`). Se aplica **antes** de pasar a minúsculas, porque
+   reconoce el nombre por la mayúscula inicial. Después de "estimado/a(s)", "hola",
+   "querido/a(s)", "Sr.", "Sra.", "Srta.", "Dr.", "Dra." o "Sr/Sra.", cambia por `nombretoken`
+   de 1 a 3 palabras seguidas, en la misma línea, que empiezan con mayúscula.
+   - **Los títulos solo cuentan con punto.** Sin punto, "Dr" suele ser *Drive* en una dirección
+     ("550 Technology Dr Ste 100").
+   - **La regla se detiene** en la primera palabra que:
+     - es genérica (`SALUDOS_GENERICOS`: cliente, usuario, equipo, señor, señora, amigo, doctor,
+       asegurado, profesor y sus plurales y femeninos), o
+     - es una palabra vacía en español o inglés, o
+     - es una **palabra común en minúscula**.
+   - "Querido Luis Romero Tienes (1) mensaje" queda como "querido nombretoken tienes (numtoken)
+     mensaje", y "Estimadas Familias" no cambia.
+
+**Cómo se calcula el umbral de palabras comunes** (`palabras_minuscula()` en `ml/src/texto.py`,
+llamada desde `ml/src/preprocess.py`):
+
+- Se usan asunto + cuerpo de **todos** los correos (1.385).
+- A cada texto se le quitan HTML, caracteres invisibles, URLs y direcciones de correo. Los
+  nombres aparecen en minúscula dentro de ellos ("ricardo.lopez@…"): sin quitarlos, casi ningún
+  nombre pasaría el filtro.
+- Se cuentan las palabras escritas **completamente en minúscula**, como palabra suelta. No
+  cuentan las pegadas a "@" ni las de la forma "nombre.apellido".
+- Una palabra es común si aparece **3 o más veces** así. Con SpaPhish son 4.560 palabras; la
+  lista se guarda en `ml/data/processed/palabras_minuscula.txt`, fuera de Git.
+- **No usa las etiquetas** phishing / legítimo: solo cuenta cómo se escribe cada palabra. Sí
+  incluye el texto de los correos de prueba, pero sin su etiqueta. Es el mismo tipo de dato que
+  ya se usa para formar los grupos.
+- Si la limpieza se usa sin esta lista (por ejemplo, en el API, mientras no la cargue), la regla
+  solo se detiene en las palabras genéricas y las vacías.
+
+**Revisión de la regla.** Se hicieron dos revisiones manuales, cada una con 20 ejemplos al azar
+y la lista completa de palabras reemplazadas.
+- En la primera versión, sin la regla del punto ni el umbral, unas 100 de 569 palabras
+  reemplazadas no eran nombres: "Tienes", "Ste", "Familias", "Padres"...
+- En la versión final hay 424 reemplazos en 289 correos (200 legítimos y 89 phishing). De 737
+  palabras reemplazadas, **10 no son nombres**: Notamos 3, Dr 2, Detectamos, Intentamos,
+  Lamentamos, Suite y "Profesore".
+
+### División entrenamiento / prueba
+
+Los grupos se **recalcularon** con la limpieza nueva, por decisión del equipo: ahora quedan juntas
+más campañas. Pasan de 1.001 a 1.000 y solo 48 correos cambian de grupo, pero ese cambio basta
+para que el reparto aleatorio por grupos sea distinto.
+
+| Conjunto | Correos | Phishing | Legítimo | Grupos |
+|---|---|---|---|---|
+| Entrenamiento | 1.108 | 580 | 528 | 802 |
+| Prueba | 277 | 145 | 132 | 198 |
+
+De los 277 correos de prueba nuevos, **solo 88 estaban en la prueba anterior**. Los otros 189
+nunca se habían usado para evaluar ni para analizar errores.
+
+### Antes y después
+
+Validación cruzada (5 pliegues por grupo, F1 macro, media ± desviación):
+
+| Modelo | Antes (paso 1.4) | Después (paso 1.5b) |
+|---|---|---|
+| Naive Bayes | α = 0,5: 0,905 ± 0,021 (recall phishing 0,833) | α = 0,1: 0,915 ± 0,016 (recall phishing 0,855) |
+| Regresión logística | C = 100: 0,950 ± 0,011 | C = 30: 0,940 ± 0,015 |
+| **SVM lineal** | **C = 30: 0,952 ± 0,010** (elegido) | **C = 10: 0,947 ± 0,017** (elegido) |
+
+En esta ejecución ningún C quedó en el borde de la rejilla.
+
+Prueba (solo el modelo elegido, evaluado una vez):
+
+| Métrica | Antes: SVM C = 30, 276 correos | Después: SVM C = 10, 277 correos |
+|---|---|---|
+| Accuracy | 0,964 | 0,953 |
+| Precisión phishing | 0,959 | 0,971 |
+| Recall phishing | 0,972 | 0,938 |
+| F1 phishing | 0,966 | 0,954 |
+| F1 macro | 0,964 | 0,953 |
+| Matriz [[leg→leg, leg→phish], [phish→leg, phish→phish]] | [[126, 6], [4, 140]] | [[128, 4], [9, 136]] |
+
+- El F1 macro baja un punto en validación cruzada (0,952 → 0,947) y un poco más en prueba
+  (0,964 → 0,953). Es lo esperado: parte del acierto anterior venía de atajos (nombres,
+  `urltoken`, números) que ya no están.
+- En prueba, el modelo nuevo deja pasar más phishing (9 frente a 4) y marca menos legítimos por
+  error (4 frente a 6). Son conjuntos de prueba distintos, así que la diferencia no se puede
+  atribuir solo al modelo (ver la nota de transparencia).
+- Naive Bayes mejora (0,905 → 0,915) y deja de perder tanto phishing (recall 0,833 → 0,855),
+  pero sigue lejos de los otros dos.
+
+### Palabras clave después de las correcciones
+
+En [`ml/reports/palabras_clave.md`](../ml/reports/palabras_clave.md):
+- **Ya no aparecen** `urltoken`, nombres de la tabla de relleno ni números sueltos entre los 10
+  términos de más peso de cada clase.
+- **Hacia phishing** pesan sobre todo palabras del tema del fraude: "paquete", "cuenta",
+  "entrega", "tarjeta", "plazo".
+- **Hacia legítimo:** "descarga", "contraseña", "plataforma", "liga" y "saludos".
+
+**Atajos que quedan:**
+- **Términos de solo 2 correos** con mucho peso: "aerolínea" (+1,20, 1 phishing / 1 legítimo) e
+  "interjet" (-1,23, 0 / 2). El SVM sigue memorizando detalles de muy pocos correos.
+- **"hola nombretoken"** pesa -1,10 hacia legítimo (12 phishing / 81 legítimos). Saludar por el
+  nombre es más común en los legítimos del dataset. Puede ser una señal real (el phishing masivo
+  no conoce el nombre), pero también refleja cómo se anonimizó SpaPhish.
+- **Columnas numéricas:** `n_adjuntos` (-1,81) y `long_cuerpo` (-1,35) siguen empujando fuerte
+  hacia legítimo. Son características del formato de SpaPhish; no se tocaron en este paso.
+
+**Hallazgo: "contraseña" empuja hacia legítimo** (-1,05; 13 correos de phishing y 31 legítimos
+en entrenamiento).
+- En SpaPhish, "contraseña" aparece más en avisos legítimos (cambios y restablecimientos de
+  acceso de plataformas e instituciones) que en el phishing, que habla más de "cuenta",
+  "verificar" o "datos".
+- El riesgo: un phishing que pida "su contraseña" recibe un empujón hacia legítimo, que es justo
+  lo contrario de lo que se esperaría.
+- No se corrige porque el modelo está congelado (ver abajo). Hay que medirlo con las cuentas de
+  prueba del equipo.
+
+### Nota de transparencia
+
+- **El motivo de las correcciones.** Salieron, en parte, de mirar los errores y las palabras clave
+  del modelo anterior **sobre su conjunto de prueba**. Por eso ese conjunto ya no era una
+  estimación independiente.
+- **El conjunto de prueba nuevo.** Al recalcular los grupos cambió casi por completo: 189 de sus
+  277 correos no se habían mirado nunca. Aun así, el resultado de prueba nuevo debe leerse con
+  cautela, porque las reglas de limpieza se ajustaron mirando ejemplos del corpus completo, sin
+  etiquetas en el caso del umbral de minúsculas.
+- **Lo que no cambió:** la rejilla, la semilla, la regla de selección y el número de
+  evaluaciones en prueba (una).
+- **La comparación de antes y después** usa conjuntos de prueba distintos, así que las cifras no
+  son directamente comparables. La comparación más justa es la de validación cruzada, que usa el
+  mismo procedimiento sobre casi los mismos correos de entrenamiento.
+
+### Modelo congelado (v1.0)
+
+El modelo de este paso **se congela como v1.0**. Ya no se vuelve a ajustar con SpaPhish.
+
+**Por qué.** El conjunto de prueba ya se usó para medir el modelo elegido, y sus errores y
+palabras clave se revisaron para decidir correcciones. Cada nuevo ajuste hecho después de mirar
+la prueba la convertiría, poco a poco, en datos de ajuste, y su resultado dejaría de estimar cómo
+se comporta el modelo con correos nuevos. Desde aquí:
+- la prueba no se usa para tomar decisiones;
+- lo que se mida después se hará con las cuentas de prueba del equipo.
+
+**El archivo.** `ml/models/clasificador.joblib` es un diccionario con todo lo que necesita el
+API:
+
+| Clave | Contenido |
+|---|---|
+| `version` | `"v1.0"` |
+| `pipeline` | Características (TF-IDF y columnas numéricas) + SVM lineal C = 10 |
+| `palabras_minuscula` | Las 4.560 palabras comunes en minúscula que usa la regla de saludos de `limpiar_texto()` |
+
+```python
+from src.texto import limpiar_texto
+from src.train import cargar_modelo
+modelo = cargar_modelo("ml/models/clasificador.joblib")  # dict; palabras como frozenset
+texto = limpiar_texto(f"{asunto} {cuerpo}", modelo["palabras_minuscula"])
+```
+
+`cargar_modelo()` falla con un mensaje claro si recibe el formato anterior, que guardaba solo el
+pipeline. `evaluate.py` comprueba que la lista guardada coincide con la que sale de
+`correos.csv`.
+
+**Cómo se generó y cómo se reproduce.**
+- El archivo se generó **sin reentrenar**: se volvió a guardar el mismo pipeline del
+  entrenamiento de este paso, y se verificó que los coeficientes son idénticos y que la matriz
+  de prueba sigue siendo [[128, 4], [9, 136]].
+- El `.joblib` sigue fuera de Git. Se reproduce con `preprocess.py` y luego `train.py`, con la
+  misma semilla. El commit queda marcado con la etiqueta `v1.0-modelo`.
+
+### Limitaciones de este paso
+
+- **Términos memorizados de solo 2 correos.** El modelo congelado los conserva:
+  - "aerolínea" pesa +1,20 hacia phishing y sale en 1 correo de phishing y 1 legítimo;
+  - "interjet" pesa -1,23 hacia legítimo y sale en 2 legítimos.
+
+  Con C = 10 el SVM regulariza poco y da mucho peso a detalles de pocos correos. Un correo real
+  de una aerolínea podría inclinarse hacia phishing solo por esa palabra.
+
+- **Palabras comunes que se dejaron.** Las 18 que también son comunes o lugares (flores, luna,
+  sol, fuentes, cruz, ramos, rojas, rosa, moreno, diana, montes, bella, lorenzo, vega, reyes,
+  león, serena, esmeralda) siguen en el texto.
+- **Verbos que la regla de saludos toma como nombre.** Notamos, Detectamos, Intentamos y
+  Lamentamos aparecen menos de 3 veces en minúscula en el corpus, así que la regla los toma como
+  nombre cuando van con mayúscula después de un saludo ("Hola, Detectamos que…"). Junto con "Dr",
+  "Suite" y "Profesore", son 10 de 737 palabras reemplazadas.
+- **Disparadores y firmas.** "Lic." e "Ing." no son disparadores, y las firmas no se tratan.
+- **Relleno visible.** El texto de relleno que se ve, como "y0pmgr" en un correo de Amazon, no se
+  quita con la regla de caracteres invisibles.
+- **Lista de palabras comunes en el API.** El API deberá cargar
+  `ml/data/processed/palabras_minuscula.txt` para limpiar igual que en el entrenamiento.
