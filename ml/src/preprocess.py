@@ -32,6 +32,7 @@ RUTA_ENTRADA = CARPETA_ML / "data" / "processed" / "correos.csv"
 RUTA_SALIDA = CARPETA_ML / "data" / "processed" / "correos_limpios.csv"
 
 COLUMNAS_SALIDA = ["texto", "n_urls", "n_adjuntos", "long_cuerpo", "etiqueta", "grupo"]
+GRUPO_SIN_LETRAS = "(sin letras)"
 
 # Prefijos de respuesta o reenvío: "RE: Factura" y "Factura" son la misma conversación.
 _PREFIJOS = re.compile(r"^(?:(?:re|rv|fw|fwd|reenviar|resp)\s+)+")
@@ -45,10 +46,13 @@ def normalizar_asunto(asunto):
     Limpia el texto (los nombres pasan a "nombretoken"), quita números, signos,
     emojis y prefijos como "RE:" o "RV:". Así "Pablito!! - Tienes un (1) paquete"
     y "Ezequiela!! - Tienes un (2) paquete" quedan en el mismo grupo.
+
+    Si no queda ninguna letra (asunto solo con emojis o números) devuelve
+    GRUPO_SIN_LETRAS: un texto vacío se leería como nulo al abrir el CSV.
     """
     texto = _NO_LETRAS.sub(" ", limpiar_texto(asunto))
     texto = " ".join(texto.split())
-    return _PREFIJOS.sub("", texto)
+    return _PREFIJOS.sub("", texto) or GRUPO_SIN_LETRAS
 
 
 def preprocesar(df):

@@ -1,0 +1,77 @@
+{
+  "naive_bayes": {
+    "mejores_hiperparametros": {
+      "modelo__alpha": 0.5
+    },
+    "accuracy": {
+      "media": 0.9053,
+      "desviacion": 0.0206
+    },
+    "precision_phishing": {
+      "media": 0.9842,
+      "desviacion": 0.0101
+    },
+    "recall_phishing": {
+      "media": 0.833,
+      "desviacion": 0.0454
+    },
+    "f1_phishing": {
+      "media": 0.9014,
+      "desviacion": 0.0249
+    },
+    "f1_macro": {
+      "media": 0.9051,
+      "desviacion": 0.0209
+    }
+  },
+  "regresion_logistica": {
+    "mejores_hiperparametros": {
+      "modelo__C": 100.0
+    },
+    "accuracy": {
+      "media": 0.9495,
+      "desviacion": 0.0113
+    },
+    "precision_phishing": {
+      "media": 0.9696,
+      "desviacion": 0.0071
+    },
+    "recall_phishing": {
+      "media": 0.9329,
+      "desviacion": 0.0206
+    },
+    "f1_phishing": {
+      "media": 0.9508,
+      "desviacion": 0.0116
+    },
+    "f1_macro": {
+      "media": 0.9495,
+      "desviacion": 0.0113
+    }
+  },
+  "svm_lineal": {
+    "mejores_hiperparametros": {
+      "modelo__C": 30.0
+    },
+    "accuracy": {
+      "media": 0.9522,
+      "desviacion": 0.0101
+    },
+    "precision_phishing": {
+      "media": 0.9749,
+      "desviacion": 0.0064
+    },
+    "recall_phishing": {
+      "media": 0.9329,
+      "desviacion": 0.02
+    },
+    "f1_phishing": {
+      "media": 0.9533,
+      "desviacion": 0.0104
+    },
+    "f1_macro": {
+      "media": 0.9522,
+      "desviacion": 0.0101
+    }
+  }
+}

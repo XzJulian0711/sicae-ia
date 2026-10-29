@@ -12,6 +12,8 @@
 # entrenamiento sea reproducible y el jurado pueda repetirlo.
 
 ipykernel==7.4.0
+joblib==1.6.0
 matplotlib==3.11.2
 pandas==3.1.0
 pytest==9.2.0
+scikit-learn==1.9.1
