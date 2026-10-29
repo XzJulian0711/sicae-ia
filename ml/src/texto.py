@@ -9,6 +9,7 @@
 
 import html
 import re
+import unicodedata
 from collections import Counter
 
 # Lista propia (sin nltk) para no depender de descargas. Todo en minúsculas.
@@ -149,6 +150,9 @@ def limpiar_texto_contando(texto):
 
     # 1. HTML: entidades (&aacute; -> á), comentarios y etiquetas reales.
     texto = html.unescape(texto)
+    # NFKC convierte letras "decoradas" en normales: "𝐇𝐞𝐦𝐨𝐬" -> "Hemos". El phishing las
+    # usa para esquivar filtros; sin esto, "𝐞𝐧" y "en" serían palabras distintas.
+    texto = unicodedata.normalize("NFKC", texto)
     texto = _INVISIBLES.sub("", texto)
     texto, n = _HTML_COMENTARIO.subn(" ", texto)
     conteo["html"] += n

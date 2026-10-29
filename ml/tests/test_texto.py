@@ -79,6 +79,10 @@ def test_limpiar_quita_html_y_entidades():
     assert limpiar_texto(texto) == "su cuenta está bloqueada hoy"
 
 
+def test_limpiar_convierte_letras_decoradas_unicode_en_normales():
+    assert limpiar_texto("𝐇𝐞𝐦𝐨𝐬 𝐢𝐧𝐭𝐞𝐧𝐭𝐚𝐝𝐨 𝑭𝑨𝑪𝑻𝑼𝑹𝑨𝑺") == "hemos intentado facturas"
+
+
 def test_limpiar_conserva_texto_de_botones_entre_angulos():
     # "<<Cancelar>>" no es HTML: es el texto de un botón y debe quedarse.
     assert limpiar_texto("Clic en <<Cancelar eliminación>>") == "clic en <<cancelar eliminación>>"

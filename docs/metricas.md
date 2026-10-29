@@ -95,6 +95,7 @@ Si quedaría en una sola, se borra, porque un token exclusivo de una clase sigue
 | Direcciones ficticias de los pies de página ("escriba a: 128 Willow Crest Rd Ste 402#5912, Northwood, VT, 05744", "Or write to: …", "correo electrónico à: …", "escribiendo a …") | se borra la dirección; se conserva "escriba a:" | 149 | Solo aparecen en phishing (120 correos). Antes dejaban "ste" en 105 correos de phishing y 0 legítimos; ahora en 0 |
 | Lugares: hidalgo (33), ciudad central (17) | se borran | 50 | Sin las direcciones, `lugartoken` quedaba en 35 legítimos y 0 de phishing. "northwood" solo estaba dentro de direcciones |
 | Organizaciones (`ORGS_ANONIMIZADAS`): myown (127), cietec (81), estelar (81), sni (29) | se borran | 318 | Solo en legítimos: myown en 52 correos, cietec en 24, sni en 22 y estelar en 21, ninguna en phishing. Un `orgtoken` quedaría en una sola clase |
+| Letras decoradas de Unicode ("𝐇𝐞𝐦𝐨𝐬", "𝑭𝑨𝑪𝑻𝑼𝑹𝑨𝑺") | se normalizan con NFKC ("hemos", "facturas") | 23 correos de phishing, 0 legítimos | Ver "Normalización Unicode (NFKC)" abajo |
 | Mayúsculas y espacios repetidos | minúsculas, un espacio | — | "URGENTE" y "urgente" son la misma palabra |
 
 ### Qué se dejó y por qué
@@ -107,13 +108,33 @@ Si quedaría en una sola, se borra, porque un token exclusivo de una clase sigue
 | Palabras vacías en español e inglés | `STOPWORDS_ES` y `STOPWORDS_EN` se aplican al vectorizar, no aquí, para que `texto` sea legible |
 | `n_urls`, `n_adjuntos` y `long_cuerpo` | Señales medidas en la exploración. `long_cuerpo` usa el cuerpo original para no cambiar al limpiar |
 
+### Normalización Unicode (NFKC)
+
+Algunos correos de phishing escriben el asunto o el cuerpo con letras "decoradas" de Unicode
+(negrita o cursiva matemática): "𝐇𝐞𝐦𝐨𝐬 𝐢𝐧𝐭𝐞𝐧𝐭𝐚𝐝𝐨 𝐩𝐨𝐧𝐞𝐫𝐧𝐨𝐬 𝐞𝐧 𝐜𝐨𝐧𝐭𝐚𝐜𝐭𝐨". A la vista se lee
+normal, pero para la computadora son otros caracteres: es un truco para esquivar filtros.
+Aparecen en 23 correos de phishing y en ninguno legítimo. Sin tratarlas causaban dos problemas:
+
+1. **Grupos vacíos.** `normalizar_asunto` solo conserva letras normales, así que 7 asuntos de
+   phishing quedaban sin ninguna letra; el CSV los guardaba como nulos y la división por grupos
+   del paso 1.4 fallaba.
+2. **Palabras duplicadas.** El TF-IDF trataría "𝐞𝐧" y "en" como palabras distintas.
+
+`limpiar_texto()` aplica `unicodedata.normalize("NFKC", …)` justo después de decodificar el HTML:
+"𝐇𝐞𝐦𝐨𝐬" pasa a "Hemos". NFKC también modifica 117 correos legítimos (espacios especiales,
+símbolos como "º"), cambios sin efecto en los conteos de reemplazos de la tabla anterior. Como
+respaldo, si un asunto no conserva ninguna letra (por ejemplo, solo emojis), su grupo es
+`"(sin letras)"` en vez de quedar vacío.
+
 ### Grupo para dividir los datos
 
 `grupo` es el asunto normalizado: limpio, sin números, signos ni emojis, y sin prefijos como
 "RE:" o "RV:". Así, "Pablito!! Tienes un (1) paquete" y "Miguelina!! Tienes un (2) paquete"
-quedan juntos. Resultado: **999 grupos** para 1.385 correos; 134 grupos tienen más de un correo
-y el mayor tiene 47 ("última alerta todas tus fotos serán borradas"). En el paso 1.4 la división
-entrenamiento/prueba se hará por grupo, para que una misma campaña no quede en ambos lados.
+quedan juntos. Resultado: **1.001 grupos** para 1.385 correos; 134 grupos tienen más de un correo
+y el mayor tiene 47 ("última alerta todas tus fotos serán borradas"). Con NFKC, las versiones
+decoradas de "hemos intentado ponernos en contacto con usted, ¡responda!" quedan en el mismo
+grupo que las escritas normal (9 correos). La división entrenamiento/prueba del paso 1.4 se hace
+por grupo, para que una misma campaña no quede en ambos lados.
 Tres grupos mezclan etiquetas ("factura", "validar datos", "tenemos un voucher para ti"): son
 asuntos genéricos, no campañas.
 
@@ -148,3 +169,87 @@ asuntos genéricos, no campañas.
   una clase (20 o más correos en una y 2 o menos en la otra). Puede haber otros por debajo de ese
   umbral, como "982 Willow Park Ave" (1 correo de phishing), una dirección que no va después de
   dos puntos.
+
+## Entrenamiento (paso 1.4)
+
+[`ml/src/train.py`](../ml/src/train.py) entrena con `correos_limpios.csv`. Resultados completos en
+[`ml/reports/resultados_cv.json`](../ml/reports/resultados_cv.json) y
+[`ml/reports/resultados_prueba.json`](../ml/reports/resultados_prueba.json). El modelo se guarda
+en `ml/models/clasificador.joblib` (fuera de Git; se regenera ejecutando `train.py`).
+
+### Características
+
+[`ml/src/features.py`](../ml/src/features.py) construye un `ColumnTransformer`:
+
+| Entrada | Transformación | Por qué |
+|---|---|---|
+| `texto` | TF-IDF de palabras y pares de palabras (`ngram_range=(1, 2)`), `min_df=2`, `sublinear_tf=True`, sin `STOPWORDS_ES` ni `STOPWORDS_EN` | Los pares capturan frases típicas ("paquete detenido"); `min_df=2` ignora palabras de un solo correo; `sublinear_tf` evita que una palabra repetida pese de más |
+| `n_urls`, `n_adjuntos`, `long_cuerpo` | `log1p` y `MinMaxScaler(clip=True)` a [0, 1] | `long_cuerpo` va de 30 a 28.630 caracteres: sin logaritmo, unos pocos correos larguísimos aplastarían a los demás. `clip` evita valores negativos, que Naive Bayes no acepta |
+
+### División entrenamiento / prueba
+
+Prueba = primer pliegue de `StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)` por
+`grupo`. Un `assert` comprueba que ningún grupo está en los dos conjuntos.
+
+| Conjunto | Correos | Phishing | Legítimo | Grupos |
+|---|---|---|---|---|
+| Entrenamiento | 1.109 (80 %) | 581 | 528 | 803 |
+| Prueba | 276 (20 %) | 144 | 132 | 198 |
+
+### Validación cruzada (solo entrenamiento)
+
+`GridSearchCV` con `StratifiedGroupKFold` de 5 pliegues por grupo; los hiperparámetros se eligen
+por F1 macro. Media ± desviación estándar entre pliegues; precisión, recall y F1 de la clase
+phishing.
+
+| Modelo | Hiperparámetro elegido | Accuracy | Precisión phishing | Recall phishing | F1 phishing | F1 macro |
+|---|---|---|---|---|---|---|
+| Naive Bayes (`MultinomialNB`) | alpha = 0,5 (de 0,1 / 0,5 / 1) | 0,905 ± 0,021 | 0,984 ± 0,010 | 0,833 ± 0,045 | 0,901 ± 0,025 | 0,905 ± 0,021 |
+| Regresión logística (`class_weight="balanced"`) | C = 100 (de 0,1 / 1 / 10 / 30 / 100) | 0,950 ± 0,011 | 0,970 ± 0,007 | 0,933 ± 0,021 | 0,951 ± 0,012 | 0,950 ± 0,011 |
+| **SVM lineal** (`LinearSVC`, `class_weight="balanced"`) | **C = 30** (de 0,1 / 1 / 10 / 30 / 100) | **0,952 ± 0,010** | 0,975 ± 0,006 | 0,933 ± 0,020 | **0,953 ± 0,010** | **0,952 ± 0,010** |
+
+**Regla de selección:** mayor F1 macro medio en validación cruzada; si empatan, mayor recall de
+phishing. Gana el **SVM lineal con C = 30**. Naive Bayes es el más preciso cuando marca phishing
+(0,984), pero deja pasar casi 1 de cada 6 (recall 0,833).
+
+### Resultado en prueba (solo el modelo elegido)
+
+| Métrica | SVM lineal, C = 30 |
+|---|---|
+| Accuracy | 0,964 |
+| Precisión phishing | 0,959 |
+| Recall phishing | 0,972 |
+| F1 phishing | 0,966 |
+| F1 macro | 0,964 |
+
+Matriz de confusión (276 correos):
+
+| Real (filas) / Predicho (columnas) | Legítimo | Phishing |
+|---|---|---|
+| **Legítimo** (132) | 126 | 6 |
+| **Phishing** (144) | 4 | 140 |
+
+- 4 correos de phishing pasaron como legítimos (falsos negativos).
+- 6 correos legítimos se marcaron como phishing (falsos positivos).
+
+El resultado en prueba (F1 macro 0,964) es algo mayor que el de validación cruzada (0,952), pero
+está dentro de la variación esperable para un solo corte de 276 correos.
+
+### Nota: ampliación de la rejilla de C
+
+En una primera ejecución la rejilla de C era [0,1 / 1 / 10]. Tanto la regresión logística como
+el SVM eligieron C = 10, el valor del borde: el óptimo podía estar más arriba. Se amplió a
+[0,1 / 1 / 10 / 30 / 100] y se volvió a entrenar. La selección siguió haciéndose **solo con
+validación cruzada**.
+
+| | Primera ejecución (C hasta 10) | Rejilla ampliada (C hasta 100) |
+|---|---|---|
+| Regresión logística | C = 10; F1 macro CV 0,945 ± 0,014 | C = 100; F1 macro CV 0,950 ± 0,011 |
+| SVM lineal | C = 10; F1 macro CV 0,950 ± 0,009 | C = 30; F1 macro CV 0,952 ± 0,010 |
+| Modelo elegido | SVM lineal | SVM lineal (sin cambio) |
+| Resultado en prueba | F1 macro 0,964; matriz [[126, 6], [4, 140]] | Idéntico: F1 macro 0,964; matriz [[126, 6], [4, 140]] |
+
+Transparencia: el conjunto de prueba ya se había evaluado una vez con la rejilla anterior. La
+nueva selección no usó la prueba, pero esa prueba ya no es un dato totalmente "virgen"; por eso
+se registran los dos resultados. En la regresión logística C = 100 vuelve a quedar en el borde.
+No se amplió otra vez porque no cambia el modelo elegido (sigue por debajo del SVM).
