@@ -1,0 +1,23 @@
+{
+  "remitentes_importantes": [],
+  "dominios_importantes": [],
+  "palabras_urgencia": [
+    "vence",
+    "fecha limite",
+    "plazo",
+    "urgente",
+    "hoy",
+    "manana",
+    "recordatorio"
+  ],
+  "puntos": {
+    "remitente_importante": 2,
+    "urgencia": 1,
+    "destinatario_unico": 1,
+    "respuesta": 1
+  },
+  "umbrales": {
+    "alta": 3,
+    "media": 1
+  }
+}

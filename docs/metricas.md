@@ -550,6 +550,92 @@ pipeline. `evaluate.py` comprueba que la lista guardada coincide con la que sale
   `ml/models/clasificador.joblib`: se carga con `cargar_modelo()` y se pasa a `limpiar_texto()`.
   El archivo `ml/data/processed/palabras_minuscula.txt` queda solo para revisar la lista.
 
+## Prioridad (paso 1.6)
+
+La prioridad (**alta**, **media** o **baja**) la asigna una regla en
+[`ml/src/priority.py`](../ml/src/priority.py): `asignar_prioridad(cabeceras, asunto, cuerpo,
+config, es_publicidad)` devuelve `prioridad`, `puntaje` y `motivos`. Los motivos son códigos, nunca
+texto del correo. Los puntos, las palabras y los umbrales están en
+[`ml/config/prioridad.json`](../ml/config/prioridad.json), no en el código. El README tiene un
+ejemplo comentado.
+
+### Reglas
+
+| Código | Se cumple si… | Puntos por defecto |
+|---|---|---|
+| `remitente_importante` | La dirección del remitente está en `remitentes_importantes`, o su dominio (o un subdominio) está en `dominios_importantes` | +2 |
+| `urgencia` | El asunto o el cuerpo tiene una palabra de plazo o urgencia (vence, fecha límite, plazo, urgente, hoy, mañana, recordatorio) como palabra completa, sin importar tildes ni mayúsculas. Cuenta una vez aunque haya varias | +1 |
+| `destinatario_unico` | Hay un solo destinatario en `To`, sin `Cc` ni `List-Id`: el correo es para el usuario, no para un grupo | +1 |
+| `respuesta` | Tiene la cabecera `In-Reply-To`: contesta a un correo anterior, es una conversación activa | +1 |
+
+- **Umbrales por defecto:** un puntaje de **3 o más** es alta, **de 1 a 2** es media y **0** es
+  baja.
+- Si la regla de publicidad marcó el correo (`es_publicidad=True`), la prioridad es **baja
+  siempre**. Se agrega el motivo `publicidad` y el puntaje se sigue calculando, para que se vea
+  qué se ignoró.
+- **Configuración en Git.** En Git, las listas de remitentes y dominios van **vacías**. Así, sin
+  configurar, ningún correo suma por remitente importante.
+- **Configuración local.** Cada usuario pone sus remitentes en `ml/config/prioridad.local.json`.
+  Ese archivo está en `.gitignore` y, si existe, se usa **en lugar** de `prioridad.json`: no se
+  mezclan. El JSON de la evaluación solo dice qué tipo de configuración se usó ("local" o
+  "repositorio"), nunca su contenido.
+
+### Por qué reglas y no un modelo
+
+- **No hay datos etiquetados de prioridad.** SpaPhish solo dice phishing o legítimo.
+- **La prioridad es personal.** El mismo correo de la universidad puede ser urgente para un
+  estudiante y poco importante para otro. Un modelo entrenado con las etiquetas de unos pocos
+  aprendería *su* criterio, no el del usuario. Con reglas configurables, cada usuario dice qué
+  remitentes le importan.
+- **Se explica cada decisión.** El panel puede mostrar los motivos ("remitente importante",
+  "tiene fecha límite").
+
+### Solo para correos legítimos
+
+El orden en el sistema es este:
+1. El modelo decide entre phishing y legítimo.
+2. **Phishing** → alerta (naranja en la interfaz). No se le asigna prioridad por estas reglas: un
+   phishing usa a propósito palabras como "urgente" o "vence hoy", y subirle la prioridad lo haría
+   más visible como si fuera importante.
+3. **Legítimo** → regla de publicidad. Si es publicidad ("masivo / boletín"), la prioridad es
+   baja.
+4. El resto de los legítimos reciben la prioridad de estas reglas.
+
+### Cómo se evaluará
+
+- **Etiquetado.** Dos integrantes del equipo etiquetan los **mismos** correos legítimos de las
+  cuentas de prueba como alta, media o baja, **sin ver las etiquetas del otro**. Las etiquetas
+  van en `ml/data/eml/etiquetas_prioridad.csv` (columnas `archivo`, `evaluador_1`, `evaluador_2`)
+  y los correos en `ml/data/eml/normal/`. Todo está fuera de Git.
+- **Acuerdo entre evaluadores.** `ml/src/evaluar_prioridad.py` calcula la **kappa de Cohen**: el
+  acuerdo entre los dos, descontando el que se daría por azar (1 = acuerdo total, 0 = como el
+  azar). Una kappa baja indicaría que la prioridad es tan personal que ni dos personas del equipo
+  coinciden.
+- **Comparación con la regla.** Solo se usan los correos donde los dos coinciden (consenso). Se
+  calcula la exactitud y la matriz de confusión 3×3 (alta, media, baja). Se mide la regla sola,
+  sin aplicar la de publicidad, y aparte se cuenta cuántos correos marcaría como publicidad.
+- **Privacidad.** `ml/reports/resultados_prioridad.json` guarda solo conteos: nunca nombres de
+  archivo, asuntos, direcciones ni texto. Si faltan los archivos, el script lo avisa y termina sin
+  error.
+
+**Resultados:** pendientes, hasta tener los correos y las etiquetas:
+
+```
+.venv\Scripts\python ml/src/evaluar_prioridad.py
+```
+
+### Limitaciones
+
+- **Palabras de urgencia.** Están solo en español y pueden aparecer de forma casual ("hoy es un
+  buen día").
+- **Copias ocultas.** `destinatario_unico` no detecta los envíos masivos con copia oculta (Bcc),
+  que llegan con un solo destinatario visible.
+- **Remitentes importantes.** Sin que el usuario llene sus listas, la regla de remitente
+  importante nunca se activa, y lo máximo que puede sumar un correo es 3 (urgencia, destinatario
+  único y respuesta).
+- **Pesos y umbrales.** Salen del criterio del equipo, no de datos. Se ajustarán, si hace falta,
+  con los resultados de la evaluación.
+
 ## Regla de publicidad (paso 1.8)
 
 La categoría **publicidad** no la decide el modelo, sino una regla en

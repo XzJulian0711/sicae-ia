@@ -43,6 +43,11 @@ ml/data/processed/*
 # para que tampoco se suba ningun otro archivo exportado junto a los .eml.
 ml/data/eml/
 
+# ---------- Configuracion personal ----------
+# Copia local de ml/config/prioridad.json con remitentes y dominios reales de cada
+# usuario. Si existe, se usa en lugar del de Git. Nunca se sube.
+ml/config/prioridad.local.json
+
 # ---------- Modelos entrenados (se regeneran entrenando) ----------
 ml/models/*.joblib
 

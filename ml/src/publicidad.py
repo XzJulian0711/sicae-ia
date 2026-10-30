@@ -95,7 +95,7 @@ CABECERAS_PLATAFORMA = [
 ]
 
 
-def _sin_tildes(texto):
+def sin_tildes(texto):
     """'Suscripción' -> 'suscripcion' (minúsculas, sin acentos)."""
     descompuesto = unicodedata.normalize("NFKD", texto.lower())
     return "".join(c for c in descompuesto if not unicodedata.combining(c))
@@ -129,7 +129,7 @@ def _senales_fuertes(cab):
 
 
 def _tiene_frase_baja(asunto, cuerpo):
-    texto = _sin_tildes(f"{asunto} {cuerpo}")
+    texto = sin_tildes(f"{asunto} {cuerpo}")
     texto = re.sub(r"\s+", " ", texto)
     return any(frase in texto for frase in FRASES_BAJA)
 

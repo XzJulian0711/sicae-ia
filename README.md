@@ -50,7 +50,10 @@ sicae-ia/
 ├── ml/                       Modelo de machine learning
 │   ├── src/                  Código del modelo
 │   │   ├── load_data.py      Carga y depuración de SpaPhish
-│   │   └── publicidad.py     Regla de publicidad (List-Unsubscribe, envío masivo)
+│   │   ├── publicidad.py     Regla de publicidad (List-Unsubscribe, envío masivo)
+│   │   └── priority.py       Regla de prioridad (alta, media, baja)
+│   ├── config/
+│   │   └── prioridad.json    Reglas de prioridad: remitentes, palabras, umbrales
 │   ├── tests/                Pruebas del modelo
 │   ├── data/
 │   │   ├── raw/              Datasets originales          ← fuera de Git
@@ -108,6 +111,50 @@ Los datos no están en Git, así que cada integrante los descarga una vez:
    El script verifica los conteos, quita las filas inválidas y guarda
    `ml/data/processed/correos.csv`. Las cifras de cada paso están en
    [docs/metricas.md](docs/metricas.md).
+
+## Configurar la prioridad
+
+La prioridad (alta, media o baja) de los correos legítimos sale de las reglas de
+`ml/config/prioridad.json`. En Git ese archivo va con las listas de remitentes y dominios
+**vacías**, y así debe quedarse.
+
+Para usar tus remitentes reales, crea una **copia local** que Git ignora:
+
+```bash
+cp ml/config/prioridad.json ml/config/prioridad.local.json
+```
+
+En Windows con PowerShell, el comando es `Copy-Item ml/config/prioridad.json ml/config/prioridad.local.json`.
+
+Después llena las listas en `prioridad.local.json`:
+- **Si existe, se usa en lugar de `prioridad.json`.** Lo reemplaza completo; no se mezclan, así
+  que debe tener todas las claves.
+- **Está en `.gitignore`**, así que tus direcciones nunca se suben. Puedes comprobarlo con
+  `git check-ignore -v ml/config/prioridad.local.json`.
+- **Para volver a la configuración del repositorio,** borra o renombra el archivo local.
+
+> **No pongas direcciones reales en `prioridad.json`**, solo en el archivo local.
+
+Ejemplo comentado. El JSON real **no admite comentarios**: quítalos al copiarlo.
+
+```jsonc
+{
+  // +2 si el correo viene de una de estas direcciones exactas
+  "remitentes_importantes": ["coordinacion@universidad.edu.co", "jefa@example.com"],
+  // +2 si viene de este dominio o de un subdominio (mail.universidad.edu.co también cuenta)
+  "dominios_importantes": ["universidad.edu.co"],
+  // +1 si aparece alguna como palabra completa, sin importar tildes ni mayúsculas
+  "palabras_urgencia": ["vence", "fecha limite", "plazo", "urgente", "hoy", "manana", "recordatorio"],
+  // Puntos de cada regla. destinatario_unico: un solo destinatario en To, sin Cc ni List-Id.
+  // respuesta: el correo tiene In-Reply-To (contesta a otro correo)
+  "puntos": {"remitente_importante": 2, "urgencia": 1, "destinatario_unico": 1, "respuesta": 1},
+  // puntaje >= 3 -> alta; >= 1 -> media; 0 -> baja
+  "umbrales": {"alta": 3, "media": 1}
+}
+```
+
+Las reglas y por qué son reglas y no un modelo están en
+[docs/metricas.md](docs/metricas.md), sección "Prioridad (paso 1.6)".
 
 ## Cómo contribuir
 
