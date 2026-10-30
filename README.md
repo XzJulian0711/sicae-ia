@@ -51,7 +51,10 @@ sicae-ia/
 │   ├── src/                  Código del modelo
 │   │   ├── load_data.py      Carga y depuración de SpaPhish
 │   │   ├── publicidad.py     Regla de publicidad (List-Unsubscribe, envío masivo)
-│   │   └── priority.py       Regla de prioridad (alta, media, baja)
+│   │   ├── priority.py       Regla de prioridad (alta, media, baja)
+│   │   ├── explicar.py       Motivos de la decisión del modelo para cada correo
+│   │   ├── calibrar.py       Umbral de confianza "dudosa" y promedios para los motivos
+│   │   └── sistema.py        analizar_correo(): modelo + publicidad + prioridad
 │   ├── config/
 │   │   └── prioridad.json    Reglas de prioridad: remitentes, palabras, umbrales
 │   ├── tests/                Pruebas del modelo
@@ -155,6 +158,60 @@ Ejemplo comentado. El JSON real **no admite comentarios**: quítalos al copiarlo
 
 Las reglas y por qué son reglas y no un modelo están en
 [docs/metricas.md](docs/metricas.md), sección "Prioridad (paso 1.6)".
+
+## Analizar un correo
+
+`ml/src/sistema.py` une todo: el modelo v1.0, la regla de publicidad y la prioridad.
+Necesita el modelo (`ml/models/clasificador.joblib`, fuera de Git) y dos archivos de
+calibración que se generan una vez, sin reentrenar el modelo:
+
+```bash
+python ml/src/calibrar.py   # crea ml/reports/umbral_confianza.json y promedios_estructurales.json
+```
+
+Ejemplo con un correo inventado. La salida es la real del modelo v1.0:
+
+```python
+from src.priority import cargar_config
+from src.sistema import analizar_correo
+
+cabeceras = {"From": "Paquetería Express <avisos@example.net>", "To": "usuario@example.org"}
+asunto = "Su paquete está detenido"
+cuerpo = ("Estimado cliente, su paquete no pudo ser entregado. Para programar una nueva entrega "
+          "pague la tasa de envío antes de 24 horas: http://example.net/pago")
+
+resultado = analizar_correo(cabeceras, asunto, cuerpo, n_urls=1, n_adjuntos=0,
+                            config_prioridad=cargar_config())
+```
+
+```json
+{
+  "categoria": "phishing",
+  "confianza": "alta",
+  "puntaje": 1.6907,
+  "prioridad": null,
+  "motivos": [
+    {"codigo": "palabra:paquete", "etiqueta": "Menciona «paquete»", "origen": "modelo"},
+    {"codigo": "palabra:entrega", "etiqueta": "Menciona «entrega»", "origen": "modelo"},
+    {"codigo": "palabra:cliente", "etiqueta": "Usa un saludo genérico («cliente»)", "origen": "modelo"},
+    {"codigo": "estructura:long_cuerpo", "etiqueta": "El correo es corto", "origen": "modelo"}
+  ],
+  "version": "v1.0"
+}
+```
+
+Cómo leer el resultado:
+- **`puntaje` y `confianza`.** Un puntaje mayor que 0 es phishing. Si `|puntaje|` es menor que
+  0,5, la `confianza` es "dudosa".
+- **`prioridad`.** El phishing no lleva prioridad: va como alerta.
+- **Un legítimo con prioridad.** Por ejemplo, un correo de un dominio marcado como importante,
+  dirigido solo al usuario, que responde a otro y menciona una fecha límite. Da
+  `"categoria": "legitimo"` y `"prioridad": "alta"`, con motivos de origen `modelo` («saludos»,
+  «reunión», «tesis», "Trae adjuntos") y de origen `prioridad`.
+- **Privacidad.** El resultado nunca incluye el texto, el asunto ni las direcciones del correo.
+
+Cómo se calculan los motivos y el umbral de "dudosa":
+[docs/metricas.md](docs/metricas.md), sección "Explicación y sistema (paso 1.7)".
 
 ## Cómo contribuir
 

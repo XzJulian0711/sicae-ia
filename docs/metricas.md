@@ -636,6 +636,157 @@ El orden en el sistema es este:
 - **Pesos y umbrales.** Salen del criterio del equipo, no de datos. Se ajustarán, si hace falta,
   con los resultados de la evaluación.
 
+## Explicación y sistema (paso 1.7)
+
+Este paso **no reentrena ni modifica el modelo v1.0**. Agrega tres cosas:
+- `ml/src/explicar.py`: los motivos de cada decisión;
+- `ml/src/calibrar.py`: el umbral de confianza y los promedios;
+- `ml/src/sistema.py`: `analizar_correo()`, que une el modelo, la publicidad y la prioridad.
+
+### Cómo se calculan los motivos
+
+El modelo v1.0 es un SVM **lineal**. Su puntaje (`decision_function`) es una suma:
+
+> puntaje = b + Σᵢ wᵢ · xᵢ
+
+Aquí `b` es el intercepto, `wᵢ` el coeficiente de la característica `i` y `xᵢ` su valor ya
+transformado (TF-IDF para las palabras; log1p y escala a [0, 1] para las estructurales).
+
+- **Palabras:** la contribución es `wᵢ · xᵢ`. Una palabra que no está en el correo vale 0 y no
+  aporta nada.
+- **Estructurales** (`n_urls`, `n_adjuntos`, `long_cuerpo`): la contribución es
+  `wᵢ · (xᵢ − x̄ᵢ)`, donde `x̄ᵢ` es el promedio en entrenamiento
+  (`ml/reports/promedios_estructurales.json`: 0,318; 0,053; 0,444).
+  - Sin centrar, un correo sin adjuntos aportaría 0. Como los tres coeficientes empujan hacia
+    legítimo, "No trae adjuntos" o "El correo es corto" nunca podrían explicar un phishing.
+  - Medido contra el correo promedio, sí pueden.
+- **La base** recoge lo que se restó: `base = b + Σ wᵢ · x̄ᵢ`, sumando solo las estructurales.
+
+**Por qué es exacto.** Por ser una suma, se cumple **siempre**:
+
+> base + Σ contribuciones = puntaje
+
+No es una aproximación: es otra forma de escribir la misma cuenta. `ml/tests/test_explicar.py`
+lo comprueba con un modelo de prueba y con el modelo real.
+
+**Relación con SHAP.** Centrar en el promedio es lo que hace SHAP en un modelo lineal. Para un
+modelo lineal con características independientes, el valor SHAP de la característica `i` es
+`wᵢ · (xᵢ − E[xᵢ])` [1]. Nuestras contribuciones estructurales son exactamente ese valor. Las
+palabras **no** se centran: se miden respecto de no aparecer, no del correo promedio. Así un
+motivo nunca es una palabra que el correo no tiene. Para las palabras, la diferencia con SHAP es
+una constante que queda dentro de la base.
+
+> [1] S. M. Lundberg y S.-I. Lee, "A unified approach to interpreting model predictions," en
+> *Advances in Neural Information Processing Systems 30 (NeurIPS 2017)*, 2017.
+
+**Motivos visibles** (`explicar(…, n=4)`):
+- **Selección:** solo los que empujan **hacia la clase predicha**. Nunca se muestra un motivo,
+  palabra o estructural, que empuje en contra.
+- **Orden:** primero las palabras, de mayor a menor peso, y **como máximo un motivo
+  estructural, al final**, si está entre los 4 más fuertes.
+- **Tokens ocultos:** `nombretoken`, `numtoken` y `emailtoken` no se muestran, tampoco en pares
+  como "hola nombretoken".
+- **Etiquetas:**
+  - palabras: `Menciona «paquete»`;
+  - **etiquetas especiales** (`ETIQUETAS_ESPECIALES` en `explicar.py`) para términos sueltos que
+    con "Menciona «…»" no se entenderían:
+    - «re» → "El asunto es una respuesta (RE:)";
+    - «rv», «fw» y «fwd» → "El correo es un reenvío";
+    - «cliente» y «usuario» → "Usa un saludo genérico («cliente»)", con la palabra que
+      corresponda.
+
+    Un par como «estimado cliente» sigue como "Menciona «…»". El código del motivo no cambia
+    (`palabra:re`);
+  - estructurales: una frase fija según el valor esté por debajo o por encima del promedio, por
+    ejemplo "No trae adjuntos" / "Trae adjuntos", "El correo es corto" / "El correo es largo", o
+    "No trae enlaces" / "Trae muchos enlaces".
+
+### Nivel de confianza: cómo se eligió el umbral de "dudosa"
+
+`ml/src/calibrar.py`:
+- usa las **predicciones fuera de pliegue** de la validación cruzada sobre el **conjunto de
+  entrenamiento**, con los mismos 5 pliegues por grupo y el mismo C = 10 de v1.0;
+- cada correo lo predice un modelo que no lo vio;
+- **el conjunto de prueba no se usa**.
+
+Hay 59 errores en 1.108 correos (tasa global 5,32 %).
+
+| \|puntaje\| | Correos | Errores | Tasa de error |
+|---|---|---|---|
+| [0; 0,25) | 91 | 25 | 27,5 % |
+| [0,25; 0,5) | 129 | 22 | 17,1 % |
+| [0,5; 0,75) | 166 | 8 | 4,8 % |
+| [0,75; 1) | 267 | 4 | 1,5 % |
+| [1; …) | 455 | 0 | 0 % |
+
+- **Regla:** el umbral es el borde superior del último tramo de 0,25, **seguido desde 0**, cuya
+  tasa de error supera la global. Da **0,5**.
+- **Lo que significa:**
+  - con `|puntaje| < 0,5` la confianza es **"dudosa"**;
+  - ahí cae el 19,9 % de los correos de entrenamiento, pero el **80 % de los errores** (tasa
+    21,4 %);
+  - fuera de esa banda la tasa de error es 1,35 %.
+- Todo queda en `ml/reports/umbral_confianza.json`, junto con el método y la fuente.
+
+### Flujo de `analizar_correo()`
+
+1. **Limpieza.** Usa `limpiar_texto(asunto + " " + cuerpo, palabras_minuscula)`, con la lista
+   guardada en el `.joblib`. Así el texto queda igual que en el entrenamiento.
+2. **Modelo.** El modelo da el puntaje, la clase y los motivos. La confianza es "dudosa" si
+   `|puntaje| < 0,5`.
+3. **Phishing.** Categoría `phishing`, **sin prioridad**: va como alerta.
+4. **Si no es phishing,** se aplica la regla de publicidad: `publicidad` o `legitimo`. Después
+   se asigna la prioridad, que para publicidad es siempre baja.
+5. **Resultado:** `categoria`, `confianza`, `puntaje`, `prioridad`, `motivos` y `version`.
+   - Cada motivo lleva `codigo`, `etiqueta` en español y `origen` (`modelo`, `publicidad` o
+     `prioridad`).
+   - **Nunca** incluye el texto, el asunto ni las direcciones.
+   - No guarda nada en disco.
+
+### Caso observado: un recordatorio corto marcado como dudoso
+
+Probamos `analizar_correo()` con el modelo v1.0 y un correo legítimo inventado: un recordatorio
+de la coordinación, de dos líneas, con un adjunto.
+
+> **Asunto:** "RE: entrega del proyecto"
+> **Cuerpo:** "Hola, te recuerdo que la fecha límite de la entrega es mañana a las 5 p. m.
+> Saludos."
+
+| Campo | Resultado |
+|---|---|
+| Categoría | **phishing** (falso positivo) |
+| Puntaje | 0,1435 |
+| Confianza | **dudosa** (\|0,14\| < 0,5) |
+| Motivos | Menciona «entrega» · El asunto es una respuesta (RE:) · Menciona «proyecto» · El correo es corto |
+
+**Por qué falla.**
+- Es muy corto.
+- "entrega" es una de las palabras con más peso hacia phishing, por las campañas de paquete falso
+  (sección 1.5b).
+- En SpaPhish, el prefijo "RE:" también empuja hacia phishing.
+
+**Por qué el resultado es útil igual.**
+- El puntaje queda muy cerca de 0 y el sistema lo marca como **"dudoso"**, que es el propósito
+  del umbral: en la validación cruzada, el 80 % de los errores cae en esa banda.
+- La interfaz **debe mostrar la marca "dudosa"** junto a la categoría, para que el usuario revise
+  el correo en vez de confiar en la etiqueta.
+- Los motivos también ayudan a ver por qué el modelo dudó.
+
+### Limitaciones
+
+- **Motivos raros por el formato de SpaPhish.** Como los coeficientes vienen de SpaPhish, "No
+  trae enlaces" o "El correo es corto" pueden empujar hacia phishing (ver la sección 1.5b). La
+  explicación es fiel al modelo, aunque el motivo no sea intuitivo.
+- **Los motivos de palabra son términos del vocabulario del modelo**, en su forma limpia. Las
+  etiquetas especiales cubren los casos más confusos («re», «fwd», «cliente»), pero otros
+  términos pueden seguir sin entenderse bien fuera de contexto.
+- **Un mismo término pesa distinto según el correo.** El valor TF-IDF se normaliza por la
+  longitud del texto.
+- **Los correos legítimos muy cortos son los más difíciles.** Ver el caso del recordatorio, más
+  arriba.
+- **El umbral sale de la validación cruzada sobre SpaPhish.** Habrá que revisarlo con los
+  correos de las cuentas de prueba.
+
 ## Regla de publicidad (paso 1.8)
 
 La categoría **publicidad** no la decide el modelo, sino una regla en

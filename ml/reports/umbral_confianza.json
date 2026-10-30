@@ -1,0 +1,95 @@
+{
+  "version_modelo": "v1.0",
+  "umbral": 0.5,
+  "ancho_tramo": 0.25,
+  "tasa_error_global": 0.0532,
+  "tramos": [
+    {
+      "desde": 0.0,
+      "hasta": 0.25,
+      "correos": 91,
+      "errores": 25,
+      "tasa_error": 0.2747
+    },
+    {
+      "desde": 0.25,
+      "hasta": 0.5,
+      "correos": 129,
+      "errores": 22,
+      "tasa_error": 0.1705
+    },
+    {
+      "desde": 0.5,
+      "hasta": 0.75,
+      "correos": 166,
+      "errores": 8,
+      "tasa_error": 0.0482
+    },
+    {
+      "desde": 0.75,
+      "hasta": 1.0,
+      "correos": 267,
+      "errores": 4,
+      "tasa_error": 0.015
+    },
+    {
+      "desde": 1.0,
+      "hasta": 1.25,
+      "correos": 324,
+      "errores": 0,
+      "tasa_error": 0.0
+    },
+    {
+      "desde": 1.25,
+      "hasta": 1.5,
+      "correos": 84,
+      "errores": 0,
+      "tasa_error": 0.0
+    },
+    {
+      "desde": 1.5,
+      "hasta": 1.75,
+      "correos": 30,
+      "errores": 0,
+      "tasa_error": 0.0
+    },
+    {
+      "desde": 1.75,
+      "hasta": 2.0,
+      "correos": 11,
+      "errores": 0,
+      "tasa_error": 0.0
+    },
+    {
+      "desde": 2.0,
+      "hasta": 2.25,
+      "correos": 3,
+      "errores": 0,
+      "tasa_error": 0.0
+    },
+    {
+      "desde": 2.25,
+      "hasta": 2.5,
+      "correos": 1,
+      "errores": 0,
+      "tasa_error": 0.0
+    },
+    {
+      "desde": 2.5,
+      "hasta": 2.75,
+      "correos": 2,
+      "errores": 0,
+      "tasa_error": 0.0
+    }
+  ],
+  "dudosos": {
+    "correos": 220,
+    "porcentaje": 0.1986,
+    "errores": 47,
+    "porcentaje_de_los_errores": 0.7966,
+    "tasa_error_dentro": 0.2136,
+    "tasa_error_fuera": 0.0135
+  },
+  "metodo": "Se agrupan los correos por |puntaje| en tramos de 0.25 ([0; 0.25), [0.25; 0.5), ...). El umbral es el borde superior del último tramo SEGUIDO desde 0 cuya tasa de error supera la tasa de error global. |puntaje| < umbral = confianza dudosa.",
+  "fuente": "Predicciones fuera de pliegue de la validación cruzada (5 pliegues por grupo, SVM lineal C = 10) sobre los 1108 correos de entrenamiento. No usa el conjunto de prueba."
+}
