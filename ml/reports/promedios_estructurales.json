@@ -1,0 +1,9 @@
+{
+  "version_modelo": "v1.0",
+  "promedios": {
+    "n_urls": 0.318176,
+    "n_adjuntos": 0.053165,
+    "long_cuerpo": 0.444409
+  },
+  "fuente": "Media en entrenamiento, después de log1p y escala a [0, 1] (preprocesador congelado de v1.0)."
+}
