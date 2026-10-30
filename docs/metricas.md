@@ -545,5 +545,95 @@ pipeline. `evaluate.py` comprueba que la lista guardada coincide con la que sale
 - **Disparadores y firmas.** "Lic." e "Ing." no son disparadores, y las firmas no se tratan.
 - **Relleno visible.** El texto de relleno que se ve, como "y0pmgr" en un correo de Amazon, no se
   quita con la regla de caracteres invisibles.
-- **Lista de palabras comunes en el API.** El API deberá cargar
-  `ml/data/processed/palabras_minuscula.txt` para limpiar igual que en el entrenamiento.
+- **Lista de palabras comunes en el API.** Para limpiar igual que en el entrenamiento, el API
+  necesita la lista `palabras_minuscula`. Desde v1.0 viene **dentro de**
+  `ml/models/clasificador.joblib`: se carga con `cargar_modelo()` y se pasa a `limpiar_texto()`.
+  El archivo `ml/data/processed/palabras_minuscula.txt` queda solo para revisar la lista.
+
+## Regla de publicidad (paso 1.8)
+
+La categoría **publicidad** no la decide el modelo, sino una regla en
+[`ml/src/publicidad.py`](../ml/src/publicidad.py). La publicidad se reconoce sobre todo por
+*cómo* se envió el correo (cabeceras de envío masivo), no por lo que dice. Una regla es fiable y
+cada decisión se puede explicar con sus motivos.
+
+### Señales
+
+`analizar_publicidad(cabeceras, asunto, cuerpo)` devuelve `es_publicidad`, un `puntaje` y la
+lista de `motivos`. Los motivos son códigos, nunca texto del correo.
+
+| Código | Qué mira | Tipo | Por qué |
+|---|---|---|---|
+| `list_unsubscribe` | Cabecera `List-Unsubscribe` | Fuerte | La agrega el programa de envío masivo para darse de baja. Gmail y Yahoo la exigen a los remitentes masivos desde 2024. Un correo personal no la lleva |
+| `list_unsubscribe_post` | Cabecera `List-Unsubscribe-Post` | Fuerte | Baja "con un clic" (RFC 8058); solo existe en envíos masivos |
+| `list_id` | Cabecera `List-Id` | Fuerte | Identifica la lista de correo que envió el mensaje (RFC 2919) |
+| `precedence_bulk` | `Precedence: bulk` o `list` | Fuerte | El servidor marca el correo como envío masivo o de lista |
+| `frase_baja` | "darse de baja", "cancelar suscripción", "unsubscribe", "ver este correo en el navegador" y variantes, en asunto o cuerpo, sin distinguir tildes ni mayúsculas | Débil | El phishing la copia para parecer un boletín (tabla de abajo) |
+| `remitente_masivo` | Parte local del remitente con noreply, newsletter, marketing, promociones o promo, o que es exactamente `info` | Débil | Los avisos transaccionales legítimos (recibos, cambio de contraseña) también salen de noreply, y el phishing usa info@ o noreply para parecer oficial |
+| `plataforma_masiva` | `X-Mailer` de Mailchimp, SendGrid, Brevo, Mailjet o Amazon SES, o una cabecera propia de esas plataformas (X-MC-User, X-SG-EID, X-Mailin-EID, X-MJ-Mid, X-SES-Outgoing…) | Débil | Esas plataformas también envían correos transaccionales, y los phishers abusan de cuentas en ellas |
+
+**Puntaje y decisión:**
+- Cada señal fuerte suma 2 y cada **tipo** de señal débil suma 1. Varias frases cuentan una sola
+  vez.
+- Es publicidad si hay **al menos una señal fuerte** o **al menos dos tipos de señal débil**,
+  que equivale a un puntaje de 2 o más.
+- Una sola señal débil no basta. Por ejemplo, un recibo enviado desde noreply no es publicidad.
+
+### Por qué se aplica solo a lo que el modelo no marca como phishing
+
+En el sistema el orden es este:
+1. Primero el modelo decide entre phishing y legítimo.
+2. Si dice **phishing**, la categoría final es phishing y la regla no se aplica.
+3. Solo si dice **legítimo**, la regla decide entre **publicidad** y **legítimo**.
+
+El motivo es que el phishing de SpaPhish imita a la publicidad. Correos con cada frase en asunto
++ cuerpo:
+
+| Frase | Phishing | Legítimo |
+|---|---|---|
+| "darse de baja" | 187 | 7 |
+| "darte de baja" | 32 | 3 |
+| "cancelar suscripción" | 18 | 6 |
+| "unsubscribe" | 20 | 32 |
+
+Si la regla fuera primero, un phishing con "darse de baja" y un remitente noreply se mostraría
+como publicidad, una categoría de prioridad baja, y el usuario no vería la alerta.
+
+### Cómo se evalúa
+
+- **Por qué no con SpaPhish.** SpaPhish **no trae cabeceras**: no tiene remitente ni `List-*`.
+  Por eso la regla no se puede medir con ese dataset.
+- **Con qué se mide.** Con correos de las **cuentas de prueba del equipo**, exportados como
+  `.eml`:
+  - `ml/data/eml/publicidad/`: correos que sí son publicidad;
+  - `ml/data/eml/normal/`: correos que no lo son (personales, transaccionales, institucionales).
+- **Privacidad.** Esas carpetas y todos los `.eml` están en `.gitignore`. Son correos reales y
+  nunca se suben.
+- **El script.** `ml/src/evaluar_publicidad.py` calcula precisión, recall (con publicidad como
+  clase positiva) y la matriz de confusión. Guarda en `ml/reports/resultados_publicidad.json`
+  **solo conteos** y cuántas veces se activó cada señal, nunca asuntos, textos, direcciones ni
+  nombres de archivo. Si las carpetas están vacías, lo avisa y termina sin error.
+- **`leer_eml(ruta)`.** Lee cada archivo con la librería `email` de Python. Si el correo solo
+  trae HTML, lo limpia con `limpiar_texto()`.
+
+**Resultados:** pendientes. Hay que exportar los `.eml` de las cuentas de prueba y correr:
+
+```
+.venv\Scripts\python ml/src/evaluar_publicidad.py
+```
+
+### Limitaciones
+
+- **Un phishing que el modelo deje pasar** y que traiga `List-Unsubscribe` quedará como
+  publicidad. La regla no corrige los falsos negativos del modelo.
+- **Las listas son a mano.** Las listas de frases, remitentes y plataformas pueden quedar
+  incompletas: otras plataformas o remitentes como "news@" o "hola@" no se detectan.
+- **Remitentes falsificados.** La regla confía en las cabeceras tal como llegan. Un remitente
+  falsificado (por ejemplo, un "noreply" falso) cuenta igual.
+- **Listas de correo institucionales.** `List-Id` y `Precedence: list` también aparecen en las
+  listas de la universidad o de Google Groups. Son envíos masivos, pero pueden traer avisos
+  importantes para el usuario (fechas, convocatorias, cambios de clase).
+  - Por eso, en el prototipo esta categoría se muestra como **"masivo / boletín"**, con
+    prioridad baja y **sin ocultarse**: el usuario la sigue viendo en su bandeja.
+  - Es solo la etiqueta visible de la categoría interna `publicidad`. Las tres categorías del
+    sistema (legítimo, publicidad, phishing) no cambian.

@@ -39,6 +39,9 @@ ml/data/processed/*
 # Son correos reales: nunca se suben, esten en la carpeta que esten.
 *.eml
 *.msg
+# Carpeta de correos para evaluar la regla de publicidad (paso 1.8): se ignora completa,
+# para que tampoco se suba ningun otro archivo exportado junto a los .eml.
+ml/data/eml/
 
 # ---------- Modelos entrenados (se regeneran entrenando) ----------
 ml/models/*.joblib
