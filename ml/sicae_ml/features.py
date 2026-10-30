@@ -5,21 +5,13 @@ Convierte cada correo limpio en números que el clasificador puede usar:
   - "n_urls", "n_adjuntos", "long_cuerpo" -> log1p y escala a [0, 1].
 """
 
-import sys
-from pathlib import Path
-
 import numpy as np
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, MinMaxScaler
 
-# Permite importar este módulo desde scripts sueltos (python ml/src/train.py).
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
-
-from src.texto import STOPWORDS_EN, STOPWORDS_ES  # noqa: E402
+from sicae_ml.texto import STOPWORDS_EN, STOPWORDS_ES
 
 COLUMNA_TEXTO = "texto"
 COLUMNAS_NUMERICAS = ["n_urls", "n_adjuntos", "long_cuerpo"]

@@ -14,31 +14,28 @@ PRIVACIDAD: ml/reports/resultados_prioridad.json guarda SOLO conteos: nunca nomb
 archivo, asuntos, direcciones ni texto de los correos.
 
 Uso (desde la raíz del proyecto):
-    .venv\\Scripts\\python ml/src/evaluar_prioridad.py
+    .venv\\Scripts\\python -m sicae_ml.evaluar_prioridad
 """
 
 import math
-import sys
 from collections import Counter
 from pathlib import Path
 
 import pandas as pd
 from sklearn.metrics import cohen_kappa_score, confusion_matrix
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
-
-from src.evaluar_publicidad import CARPETA_NORMAL, listar_eml  # noqa: E402
-from src.priority import (  # noqa: E402
+from sicae_ml.evaluar_publicidad import CARPETA_NORMAL, listar_eml
+from sicae_ml.priority import (
     NOMBRE_CONFIG_LOCAL,
     PRIORIDADES,
     asignar_prioridad,
     cargar_config,
     ruta_config,
 )
-from src.publicidad import analizar_publicidad, leer_eml  # noqa: E402
-from src.train import guardar_json  # noqa: E402
+from sicae_ml.publicidad import analizar_publicidad, leer_eml
+from sicae_ml.train import guardar_json
+
+CARPETA_ML = Path(__file__).resolve().parents[1]
 
 RUTA_ETIQUETAS = CARPETA_ML / "data" / "eml" / "etiquetas_prioridad.csv"
 RUTA_RESULTADOS = CARPETA_ML / "reports" / "resultados_prioridad.json"

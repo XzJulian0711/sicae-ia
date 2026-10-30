@@ -1,11 +1,11 @@
-"""Pruebas de ml/src/texto.py con textos cortos hechos a mano.
+"""Pruebas de ml/sicae_ml/texto.py con textos cortos hechos a mano.
 
 Correr desde la raíz:  .venv\\Scripts\\python -m pytest ml/tests -v
 """
 
 import math
 
-from src.texto import (
+from sicae_ml.texto import (
     STOPWORDS_EN,
     STOPWORDS_ES,
     limpiar_texto,

@@ -11,22 +11,18 @@ Pasos:
 La columna date de SpaPhish no se usa (load_data.py ya la descarta).
 
 Uso (desde la raíz del proyecto):
-    .venv\\Scripts\\python ml/src/preprocess.py
+    .venv\\Scripts\\python -m sicae_ml.preprocess
 """
 
 import re
-import sys
 from collections import Counter
 from pathlib import Path
 
 import pandas as pd
 
-# Permite "python ml/src/preprocess.py" además de "from src.preprocess import ...".
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
+from sicae_ml.texto import limpiar_texto, limpiar_texto_contando, palabras_minuscula
 
-from src.texto import limpiar_texto, limpiar_texto_contando, palabras_minuscula  # noqa: E402
+CARPETA_ML = Path(__file__).resolve().parents[1]
 
 RUTA_ENTRADA = CARPETA_ML / "data" / "processed" / "correos.csv"
 RUTA_SALIDA = CARPETA_ML / "data" / "processed" / "correos_limpios.csv"

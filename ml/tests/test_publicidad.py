@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/publicidad.py y ml/src/evaluar_publicidad.py.
+"""Pruebas de ml/sicae_ml/publicidad.py y ml/sicae_ml/evaluar_publicidad.py.
 
 Los correos son inventados con email.message.EmailMessage (dominios example.com).
 Los .eml se escriben en carpetas temporales de pytest (tmp_path), nunca en el proyecto.
@@ -9,8 +9,8 @@ import json
 
 from email.message import EmailMessage
 
-from src.evaluar_publicidad import evaluar_carpetas, listar_eml, main
-from src.publicidad import (
+from sicae_ml.evaluar_publicidad import evaluar_carpetas, listar_eml, main
+from sicae_ml.publicidad import (
     FRASE_BAJA,
     LIST_UNSUBSCRIBE,
     PLATAFORMA_MASIVA,

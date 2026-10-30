@@ -14,7 +14,7 @@ El modelo phishing vs. legítimo se entrena solo con **SpaPhish**, un corpus de 
 | Quitados por cuerpo de menos de 30 caracteres | 7 |
 | **Correos finales** | **1.385 (725 phishing, 660 legítimos)** |
 
-La carga, verificación y depuración están en [`ml/src/load_data.py`](../ml/src/load_data.py).
+La carga, verificación y depuración están en [`ml/sicae_ml/load_data.py`](../ml/sicae_ml/load_data.py).
 Para reproducirlas, ver *Cómo obtener los datos* en el [README](../README.md#cómo-obtener-los-datos).
 
 ### Por qué se descartó SpearPhishMX
@@ -73,9 +73,9 @@ sobre los 1.385 correos finales. Las gráficas están en [`ml/reports/`](../ml/r
 
 ## Preprocesamiento (paso 1.3)
 
-[`ml/src/preprocess.py`](../ml/src/preprocess.py) lee `correos.csv` y guarda
+[`ml/sicae_ml/preprocess.py`](../ml/sicae_ml/preprocess.py) lee `correos.csv` y guarda
 `ml/data/processed/correos_limpios.csv` con las columnas `texto` (asunto + cuerpo limpios con
-`limpiar_texto()` de [`ml/src/texto.py`](../ml/src/texto.py)), `n_urls`, `n_adjuntos`,
+`limpiar_texto()` de [`ml/sicae_ml/texto.py`](../ml/sicae_ml/texto.py)), `n_urls`, `n_adjuntos`,
 `long_cuerpo` (del cuerpo original), `etiqueta` y `grupo`. La columna `date` no se usa.
 
 ### Qué se reemplazó o borró y por qué
@@ -172,14 +172,14 @@ asuntos genéricos, no campañas.
 
 ## Entrenamiento (paso 1.4)
 
-[`ml/src/train.py`](../ml/src/train.py) entrena con `correos_limpios.csv`. Resultados completos en
+[`ml/sicae_ml/train.py`](../ml/sicae_ml/train.py) entrena con `correos_limpios.csv`. Resultados completos en
 [`ml/reports/resultados_cv.json`](../ml/reports/resultados_cv.json) y
 [`ml/reports/resultados_prueba.json`](../ml/reports/resultados_prueba.json). El modelo se guarda
 en `ml/models/clasificador.joblib` (fuera de Git; se regenera ejecutando `train.py`).
 
 ### Características
 
-[`ml/src/features.py`](../ml/src/features.py) construye un `ColumnTransformer`:
+[`ml/sicae_ml/features.py`](../ml/sicae_ml/features.py) construye un `ColumnTransformer`:
 
 | Entrada | Transformación | Por qué |
 |---|---|---|
@@ -256,7 +256,7 @@ No se amplió otra vez porque no cambia el modelo elegido (sigue por debajo del 
 
 ## Evaluación (paso 1.5)
 
-[`ml/src/evaluate.py`](../ml/src/evaluate.py) analiza los resultados del paso 1.4 **sin reentrenar
+[`ml/sicae_ml/evaluate.py`](../ml/sicae_ml/evaluate.py) analiza los resultados del paso 1.4 **sin reentrenar
 el modelo final ni cambiar la selección**. Repite la misma división y carga
 `ml/models/clasificador.joblib`. Un `assert` comprueba que el modelo cargado da exactamente las
 métricas y la matriz de `resultados_prueba.json`. Las figuras están en escala de grises, a 300 dpi.
@@ -360,7 +360,7 @@ Los resultados del paso 1.4 quedan en el historial de Git (`ml/reports/*.json` d
 
    Las 18 palabras que también son comunes o lugares (flores, luna, sol, rosa, cruz,
    montes...) se dejan como limitación.
-2. **Regla de saludos** (`ml/src/texto.py`). Se aplica **antes** de pasar a minúsculas, porque
+2. **Regla de saludos** (`ml/sicae_ml/texto.py`). Se aplica **antes** de pasar a minúsculas, porque
    reconoce el nombre por la mayúscula inicial. Después de "estimado/a(s)", "hola",
    "querido/a(s)", "Sr.", "Sra.", "Srta.", "Dr.", "Dra." o "Sr/Sra.", cambia por `nombretoken`
    de 1 a 3 palabras seguidas, en la misma línea, que empiezan con mayúscula.
@@ -374,8 +374,8 @@ Los resultados del paso 1.4 quedan en el historial de Git (`ml/reports/*.json` d
    - "Querido Luis Romero Tienes (1) mensaje" queda como "querido nombretoken tienes (numtoken)
      mensaje", y "Estimadas Familias" no cambia.
 
-**Cómo se calcula el umbral de palabras comunes** (`palabras_minuscula()` en `ml/src/texto.py`,
-llamada desde `ml/src/preprocess.py`):
+**Cómo se calcula el umbral de palabras comunes** (`palabras_minuscula()` en `ml/sicae_ml/texto.py`,
+llamada desde `ml/sicae_ml/preprocess.py`):
 
 - Se usan asunto + cuerpo de **todos** los correos (1.385).
 - A cada texto se le quitan HTML, caracteres invisibles, URLs y direcciones de correo. Los
@@ -509,8 +509,8 @@ API:
 | `palabras_minuscula` | Las 4.560 palabras comunes en minúscula que usa la regla de saludos de `limpiar_texto()` |
 
 ```python
-from src.texto import limpiar_texto
-from src.train import cargar_modelo
+from sicae_ml.texto import limpiar_texto
+from sicae_ml.train import cargar_modelo
 modelo = cargar_modelo("ml/models/clasificador.joblib")  # dict; palabras como frozenset
 texto = limpiar_texto(f"{asunto} {cuerpo}", modelo["palabras_minuscula"])
 ```
@@ -553,7 +553,7 @@ pipeline. `evaluate.py` comprueba que la lista guardada coincide con la que sale
 ## Prioridad (paso 1.6)
 
 La prioridad (**alta**, **media** o **baja**) la asigna una regla en
-[`ml/src/priority.py`](../ml/src/priority.py): `asignar_prioridad(cabeceras, asunto, cuerpo,
+[`ml/sicae_ml/priority.py`](../ml/sicae_ml/priority.py): `asignar_prioridad(cabeceras, asunto, cuerpo,
 config, es_publicidad)` devuelve `prioridad`, `puntaje` y `motivos`. Los motivos son códigos, nunca
 texto del correo. Los puntos, las palabras y los umbrales están en
 [`ml/config/prioridad.json`](../ml/config/prioridad.json), no en el código. El README tiene un
@@ -607,7 +607,7 @@ El orden en el sistema es este:
   cuentas de prueba como alta, media o baja, **sin ver las etiquetas del otro**. Las etiquetas
   van en `ml/data/eml/etiquetas_prioridad.csv` (columnas `archivo`, `evaluador_1`, `evaluador_2`)
   y los correos en `ml/data/eml/normal/`. Todo está fuera de Git.
-- **Acuerdo entre evaluadores.** `ml/src/evaluar_prioridad.py` calcula la **kappa de Cohen**: el
+- **Acuerdo entre evaluadores.** `ml/sicae_ml/evaluar_prioridad.py` calcula la **kappa de Cohen**: el
   acuerdo entre los dos, descontando el que se daría por azar (1 = acuerdo total, 0 = como el
   azar). Una kappa baja indicaría que la prioridad es tan personal que ni dos personas del equipo
   coinciden.
@@ -621,7 +621,7 @@ El orden en el sistema es este:
 **Resultados:** pendientes, hasta tener los correos y las etiquetas:
 
 ```
-.venv\Scripts\python ml/src/evaluar_prioridad.py
+.venv\Scripts\python -m sicae_ml.evaluar_prioridad
 ```
 
 ### Limitaciones
@@ -639,9 +639,9 @@ El orden en el sistema es este:
 ## Explicación y sistema (paso 1.7)
 
 Este paso **no reentrena ni modifica el modelo v1.0**. Agrega tres cosas:
-- `ml/src/explicar.py`: los motivos de cada decisión;
-- `ml/src/calibrar.py`: el umbral de confianza y los promedios;
-- `ml/src/sistema.py`: `analizar_correo()`, que une el modelo, la publicidad y la prioridad.
+- `ml/sicae_ml/explicar.py`: los motivos de cada decisión;
+- `ml/sicae_ml/calibrar.py`: el umbral de confianza y los promedios;
+- `ml/sicae_ml/sistema.py`: `analizar_correo()`, que une el modelo, la publicidad y la prioridad.
 
 ### Cómo se calculan los motivos
 
@@ -703,7 +703,7 @@ una constante que queda dentro de la base.
 
 ### Nivel de confianza: cómo se eligió el umbral de "dudosa"
 
-`ml/src/calibrar.py`:
+`ml/sicae_ml/calibrar.py`:
 - usa las **predicciones fuera de pliegue** de la validación cruzada sobre el **conjunto de
   entrenamiento**, con los mismos 5 pliegues por grupo y el mismo C = 10 de v1.0;
 - cada correo lo predice un modelo que no lo vio;
@@ -790,7 +790,7 @@ de la coordinación, de dos líneas, con un adjunto.
 ## Regla de publicidad (paso 1.8)
 
 La categoría **publicidad** no la decide el modelo, sino una regla en
-[`ml/src/publicidad.py`](../ml/src/publicidad.py). La publicidad se reconoce sobre todo por
+[`ml/sicae_ml/publicidad.py`](../ml/sicae_ml/publicidad.py). La publicidad se reconoce sobre todo por
 *cómo* se envió el correo (cabeceras de envío masivo), no por lo que dice. Una regla es fiable y
 cada decisión se puede explicar con sus motivos.
 
@@ -846,7 +846,7 @@ como publicidad, una categoría de prioridad baja, y el usuario no vería la ale
   - `ml/data/eml/normal/`: correos que no lo son (personales, transaccionales, institucionales).
 - **Privacidad.** Esas carpetas y todos los `.eml` están en `.gitignore`. Son correos reales y
   nunca se suben.
-- **El script.** `ml/src/evaluar_publicidad.py` calcula precisión, recall (con publicidad como
+- **El script.** `ml/sicae_ml/evaluar_publicidad.py` calcula precisión, recall (con publicidad como
   clase positiva) y la matriz de confusión. Guarda en `ml/reports/resultados_publicidad.json`
   **solo conteos** y cuántas veces se activó cada señal, nunca asuntos, textos, direcciones ni
   nombres de archivo. Si las carpetas están vacías, lo avisa y termina sin error.
@@ -856,7 +856,7 @@ como publicidad, una categoría de prioridad baja, y el usuario no vería la ale
 **Resultados:** pendientes. Hay que exportar los `.eml` de las cuentas de prueba y correr:
 
 ```
-.venv\Scripts\python ml/src/evaluar_publicidad.py
+.venv\Scripts\python -m sicae_ml.evaluar_publicidad
 ```
 
 ### Limitaciones

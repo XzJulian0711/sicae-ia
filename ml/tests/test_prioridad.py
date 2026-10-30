@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/priority.py y ml/src/evaluar_prioridad.py.
+"""Pruebas de ml/sicae_ml/priority.py y ml/sicae_ml/evaluar_prioridad.py.
 
 Correos inventados con email.message.EmailMessage (dominios example.com). Los .eml y el
 CSV de etiquetas se escriben en carpetas temporales de pytest (tmp_path).
@@ -11,8 +11,8 @@ from email.message import EmailMessage
 import pytest
 from sklearn.metrics import cohen_kappa_score
 
-from src.evaluar_prioridad import evaluar, main
-from src.priority import (
+from sicae_ml.evaluar_prioridad import evaluar, main
+from sicae_ml.priority import (
     DESTINATARIO_UNICO,
     PUBLICIDAD,
     REMITENTE_IMPORTANTE,

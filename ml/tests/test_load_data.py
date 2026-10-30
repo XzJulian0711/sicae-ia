@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/load_data.py con tablas pequeñas hechas a mano.
+"""Pruebas de ml/sicae_ml/load_data.py con tablas pequeñas hechas a mano.
 
 No dependen del CSV real de SpaPhish (no se sube a git).
 Correr desde la raíz:  .venv\\Scripts\\python -m pytest ml/tests -v
@@ -7,7 +7,7 @@ Correr desde la raíz:  .venv\\Scripts\\python -m pytest ml/tests -v
 import pandas as pd
 import pytest
 
-from src.load_data import (
+from sicae_ml.load_data import (
     filtrar_filas,
     guardar,
     seleccionar_y_renombrar,

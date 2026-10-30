@@ -6,7 +6,7 @@ Proyecto de grado, Ingeniería de Sistemas, Fundación Universitaria Los Liberta
 - Prototipo en entorno controlado. Datos: SpaPhish y cuentas de prueba.
 - Nunca borrar ni enviar correos reales. Limpieza y envío son SIMULADOS.
 - Modelo ML: phishing vs legitimo, entrenado solo con SpaPhish (español). CSV separado por comas, utf-8-sig.
-- Publicidad/spam: regla por cabecera List-Unsubscribe y señales de envío masivo (ml/src/publicidad.py).
+- Publicidad/spam: regla por cabecera List-Unsubscribe y señales de envío masivo (ml/sicae_ml/publicidad.py).
 - Categoría final al usuario: legitimo, publicidad, phishing. Prioridad: alta, media, baja.
 
 ## Stack

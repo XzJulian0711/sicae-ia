@@ -13,23 +13,18 @@ No reentrena ni modifica clasificador.joblib. Calcula dos cosas y las guarda en 
 Ambos archivos guardan solo cifras agregadas, nada de los correos.
 
 Uso (desde la raíz del proyecto):
-    .venv\\Scripts\\python ml/src/calibrar.py
+    .venv\\Scripts\\python -m sicae_ml.calibrar
 """
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import cross_val_predict
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
-
-from src.features import COLUMNAS_ENTRADA, COLUMNAS_NUMERICAS  # noqa: E402
-from src.train import (  # noqa: E402
+from sicae_ml.features import COLUMNAS_ENTRADA, COLUMNAS_NUMERICAS
+from sicae_ml.train import (
     RUTA_CV,
     RUTA_DATOS,
     RUTA_MODELO,
@@ -40,6 +35,8 @@ from src.train import (  # noqa: E402
     guardar_json,
     pliegues,
 )
+
+CARPETA_ML = Path(__file__).resolve().parents[1]
 
 RUTA_UMBRAL = CARPETA_ML / "reports" / "umbral_confianza.json"
 RUTA_PROMEDIOS = CARPETA_ML / "reports" / "promedios_estructurales.json"

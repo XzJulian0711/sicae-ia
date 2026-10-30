@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/features.py y ml/src/train.py con correos inventados.
+"""Pruebas de ml/sicae_ml/features.py y ml/sicae_ml/train.py con correos inventados.
 
 No dependen del CSV real ni de un modelo guardado.
 Correr desde la raíz:  .venv\\Scripts\\python -m pytest ml/tests -v
@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features import COLUMNAS_ENTRADA, construir_preprocesador
+from sicae_ml.features import COLUMNAS_ENTRADA, construir_preprocesador
 import joblib
 
-from src.train import (
+from sicae_ml.train import (
     VERSION_MODELO,
     cargar_modelo,
     construir_modelos,
