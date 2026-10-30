@@ -1,5 +1,9 @@
 # SICAE-IA
 
+[![CI](https://github.com/XzJulian0711/sicae-ia/actions/workflows/ci.yml/badge.svg)](https://github.com/XzJulian0711/sicae-ia/actions/workflows/ci.yml)
+
+*CI: en cada push y pull request corre las pruebas de `ml/` y `api/` (sin datos reales ni el modelo `.joblib`) y revisa con pip-audit que ninguna dependencia tenga vulnerabilidades conocidas.*
+
 Sistema inteligente para la automatización y clasificación de correos electrónicos.
 Clasifica cada correo en **legítimo**, **publicidad** o **phishing** y le asigna una prioridad (**alta**, **media** o **baja**).
 Proyecto de grado de Ingeniería de Sistemas, Fundación Universitaria Los Libertadores.
@@ -330,6 +334,10 @@ git push -u origin feat/1.1-datasets
 
 Después, en GitHub: *Compare & pull request*, describe qué hiciste y asigna como revisor a otro
 integrante del equipo.
+
+Antes de pedir la revisión, espera a que el pull request tenga la **marca verde de CI**: GitHub
+corre las pruebas y la auditoría de dependencias solo. Si sale una ✗ roja, entra a *Details* para
+ver qué falló y corrígelo en la misma rama.
 
 **Nadie aprueba ni mergea su propio pull request.** Son cuatro personas sobre el mismo código: la
 revisión cruzada es lo que evita que algo se rompa sin que nadie se dé cuenta, y deja constancia en
