@@ -1,22 +1,64 @@
-# Integracion continua (CI): GitHub corre las pruebas en cada push,
-# para que nadie suba codigo roto al repo.
+# Integración continua (CI): GitHub corre las pruebas en cada push y en cada pull request,
+# para que nadie suba código roto, y revisa si alguna dependencia tiene vulnerabilidades.
 #
-# Todavia NO es un workflow funcional: solo describe los pasos previstos.
-#
-# Que ira aqui:
-#
-# name: CI
-#
-# on: push y pull_request sobre la rama main
-#
-# jobs:
-#   pruebas:
-#     - Descargar el codigo del repo              (actions/checkout)
-#     - Instalar Python 3.13                      (actions/setup-python)
-#     - Instalar api/requirements.txt (incluye ml/requirements.txt)
-#     - Instalar el proyecto: pip install -e .   (paquete sicae_ml, ver pyproject.toml)
-#     - Correr pytest desde la raíz (ml/tests/ y api/tests/, ver pyproject.toml)
-#
-# Nota: el CI no entrena el modelo ni descarga los datasets.
-# ml/data/raw/ y ml/models/ estan fuera de Git, asi que las pruebas
-# deben funcionar sin ellos (con datos de ejemplo pequenos).
+# El job no entrena el modelo ni descarga datos: ml/data/, ml/models/*.joblib y los .eml
+# están fuera de Git. Las pruebas usan datos y modelos inventados; la única que necesita el
+# modelo real (.joblib) se salta sola y pytest lo informa al final (-rs).
+
+name: CI
+
+# Cuándo corre:
+# - pull_request hacia main: prueba los cambios de una rama ANTES de unirlos (y otra vez con
+#   cada push nuevo mientras el PR esté abierto).
+# - push a main: prueba el resultado DESPUÉS de unir el PR.
+# No se usa "push a cualquier rama" porque, con un PR abierto, el mismo commit se probaría dos
+# veces (una por el push y otra por el pull_request). Consecuencia: un push a una rama SIN
+# pull request abierto no ejecuta la CI; para probar una rama, abre su PR hacia main.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Permisos mínimos: el job solo lee el código del repositorio.
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    name: Pruebas y auditoría de dependencias
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Python 3.13 (con caché de pip)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          # La caché se renueva cuando cambia alguno de estos archivos.
+          cache-dependency-path: |
+            ml/requirements.txt
+            api/requirements.txt
+
+      - name: Instalar dependencias y el paquete sicae_ml
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r api/requirements.txt
+          pip install -e .
+
+      - name: Pruebas (pytest)
+        # -W error::DeprecationWarning: un aviso de obsolescencia cuenta como error.
+        # -rs: al final lista las pruebas saltadas y el motivo.
+        run: pytest -W error::DeprecationWarning -rs
+
+      - name: Auditoría de dependencias (pip-audit)
+        # Corre aunque fallen las pruebas, para ver los dos resultados. Si encuentra una
+        # vulnerabilidad conocida, imprime el paquete, la versión y el identificador, y el job falla.
+        if: ${{ !cancelled() }}
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit -r api/requirements.txt --desc on
