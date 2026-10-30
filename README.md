@@ -65,9 +65,11 @@ sicae-ia/
 │   └── requirements.txt
 │
 ├── api/                      Backend: puente entre el modelo y la extensión
-│   ├── src/
-│   │   └── main.py           App FastAPI y endpoints
-│   ├── tests/                Pruebas de los endpoints
+│   ├── app/
+│   │   ├── main.py           App FastAPI: GET /salud y POST /analizar
+│   │   ├── config.py         Configuración leída de .env (rutas y límites)
+│   │   └── esquemas.py       Qué entra y qué sale (Pydantic)
+│   ├── tests/                Pruebas de los endpoints (modelo inventado)
 │   └── requirements.txt
 │
 ├── extension/                Extensión de Chrome (Manifest V3)
@@ -219,6 +221,77 @@ Cómo leer el resultado:
 
 Cómo se calculan los motivos y el umbral de "dudosa":
 [docs/metricas.md](docs/metricas.md), sección "Explicación y sistema (paso 1.7)".
+
+## API
+
+La API (FastAPI) expone `analizar_correo()` para la extensión. No guarda los correos, no los
+borra ni los envía: solo los clasifica.
+
+### Instalar y configurar
+
+Desde la raíz del proyecto, con el entorno virtual activado:
+
+```bash
+pip install -r api/requirements.txt   # incluye ml/requirements.txt
+pip install -e .                      # instala el paquete sicae_ml
+cp .env.example .env                  # en PowerShell: Copy-Item .env.example .env
+```
+
+`.env` no se sube a Git. Por defecto no hay que cambiar nada. Las variables `SICAE_…` permiten
+apuntar a otro modelo o cambiar los límites de tamaño.
+
+Para clasificar, la API necesita estos archivos:
+- **`ml/models/clasificador.joblib`:** el modelo v1.0. Está fuera de Git; se genera con
+  `python -m sicae_ml.train`.
+- **Los dos JSON de calibración:** se generan con `python -m sicae_ml.calibrar`.
+
+### Arrancar
+
+```bash
+uvicorn app.main:app --app-dir api --reload
+```
+
+- `--app-dir api` le dice a uvicorn dónde está el paquete `app`.
+- `--reload` reinicia el servidor al guardar cambios. Úsalo solo mientras desarrollas.
+- **Si falta el modelo, la API arranca igual:** `GET /salud` lo informa y `POST /analizar`
+  responde 503.
+
+### Probar desde /docs
+
+1. Abre <http://127.0.0.1:8000/docs>: es la documentación interactiva que genera FastAPI.
+2. **GET /salud → Try it out → Execute.** Con el modelo cargado responde
+   `{"estado": "ok", "modelo_cargado": true, "version": "v1.0", "detalle": null}`.
+3. **POST /analizar → Try it out.** El cuerpo ya viene con un correo de ejemplo inventado; pulsa
+   Execute. Con el modelo v1.0 responde `"categoria": "phishing"` con motivos como
+   «paquete» y «entrega».
+
+Campos de `POST /analizar`:
+
+| Campo | Tipo | Límite |
+|---|---|---|
+| `asunto` | texto | 1.000 caracteres |
+| `cuerpo` | texto plano | 50.000 caracteres |
+| `remitente` | texto, por ejemplo `"Nombre <correo@dominio>"` | 320 caracteres |
+| `destinatarios` | lista de direcciones | 100 |
+| `cabeceras` | opcional: `{"List-Unsubscribe": "...", "In-Reply-To": "..."}` | 100 cabeceras |
+| `n_urls`, `n_adjuntos` | enteros ≥ 0 | — |
+
+**Errores:**
+- **422 — Entrada inválida.** Por ejemplo, un campo de más, un número negativo o un texto
+  demasiado largo. La respuesta dice qué campo falló, pero **no devuelve lo que se envió**.
+- **503 — Modelo no cargado.** Revisa `GET /salud`.
+
+**Privacidad.** La API no guarda nada y nunca escribe en los logs el asunto, el cuerpo ni las
+direcciones. Los logs de uvicorn solo muestran el método y la ruta (`POST /analizar`).
+
+### Pruebas
+
+```bash
+pytest            # ml/tests y api/tests
+pytest api/tests  # solo la API
+```
+
+Las pruebas de la API usan un modelo inventado, así que corren sin el `.joblib`.
 
 ## Cómo contribuir
 

@@ -28,6 +28,11 @@
      publicidad para llegar a las tres categorias finales, y como se
      asigna la prioridad. -->
 
+La API (`api/app/main.py`, paso 2.1) expone `POST /analizar`, que llama a
+`analizar_correo()` de `ml/sicae_ml/sistema.py`: modelo v1.0, luego regla de publicidad y
+luego prioridad (detalle en `docs/metricas.md`, pasos 1.6 a 1.8). El modelo se carga una vez
+al arrancar; `GET /salud` dice si está cargado.
+
 ## 6. Alcance y limitaciones
 
 <!-- Prototipo en entorno controlado. Limpieza y envio SIMULADOS:

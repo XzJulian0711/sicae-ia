@@ -1,12 +1,24 @@
-# Dependencias de la API (Python 3.13).
+# Dependencias de la API (Python 3.13). Versiones fijas para que todos tengan lo mismo.
 #
-# Que ira aqui:
-# - fastapi      -> el framework de la API
-# - uvicorn      -> el servidor que la levanta
-# - pydantic     -> validar lo que entra y sale (esquemas)
-# - sqlalchemy   -> hablar con la base de datos
-# - python-dotenv-> leer las variables de .env
-# - pytest       -> pruebas de api/tests/
-# - httpx        -> cliente de pruebas para los endpoints
+# Instalar desde la raíz del proyecto:
+#   pip install -r api/requirements.txt
+#   pip install -e .          (instala el paquete sicae_ml; ver pyproject.toml)
 #
-# SQLite viene incluido en Python, no se instala.
+# - fastapi           -> el framework de la API
+# - uvicorn           -> el servidor que la levanta
+# - pydantic          -> validar lo que entra y sale (esquemas)
+# - pydantic-settings -> leer la configuración de .env
+#
+# La API usa el modelo, así que también necesita las dependencias de ml/:
+-r ../ml/requirements.txt
+
+fastapi==0.162.0
+pydantic==2.14.2
+pydantic-settings==2.16.2
+uvicorn==0.54.0
+
+# ---------- Solo para pruebas (api/tests/) ----------
+# httpx2: cliente HTTP que usa el TestClient de Starlette/FastAPI. Lo publica Pydantic
+# (github.com/pydantic/httpx2) y es la continuación de HTTPX; con el httpx antiguo
+# Starlette muestra un aviso de obsolescencia. La API en sí no lo necesita.
+httpx2==2.16.0

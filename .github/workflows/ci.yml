@@ -13,8 +13,9 @@
 #   pruebas:
 #     - Descargar el codigo del repo              (actions/checkout)
 #     - Instalar Python 3.13                      (actions/setup-python)
-#     - Instalar ml/requirements.txt y api/requirements.txt
-#     - Correr pytest sobre ml/tests/ y api/tests/
+#     - Instalar api/requirements.txt (incluye ml/requirements.txt)
+#     - Instalar el proyecto: pip install -e .   (paquete sicae_ml, ver pyproject.toml)
+#     - Correr pytest desde la raíz (ml/tests/ y api/tests/, ver pyproject.toml)
 #
 # Nota: el CI no entrena el modelo ni descarga los datasets.
 # ml/data/raw/ y ml/models/ estan fuera de Git, asi que las pruebas
