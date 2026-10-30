@@ -10,11 +10,10 @@ Pasos:
   6. Guardar el modelo en ml/models/clasificador.joblib.
 
 Uso (desde la raíz del proyecto):
-    .venv\\Scripts\\python ml/src/train.py
+    .venv\\Scripts\\python -m sicae_ml.train
 """
 
 import json
-import sys
 from pathlib import Path
 
 import joblib
@@ -33,12 +32,10 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
+from sicae_ml.features import COLUMNAS_ENTRADA, construir_preprocesador
+from sicae_ml.preprocess import RUTA_ENTRADA, calcular_palabras_comunes
 
-from src.features import COLUMNAS_ENTRADA, construir_preprocesador  # noqa: E402
-from src.preprocess import RUTA_ENTRADA, calcular_palabras_comunes  # noqa: E402
+CARPETA_ML = Path(__file__).resolve().parents[1]
 
 RUTA_DATOS = CARPETA_ML / "data" / "processed" / "correos_limpios.csv"
 # Versión del modelo guardado. v1.0 = modelo congelado del paso 1.5b (ver docs/metricas.md).

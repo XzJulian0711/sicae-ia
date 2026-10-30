@@ -11,15 +11,12 @@ va siempre con prioridad baja (es_publicidad=True). Ver docs/metricas.md.
 
 import json
 import re
-import sys
 from email.utils import getaddresses, parseaddr
 from pathlib import Path
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
+from sicae_ml.publicidad import normalizar_cabeceras, sin_tildes
 
-from src.publicidad import normalizar_cabeceras, sin_tildes  # noqa: E402
+CARPETA_ML = Path(__file__).resolve().parents[1]
 
 # prioridad.json va en Git con las listas vacías. Si existe prioridad.local.json (ignorado
 # por Git), se usa EN LUGAR del de Git: ahí cada usuario pone sus remitentes reales.

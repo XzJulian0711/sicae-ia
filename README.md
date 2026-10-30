@@ -48,7 +48,7 @@ Definido por el equipo. No se modifica sin aprobación conjunta.
 ```
 sicae-ia/
 ├── ml/                       Modelo de machine learning
-│   ├── src/                  Código del modelo
+│   ├── sicae_ml/             Código del modelo (paquete de Python)
 │   │   ├── load_data.py      Carga y depuración de SpaPhish
 │   │   ├── publicidad.py     Regla de publicidad (List-Unsubscribe, envío masivo)
 │   │   ├── priority.py       Regla de prioridad (alta, media, baja)
@@ -84,6 +84,7 @@ sicae-ia/
 │
 ├── .env.example              Plantilla de variables de entorno
 ├── .gitignore
+├── pyproject.toml            Instala ml/sicae_ml como paquete (pip install -e .)
 └── CLAUDE.md                 Guía del proyecto
 ```
 
@@ -99,16 +100,22 @@ Los datos no están en Git, así que cada integrante los descarga una vez:
    - `Spaphish dataset - DiB.csv`
    - `README.txt`
    - `dataset_schema.json`
-3. Instala las dependencias del módulo ML:
+3. Instala las dependencias del módulo ML y el propio proyecto:
 
    ```bash
    pip install -r ml/requirements.txt
+   pip install -e .
    ```
+
+   `pip install -e .` instala el paquete `sicae_ml` (la carpeta `ml/sicae_ml/`) en modo
+   editable, según `pyproject.toml`. Así los scripts, las pruebas y la API lo importan con
+   `from sicae_ml... import ...`, y los cambios en el código se ven sin reinstalar. Los scripts
+   se corren como módulos: `python -m sicae_ml.<nombre>`.
 
 4. Ejecuta la carga y depuración desde la raíz del proyecto:
 
    ```bash
-   python ml/src/load_data.py
+   python -m sicae_ml.load_data
    ```
 
    El script verifica los conteos, quita las filas inválidas y guarda
@@ -161,19 +168,19 @@ Las reglas y por qué son reglas y no un modelo están en
 
 ## Analizar un correo
 
-`ml/src/sistema.py` une todo: el modelo v1.0, la regla de publicidad y la prioridad.
+`ml/sicae_ml/sistema.py` une todo: el modelo v1.0, la regla de publicidad y la prioridad.
 Necesita el modelo (`ml/models/clasificador.joblib`, fuera de Git) y dos archivos de
 calibración que se generan una vez, sin reentrenar el modelo:
 
 ```bash
-python ml/src/calibrar.py   # crea ml/reports/umbral_confianza.json y promedios_estructurales.json
+python -m sicae_ml.calibrar   # crea ml/reports/umbral_confianza.json y promedios_estructurales.json
 ```
 
 Ejemplo con un correo inventado. La salida es la real del modelo v1.0:
 
 ```python
-from src.priority import cargar_config
-from src.sistema import analizar_correo
+from sicae_ml.priority import cargar_config
+from sicae_ml.sistema import analizar_correo
 
 cabeceras = {"From": "Paquetería Express <avisos@example.net>", "To": "usuario@example.org"}
 asunto = "Su paquete está detenido"

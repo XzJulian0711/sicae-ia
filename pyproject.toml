@@ -1,0 +1,28 @@
+# Proyecto SICAE-IA como paquete de Python.
+#
+# Para qué sirve: con  pip install -e .  el paquete sicae_ml (ml/sicae_ml/) queda instalado
+# en el entorno virtual. Así la API (api/) y las pruebas lo importan con
+# "from sicae_ml.sistema import analizar_correo", sin tocar sys.path a mano.
+# "-e" (editable) significa que los cambios en ml/sicae_ml/ se ven sin reinstalar.
+#
+# Las dependencias con versión fija siguen en ml/requirements.txt y api/requirements.txt.
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sicae-ia"
+version = "0.2.0"
+description = "Sistema inteligente para la clasificación y priorización de correos (prototipo académico)."
+requires-python = ">=3.13"
+
+[tool.setuptools.packages.find]
+where = ["ml"]
+include = ["sicae_ml*"]
+
+[tool.pytest.ini_options]
+# Un solo "pytest" desde la raíz corre las pruebas del modelo y de la API.
+testpaths = ["ml/tests", "api/tests"]
+# La API no se instala como paquete: pytest agrega api/ para poder hacer "from app.main import ...".
+pythonpath = ["api"]

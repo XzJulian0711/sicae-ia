@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/explicar.py y ml/src/calibrar.py.
+"""Pruebas de ml/sicae_ml/explicar.py y ml/sicae_ml/calibrar.py.
 
 Usan un SVM entrenado con correos inventados; una prueba usa además el modelo real v1.0 y
 se salta si clasificador.joblib no existe (por ejemplo, en CI).
@@ -8,10 +8,10 @@ Correr desde la raíz:  .venv\\Scripts\\python -m pytest ml/tests -v
 import numpy as np
 import pytest
 
-from src.calibrar import calcular_umbral, promedios_estructurales
-from src.explicar import ESTRUCTURAL, PALABRA, _etiqueta, contribuciones, explicar
-from src.features import COLUMNAS_ENTRADA
-from src.train import RUTA_MODELO, cargar_modelo, construir_modelos
+from sicae_ml.calibrar import calcular_umbral, promedios_estructurales
+from sicae_ml.explicar import ESTRUCTURAL, PALABRA, _etiqueta, contribuciones, explicar
+from sicae_ml.features import COLUMNAS_ENTRADA
+from sicae_ml.train import RUTA_MODELO, cargar_modelo, construir_modelos
 from tests.test_entrenamiento import correos_inventados
 
 

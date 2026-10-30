@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/preprocess.py con tablas pequeñas hechas a mano.
+"""Pruebas de ml/sicae_ml/preprocess.py con tablas pequeñas hechas a mano.
 
 No dependen del CSV real de SpaPhish (no se sube a git).
 Correr desde la raíz:  .venv\\Scripts\\python -m pytest ml/tests -v
@@ -6,7 +6,7 @@ Correr desde la raíz:  .venv\\Scripts\\python -m pytest ml/tests -v
 
 import pandas as pd
 
-from src.preprocess import COLUMNAS_SALIDA, GRUPO_SIN_LETRAS, normalizar_asunto, preprocesar
+from sicae_ml.preprocess import COLUMNAS_SALIDA, GRUPO_SIN_LETRAS, normalizar_asunto, preprocesar
 
 
 def test_normalizar_asunto_junta_campanas_con_nombres_y_numeros_distintos():

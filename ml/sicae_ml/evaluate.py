@@ -11,11 +11,10 @@ Pasos:
   6. Palabras con más peso hacia cada clase -> ml/reports/palabras_clave.md.
 
 Uso (desde la raíz del proyecto):
-    .venv\\Scripts\\python ml/src/evaluate.py
+    .venv\\Scripts\\python -m sicae_ml.evaluate
 """
 
 import json
-import sys
 from pathlib import Path
 
 import matplotlib
@@ -28,14 +27,10 @@ from matplotlib.ticker import FuncFormatter  # noqa: E402
 from sklearn.metrics import confusion_matrix  # noqa: E402
 from sklearn.model_selection import cross_val_predict  # noqa: E402
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
-
-from src.features import COLUMNAS_ENTRADA  # noqa: E402
-from src.preprocess import calcular_palabras_comunes  # noqa: E402
-from src.texto import limpiar_texto  # noqa: E402
-from src.train import (  # noqa: E402
+from sicae_ml.features import COLUMNAS_ENTRADA
+from sicae_ml.preprocess import calcular_palabras_comunes
+from sicae_ml.texto import limpiar_texto
+from sicae_ml.train import (
     ETIQUETAS,
     RUTA_CV,
     RUTA_DATOS,
@@ -48,6 +43,8 @@ from src.train import (  # noqa: E402
     evaluar,
     pliegues,
 )
+
+CARPETA_ML = Path(__file__).resolve().parents[1]
 
 CARPETA_REPORTES = CARPETA_ML / "reports"
 RUTA_ORIGINAL = CARPETA_ML / "data" / "processed" / "correos.csv"  # para leer el asunto
@@ -315,7 +312,7 @@ def escribir_errores(falsos_negativos, falsos_positivos, analisis, ruta, modelo=
     }
     contenido = f"""# Errores del modelo en el conjunto de prueba (paso 1.5)
 
-Generado por `ml/src/evaluate.py` con `{modelo}` (`ml/models/clasificador.joblib`).
+Generado por `ml/sicae_ml/evaluate.py` con `{modelo}` (`ml/models/clasificador.joblib`).
 
 - **Falsos negativos** (phishing clasificado como legítimo): {len(falsos_negativos)}
 - **Falsos positivos** (legítimo clasificado como phishing): {len(falsos_positivos)}
@@ -402,7 +399,7 @@ def escribir_palabras_clave(hacia_phishing, hacia_legitimo, pesos_numericas, con
     numericas = ", ".join(f"`{k}` {coma(v)}" for k, v in pesos_numericas.items())
     contenido = f"""# Palabras clave del modelo seleccionado (paso 1.5)
 
-Generado por `ml/src/evaluate.py` desde los coeficientes del SVM lineal guardado.
+Generado por `ml/sicae_ml/evaluate.py` desde los coeficientes del SVM lineal guardado.
 Peso positivo empuja hacia phishing; negativo, hacia legítimo. Las columnas de correos
 cuentan en cuántos correos de **entrenamiento** de cada clase aparece el término.
 Un término fuerte que solo sale en una clase y en pocos correos puede ser un atajo.

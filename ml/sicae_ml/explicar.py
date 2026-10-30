@@ -12,17 +12,10 @@ así que la parte de cada característica en el puntaje es EXACTA: no es una apr
   y se cumple siempre: base + Σ contribuciones = decision_function.
 """
 
-import sys
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
-
-from src.features import COLUMNAS_ENTRADA  # noqa: E402
+from sicae_ml.features import COLUMNAS_ENTRADA
 
 PALABRA = "palabra"
 ESTRUCTURAL = "estructural"

@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/evaluate.py con correos inventados.
+"""Pruebas de ml/sicae_ml/evaluate.py con correos inventados.
 
 No dependen del CSV real ni del modelo guardado. Las figuras se guardan en una carpeta
 temporal de pytest (tmp_path).
@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from src.evaluate import (
+from sicae_ml.evaluate import (
     cargar_division,
     coma,
     escribir_errores,
@@ -25,8 +25,8 @@ from src.evaluate import (
     tabla_markdown,
     titulo_modelo,
 )
-from src.features import COLUMNAS_ENTRADA
-from src.train import construir_modelos, evaluar
+from sicae_ml.features import COLUMNAS_ENTRADA
+from sicae_ml.train import construir_modelos, evaluar
 from tests.test_entrenamiento import correos_inventados
 
 

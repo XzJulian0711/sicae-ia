@@ -1,6 +1,6 @@
 # Palabras clave del modelo seleccionado (paso 1.5)
 
-Generado por `ml/src/evaluate.py` desde los coeficientes del SVM lineal guardado.
+Generado por `ml/sicae_ml/evaluate.py` desde los coeficientes del SVM lineal guardado.
 Peso positivo empuja hacia phishing; negativo, hacia legítimo. Las columnas de correos
 cuentan en cuántos correos de **entrenamiento** de cada clase aparece el término.
 Un término fuerte que solo sale en una clase y en pocos correos puede ser un atajo.

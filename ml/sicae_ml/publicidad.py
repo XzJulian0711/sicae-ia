@@ -12,18 +12,12 @@ phishing de SpaPhish y en 7 legítimos). Ver docs/metricas.md.
 """
 
 import re
-import sys
 import unicodedata
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr
-from pathlib import Path
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
-
-from src.texto import limpiar_texto  # noqa: E402
+from sicae_ml.texto import limpiar_texto
 
 # ---------------------------------------------------------------------------
 # Señales FUERTES: una sola basta para decir "publicidad".

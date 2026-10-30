@@ -1,6 +1,6 @@
 # Errores del modelo en el conjunto de prueba (paso 1.5)
 
-Generado por `ml/src/evaluate.py` con `svm_lineal` (`ml/models/clasificador.joblib`).
+Generado por `ml/sicae_ml/evaluate.py` con `svm_lineal` (`ml/models/clasificador.joblib`).
 
 - **Falsos negativos** (phishing clasificado como legítimo): 9
 - **Falsos positivos** (legítimo clasificado como phishing): 4

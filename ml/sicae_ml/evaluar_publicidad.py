@@ -10,19 +10,16 @@ PRIVACIDAD: los .eml son correos reales y no se suben a Git (ver .gitignore). El
 guarda SOLO conteos: nunca asuntos, textos, direcciones ni nombres de archivo.
 
 Uso (desde la raíz del proyecto):
-    .venv\\Scripts\\python ml/src/evaluar_publicidad.py
+    .venv\\Scripts\\python -m sicae_ml.evaluar_publicidad
 """
 
-import sys
 from collections import Counter
 from pathlib import Path
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
+from sicae_ml.publicidad import analizar_publicidad, leer_eml
+from sicae_ml.train import guardar_json
 
-from src.publicidad import analizar_publicidad, leer_eml  # noqa: E402
-from src.train import guardar_json  # noqa: E402
+CARPETA_ML = Path(__file__).resolve().parents[1]
 
 CARPETA_EML = CARPETA_ML / "data" / "eml"
 CARPETA_PUBLICIDAD = CARPETA_EML / "publicidad"

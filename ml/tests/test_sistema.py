@@ -1,4 +1,4 @@
-"""Pruebas de ml/src/sistema.py: los tres caminos (phishing, publicidad, legítimo).
+"""Pruebas de ml/sicae_ml/sistema.py: los tres caminos (phishing, publicidad, legítimo).
 
 No usan el modelo real: pasan recursos inventados (un SVM entrenado con correos inventados),
 así funcionan aunque clasificador.joblib no exista (por ejemplo, en CI).
@@ -10,10 +10,10 @@ from email.message import EmailMessage
 
 import pytest
 
-from src.calibrar import promedios_estructurales
-from src.features import COLUMNAS_ENTRADA
-from src.sistema import analizar_correo
-from src.train import construir_modelos
+from sicae_ml.calibrar import promedios_estructurales
+from sicae_ml.features import COLUMNAS_ENTRADA
+from sicae_ml.sistema import analizar_correo
+from sicae_ml.train import construir_modelos
 from tests.test_entrenamiento import correos_inventados
 from tests.test_prioridad import config_prueba
 

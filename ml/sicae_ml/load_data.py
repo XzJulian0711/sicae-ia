@@ -8,7 +8,7 @@ Pasos:
   5. Guardar ml/data/processed/correos.csv.
 
 Uso (desde la raíz del proyecto):
-    .venv\\Scripts\\python ml/src/load_data.py
+    .venv\\Scripts\\python -m sicae_ml.load_data
 """
 
 from pathlib import Path

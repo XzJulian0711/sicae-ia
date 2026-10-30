@@ -13,17 +13,12 @@ Este módulo no guarda nada en disco.
 """
 
 import json
-import sys
 from functools import lru_cache
 from pathlib import Path
 
-CARPETA_ML = Path(__file__).resolve().parents[1]
-if str(CARPETA_ML) not in sys.path:
-    sys.path.insert(0, str(CARPETA_ML))
-
-from src.calibrar import RUTA_PROMEDIOS, RUTA_UMBRAL  # noqa: E402
-from src.explicar import explicar  # noqa: E402
-from src.priority import (  # noqa: E402
+from sicae_ml.calibrar import RUTA_PROMEDIOS, RUTA_UMBRAL
+from sicae_ml.explicar import explicar
+from sicae_ml.priority import (
     DESTINATARIO_UNICO,
     PUBLICIDAD,
     REMITENTE_IMPORTANTE,
@@ -32,7 +27,7 @@ from src.priority import (  # noqa: E402
     asignar_prioridad,
     cargar_config,
 )
-from src.publicidad import (  # noqa: E402
+from sicae_ml.publicidad import (
     FRASE_BAJA,
     LIST_ID,
     LIST_UNSUBSCRIBE,
@@ -42,8 +37,8 @@ from src.publicidad import (  # noqa: E402
     REMITENTE_MASIVO,
     analizar_publicidad,
 )
-from src.texto import limpiar_texto  # noqa: E402
-from src.train import RUTA_MODELO, cargar_modelo  # noqa: E402
+from sicae_ml.texto import limpiar_texto
+from sicae_ml.train import RUTA_MODELO, cargar_modelo
 
 # Etiquetas en español para los códigos de las reglas (los del modelo traen la suya).
 ETIQUETAS_PUBLICIDAD = {
@@ -72,7 +67,7 @@ def cargar_recursos(ruta_modelo=RUTA_MODELO, ruta_umbral=RUTA_UMBRAL, ruta_prome
     """
     for ruta in (ruta_umbral, ruta_promedios):
         if not Path(ruta).is_file():
-            raise FileNotFoundError(f"Falta {ruta}: corra primero  python ml/src/calibrar.py")
+            raise FileNotFoundError(f"Falta {ruta}: corra primero  python -m sicae_ml.calibrar")
     guardado = cargar_modelo(ruta_modelo)
     umbral = json.loads(Path(ruta_umbral).read_text(encoding="utf-8"))
     promedios = json.loads(Path(ruta_promedios).read_text(encoding="utf-8"))
