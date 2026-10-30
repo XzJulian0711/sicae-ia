@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/XzJulian0711/sicae-ia/actions/workflows/ci.yml/badge.svg)](https://github.com/XzJulian0711/sicae-ia/actions/workflows/ci.yml)
 
-*CI: en cada push y pull request corre las pruebas de `ml/` y `api/` (sin datos reales ni el modelo `.joblib`) y revisa con pip-audit que ninguna dependencia tenga vulnerabilidades conocidas.*
+*CI: en cada pull request hacia `main` y en cada push a `main` corre las pruebas de `ml/` y `api/` (sin datos reales ni el modelo `.joblib`) y revisa con pip-audit que ninguna dependencia tenga vulnerabilidades conocidas.*
 
 Sistema inteligente para la automatización y clasificación de correos electrónicos.
 Clasifica cada correo en **legítimo**, **publicidad** o **phishing** y le asigna una prioridad (**alta**, **media** o **baja**).
