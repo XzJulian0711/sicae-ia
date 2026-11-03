@@ -1,8 +1,8 @@
 <!doctype html>
 <!--
   Panel lateral de SICAE-IA: se abre al hacer clic en el ícono (ver service-worker.js).
-  - "Analizar este correo": lee el correo abierto en Gmail y muestra categoría, prioridad y
-    confianza (paso 3.2; la tarjeta con los motivos es el paso 3.3).
+  - "Analizar este correo": lee el correo abierto en Gmail y muestra la tarjeta de resultado
+    (paso 3.3): estilo según categoría y confianza, prioridad, motivos y consejos.
   - "Probar conexión": comprueba la API y la clave.
   Sin scripts en línea ni recursos remotos: la CSP de Manifest V3 los bloquea. El texto
   dinámico se escribe solo con textContent (panel.js).
@@ -34,17 +34,22 @@
       <span id="analisis-texto"></span>
     </div>
 
-    <section class="resultado" id="resultado" aria-live="polite" hidden>
-      <h2>Resultado</h2>
-      <dl>
-        <dt>Categoría</dt>
-        <dd id="res-categoria"></dd>
-        <dt>Prioridad</dt>
-        <dd id="res-prioridad"></dd>
-        <dt>Confianza</dt>
-        <dd id="res-confianza"></dd>
-      </dl>
+    <!-- Tarjeta de resultado (paso 3.3). Los textos los decide lib/tarjeta.js y panel.js los
+         escribe con textContent. role="status" + aria-live: el lector de pantalla la anuncia. -->
+    <section class="tarjeta" id="tarjeta" role="status" aria-live="polite" aria-labelledby="tarjeta-titulo" hidden>
+      <div class="tarjeta-cabeza">
+        <img class="tarjeta-icono" id="tarjeta-icono" src="../iconos/ok.svg" alt="" width="24" height="24">
+        <h2 id="tarjeta-titulo"></h2>
+      </div>
+      <p class="tarjeta-detalle" id="tarjeta-detalle" hidden></p>
+      <ul class="tarjeta-consejos" id="tarjeta-consejos" hidden></ul>
+      <p class="tarjeta-prioridad" id="tarjeta-prioridad" hidden></p>
+      <div class="tarjeta-motivos" id="tarjeta-motivos" hidden>
+        <h3>Por qué</h3>
+        <ul id="lista-motivos"></ul>
+      </div>
       <p class="aviso" id="aviso-recorte" hidden>El correo es muy largo: se analizó solo el inicio.</p>
+      <p class="tarjeta-nota" id="tarjeta-nota"></p>
     </section>
 
     <hr class="separador">

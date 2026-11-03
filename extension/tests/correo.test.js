@@ -223,26 +223,29 @@ describe("urlAnalizar", () => {
 describe("interpretarAnalisis", () => {
   const respuesta = (cambios) => ({ categoria: "legitimo", confianza: "alta", puntaje: -1.2, prioridad: "media", motivos: [], version: "v1.0", ...cambios });
 
-  test("resultado legítimo con prioridad", () => {
-    assert.deepEqual(interpretarAnalisis(200, respuesta()), {
+  test("devuelve los valores validados y los motivos para la tarjeta", () => {
+    const motivos = [{ codigo: "palabra:reunion", etiqueta: "Menciona «reunión»", origen: "modelo" }];
+    assert.deepEqual(interpretarAnalisis(200, respuesta({ motivos })), {
       tipo: "resultado",
       categoria: "legitimo",
-      categoriaTexto: "Legítimo",
-      prioridadTexto: "Media",
-      confianzaTexto: "Alta",
+      confianza: "alta",
+      prioridad: "media",
+      motivos,
     });
   });
 
-  test("phishing va sin prioridad, como alerta", () => {
+  test("phishing va sin prioridad (null)", () => {
     const r = interpretarAnalisis(200, respuesta({ categoria: "phishing", prioridad: null, confianza: "dudosa" }));
+    assert.equal(r.tipo, "resultado");
     assert.equal(r.categoria, "phishing");
-    assert.match(r.categoriaTexto, /Phishing/);
-    assert.match(r.prioridadTexto, /alerta/);
-    assert.match(r.confianzaTexto, /Dudosa/);
+    assert.equal(r.prioridad, null);
+    assert.equal(r.confianza, "dudosa");
   });
 
-  test("publicidad", () => {
-    assert.equal(interpretarAnalisis(200, respuesta({ categoria: "publicidad", prioridad: "baja" })).categoriaTexto, "Publicidad");
+  test("publicidad, y motivos que no son lista quedan vacíos", () => {
+    const r = interpretarAnalisis(200, respuesta({ categoria: "publicidad", prioridad: "baja", motivos: "texto" }));
+    assert.equal(r.categoria, "publicidad");
+    assert.deepEqual(r.motivos, []);
   });
 
   test("valores desconocidos no se muestran: respuesta inesperada", () => {
