@@ -64,26 +64,42 @@ def archivos_modelo(tmp_path_factory):
     return carpeta
 
 
+CLAVE = "clave-de-prueba-solo-para-tests"  # inventada; la real va en .env
+ORIGEN_PERMITIDO = "chrome-extension://idprueba"
+
+
 def ajustes_para(carpeta, **cambios):
+    """Ajustes de prueba. Todo se pasa explícito, así un .env local no cambia las pruebas."""
     valores = {
         "ruta_modelo": carpeta / "modelo.joblib",
         "ruta_umbral": carpeta / "umbral.json",
         "ruta_promedios": carpeta / "promedios.json",
         "ruta_config_prioridad": carpeta / "prioridad.json",
+        "db_path": carpeta / "sicae.db",
+        "api_key": CLAVE,
+        "cors_origins": ORIGEN_PERMITIDO,
+        "max_bytes": 200_000,
+        "rate_limit": 30,
+        "modo": "desarrollo",
     }
     return Ajustes(**{**valores, **cambios})
 
 
 @pytest.fixture
-def cliente(archivos_modelo):
-    """Cliente de pruebas con el modelo inventado cargado (el "with" ejecuta el lifespan)."""
-    with TestClient(crear_app(ajustes_para(archivos_modelo))) as cliente:
+def cliente(archivos_modelo, tmp_path):
+    """Cliente con el modelo inventado cargado y la clave enviada en cada petición.
+
+    El "with" ejecuta el lifespan. Cada prueba usa su propia base de datos en tmp_path.
+    """
+    ajustes = ajustes_para(archivos_modelo, db_path=tmp_path / "sicae.db")
+    with TestClient(crear_app(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
         yield cliente
 
 
 @pytest.fixture
 def cliente_sin_modelo(archivos_modelo, tmp_path):
     """Cliente cuya ruta de modelo no existe: la API debe arrancar igual."""
-    ajustes = ajustes_para(archivos_modelo, ruta_modelo=tmp_path / "no_existe.joblib")
-    with TestClient(crear_app(ajustes)) as cliente:
+    ajustes = ajustes_para(archivos_modelo, ruta_modelo=tmp_path / "no_existe.joblib",
+                           db_path=tmp_path / "sicae.db")
+    with TestClient(crear_app(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
         yield cliente

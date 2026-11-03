@@ -89,6 +89,14 @@ class Resultado(BaseModel):
     version: str = Field(description="Versión del modelo que clasificó el correo.")
 
 
+class Estadisticas(BaseModel):
+    total: int = Field(description="Correos analizados desde que existe el registro.")
+    por_categoria: dict[Literal["legitimo", "publicidad", "phishing"], int]
+    por_prioridad: dict[Literal["alta", "media", "baja", "sin_prioridad"], int] = Field(
+        description='"sin_prioridad" cuenta los phishing (van como alerta, sin prioridad).'
+    )
+
+
 class Salud(BaseModel):
     estado: Literal["ok", "sin_modelo"]
     modelo_cargado: bool

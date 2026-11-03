@@ -2,16 +2,21 @@
 
 Cada campo se puede cambiar con una variable SICAE_<NOMBRE EN MAYÚSCULA>, por ejemplo
 SICAE_RUTA_MODELO=ml/models/clasificador.joblib. Ver .env.example.
-No hay claves ni tokens aquí: solo rutas y límites de tamaño.
+La clave de la API (SICAE_API_KEY) se lee de .env: NUNCA se escribe en el código.
 """
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from sicae_ml.calibrar import RUTA_PROMEDIOS, RUTA_UMBRAL
 from sicae_ml.train import RUTA_MODELO
+
+# api/data/sicae.db (fuera de Git: *.db está en .gitignore).
+RUTA_DB = Path(__file__).resolve().parents[1] / "data" / "sicae.db"
 
 
 class Ajustes(BaseSettings):
@@ -31,6 +36,29 @@ class Ajustes(BaseSettings):
     max_destinatarios: int = 100
     max_cabeceras: int = 100
     max_valor_cabecera: int = 2_000
+
+    # ---------- Registro (paso 2.3) ----------
+    # Base SQLite con una fila por análisis, SIN texto del correo (ver registro.py).
+    db_path: Path = RUTA_DB
+
+    # ---------- Seguridad (paso 2.4) ----------
+    # Clave que la extensión manda en el encabezado X-API-Key. Sin ella la API no arranca.
+    # SecretStr: si se imprime el objeto de ajustes, la clave sale como "**********".
+    api_key: SecretStr | None = None
+    # Orígenes del navegador permitidos (CORS), separados por comas.
+    # Ej.: chrome-extension://abcdefghijklmnop. Nunca "*".
+    cors_origins: str = ""
+    # Tamaño máximo de una petición en bytes (más grande = 413).
+    max_bytes: int = 200_000
+    # Peticiones por minuto por IP (más = 429).
+    rate_limit: int = 30
+    # "desarrollo" habilita /docs y /redoc; en "produccion" quedan apagados.
+    modo: Literal["desarrollo", "produccion"] = "produccion"
+
+    @property
+    def origenes_cors(self):
+        """SICAE_CORS_ORIGINS como lista: "a, b" -> ["a", "b"] (sin vacíos)."""
+        return [origen.strip() for origen in self.cors_origins.split(",") if origen.strip()]
 
 
 @lru_cache

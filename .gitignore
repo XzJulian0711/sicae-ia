@@ -54,6 +54,10 @@ ml/models/*.joblib
 # ---------- Base de datos local (SQLite) ----------
 *.db
 *.sqlite3
+# Archivos auxiliares que SQLite crea junto a la base mientras escribe.
+*.db-journal
+*.db-wal
+*.db-shm
 
 # ---------- Logs ----------
 *.log
