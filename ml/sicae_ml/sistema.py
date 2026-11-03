@@ -38,6 +38,7 @@ from sicae_ml.publicidad import (
     analizar_publicidad,
 )
 from sicae_ml.texto import limpiar_texto
+from sicae_ml.integridad import SHA256_MODELO
 from sicae_ml.train import RUTA_MODELO, cargar_modelo
 
 # Etiquetas en español para los códigos de las reglas (los del modelo traen la suya).
@@ -60,15 +61,17 @@ ETIQUETAS_PRIORIDAD = {
 
 
 @lru_cache(maxsize=4)
-def cargar_recursos(ruta_modelo=RUTA_MODELO, ruta_umbral=RUTA_UMBRAL, ruta_promedios=RUTA_PROMEDIOS):
+def cargar_recursos(ruta_modelo=RUTA_MODELO, ruta_umbral=RUTA_UMBRAL, ruta_promedios=RUTA_PROMEDIOS,
+                    sha256_modelo=SHA256_MODELO):
     """Modelo, palabras_minuscula, versión, umbral de confianza y promedios estructurales.
 
-    Se cargan una sola vez (caché). Falla con un mensaje claro si falta algún archivo.
+    Se cargan una sola vez (caché). Falla con un mensaje claro si falta algún archivo, y con
+    ModeloAlterado si el modelo no tiene el SHA-256 esperado (no se llega a cargar).
     """
     for ruta in (ruta_umbral, ruta_promedios):
         if not Path(ruta).is_file():
             raise FileNotFoundError(f"Falta {ruta}: corra primero  python -m sicae_ml.calibrar")
-    guardado = cargar_modelo(ruta_modelo)
+    guardado = cargar_modelo(ruta_modelo, sha256_modelo)
     umbral = json.loads(Path(ruta_umbral).read_text(encoding="utf-8"))
     promedios = json.loads(Path(ruta_promedios).read_text(encoding="utf-8"))
     for nombre, datos in (("umbral", umbral), ("promedios", promedios)):

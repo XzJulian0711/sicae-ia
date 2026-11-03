@@ -11,6 +11,7 @@ import pytest
 from sicae_ml.features import COLUMNAS_ENTRADA, construir_preprocesador
 import joblib
 
+from sicae_ml.integridad import calcular_sha256
 from sicae_ml.train import (
     VERSION_MODELO,
     cargar_modelo,
@@ -144,7 +145,8 @@ def test_guardar_y_cargar_modelo_conserva_todo(tmp_path):
     pipeline.fit(df[COLUMNAS_ENTRADA], df["etiqueta"])
     ruta = guardar_modelo(pipeline, {"tienes", "aviso"}, tmp_path / "modelo.joblib")
 
-    cargado = cargar_modelo(ruta)
+    # Un modelo de prueba no es el v1.0: se le pasa su propio SHA-256.
+    cargado = cargar_modelo(ruta, sha256_esperado=calcular_sha256(ruta))
     assert cargado["version"] == VERSION_MODELO == "v1.0"
     assert cargado["palabras_minuscula"] == frozenset({"tienes", "aviso"})
     antes = pipeline.predict(df[COLUMNAS_ENTRADA])
@@ -158,4 +160,4 @@ def test_cargar_modelo_rechaza_el_formato_viejo(tmp_path):
     ruta = tmp_path / "viejo.joblib"
     joblib.dump(pipeline, ruta)
     with pytest.raises(AssertionError):
-        cargar_modelo(ruta)
+        cargar_modelo(ruta, sha256_esperado=calcular_sha256(ruta))

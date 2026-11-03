@@ -6,6 +6,7 @@ ajustes que apuntan a esos archivos.
 """
 
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Ajustes
 from app.main import crear_app
+from sicae_ml.integridad import calcular_sha256
 from sicae_ml.calibrar import promedios_estructurales
 from sicae_ml.features import COLUMNAS_ENTRADA
 from sicae_ml.priority import RUTA_CONFIG
@@ -68,6 +70,17 @@ CLAVE = "clave-de-prueba-solo-para-tests"  # inventada; la real va en .env
 ORIGEN_PERMITIDO = "chrome-extension://idprueba"
 
 
+def crear_app_prueba(ajustes, **kwargs):
+    """crear_app() con el SHA-256 del modelo inventado (no es el v1.0 de la Release).
+
+    Si el modelo no existe (prueba "sin modelo"), se pasa el hash por defecto: da igual,
+    porque la API ni siquiera llega a verificarlo.
+    """
+    if Path(ajustes.ruta_modelo).is_file():
+        kwargs.setdefault("sha256_modelo", calcular_sha256(ajustes.ruta_modelo))
+    return crear_app(ajustes, **kwargs)
+
+
 def ajustes_para(carpeta, **cambios):
     """Ajustes de prueba. Todo se pasa explícito, así un .env local no cambia las pruebas."""
     valores = {
@@ -92,7 +105,7 @@ def cliente(archivos_modelo, tmp_path):
     El "with" ejecuta el lifespan. Cada prueba usa su propia base de datos en tmp_path.
     """
     ajustes = ajustes_para(archivos_modelo, db_path=tmp_path / "sicae.db")
-    with TestClient(crear_app(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
+    with TestClient(crear_app_prueba(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
         yield cliente
 
 
@@ -101,5 +114,5 @@ def cliente_sin_modelo(archivos_modelo, tmp_path):
     """Cliente cuya ruta de modelo no existe: la API debe arrancar igual."""
     ajustes = ajustes_para(archivos_modelo, ruta_modelo=tmp_path / "no_existe.joblib",
                            db_path=tmp_path / "sicae.db")
-    with TestClient(crear_app(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
+    with TestClient(crear_app_prueba(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
         yield cliente
