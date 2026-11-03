@@ -79,10 +79,11 @@ sicae-ia/
 ├── extension/                Extensión de Chrome (Manifest V3), ver docs/extension.md
 │   ├── manifest.json         Permisos mínimos y configuración
 │   ├── service-worker.js     Abre el panel lateral al hacer clic en el ícono
-│   ├── sidepanel/            Panel: "Analizar este correo" y "Probar conexión"
+│   ├── sidepanel/            Panel: "Analizar este correo" (tarjeta de resultado) y "Probar conexión"
+│   ├── iconos/               Íconos SVG locales de la tarjeta
 │   ├── gmail/                Content script: lee el correo abierto (selectores.js + lector.js)
 │   ├── opciones/             URL de la API y clave (chrome.storage.local)
-│   ├── lib/                  Lógica pura, probada (logica.js, correo.js) y almacen.js
+│   ├── lib/                  Lógica pura, probada (logica.js, correo.js, tarjeta.js) y almacen.js
 │   ├── estilos/sicae.css     Estilo de la demo (Sora + DM Sans, azul/naranja)
 │   ├── fuentes/              Sora y DM Sans locales + licencias OFL
 │   └── tests/                Pruebas con node --test (sin paquetes)

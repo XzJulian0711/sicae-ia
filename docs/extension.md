@@ -1,7 +1,8 @@
 # Extensión de Chrome de SICAE-IA
 
-Pasos 3.1 y 3.2. La extensión tiene:
-- un **panel lateral** que **analiza el correo abierto en Gmail** y prueba la conexión con la API;
+Pasos 3.1 a 3.3. La extensión tiene:
+- un **panel lateral** que **analiza el correo abierto en Gmail**, muestra una tarjeta de
+  resultado y prueba la conexión con la API;
 - una página de **Opciones** para la URL de la API y la clave.
 
 Necesita **Chrome 116 o más nuevo**.
@@ -76,14 +77,51 @@ tarjeta.
    instalar o actualizar la extensión, recárgala con F5.
 2. Abre un correo. Tiene que estar abierto, no solo seleccionado en la lista.
 3. Haz clic en el ícono de SICAE-IA y pulsa **Analizar este correo**.
-4. El panel muestra:
-   - **Categoría:** Legítimo, Publicidad o Phishing (posible fraude). Phishing sale en naranja,
-     porque es una alerta.
-   - **Prioridad:** Alta, Media o Baja. Un phishing no tiene prioridad: va como alerta.
-   - **Confianza:** Alta o Dudosa. "Dudosa" significa que el puntaje del modelo quedó cerca de 0, donde se
-     equivoca más (ver `ml/sicae_ml/calibrar.py`).
+4. El panel muestra la **tarjeta de resultado** (ver la sección siguiente).
 
-   Los motivos ("por qué") llegan en el paso 3.3.
+### La tarjeta de resultado (paso 3.3)
+
+Depende de la **categoría** y de la **confianza** que devuelve `/analizar`. "Dudosa" significa
+que el puntaje del modelo quedó cerca de 0, donde se equivoca más (ver
+`ml/sicae_ml/calibrar.py`).
+
+| Categoría | Confianza | Color e ícono | Título | Debajo del título | Prioridad |
+|---|---|---|---|---|---|
+| Phishing | alta | 🔴 rojo · triángulo de alerta | "Posible phishing" | 3 consejos: "No hagas clic en los enlaces." · "No envíes datos ni contraseñas." · "Verifica con el remitente por otro medio." | No se muestra |
+| Phishing | dudosa | 🟠 naranja · signo de pregunta | "Revisa con cuidado" | "Tiene algunas señales de phishing, pero no es un resultado seguro. Antes de abrir enlaces o responder, confirma con el remitente por otro medio." | No se muestra |
+| Legítimo | alta | 🔵 azul · visto ✓ | "No se detectaron señales de phishing" | — | Etiqueta |
+| Legítimo | dudosa | 🔵 azul · visto ✓ | "No se detectaron señales de phishing, pero revisa con cuidado" | — | Etiqueta |
+| Publicidad | alta | ⚪ gris · sobre | "Correo masivo o publicidad" | — | Etiqueta |
+| Publicidad | dudosa | ⚪ gris · sobre | "Correo masivo o publicidad, pero revisa con cuidado" | — | Etiqueta |
+
+En todos los casos:
+- **Prioridad:** etiqueta "Prioridad alta / media / baja". Un phishing no la tiene: va como
+  alerta.
+- **Por qué:** hasta **3 motivos**, los primeros en el orden en que los da la API (primero los
+  del modelo, luego los de publicidad y prioridad). Si no hay, la sección no aparece.
+- **Nota fija:** "Resultado automático: puede equivocarse."
+- **Nunca dice que un correo "es seguro".** El texto más tranquilo es "No se detectaron señales
+  de phishing". Una prueba lo revisa.
+
+**Accesibilidad:**
+- **El color nunca es la única señal:** cada caso tiene un ícono de forma distinta y su título
+  en texto. La prioridad es una etiqueta con texto y borde.
+- **Contraste AA,** con cada título sobre su fondo:
+  - rojo `#b91c1c`: 5,9:1;
+  - naranja `#c2410c`: 4,9:1;
+  - azul `#1d4ed8`: 6,2:1;
+  - gris `#334155`: 9,5:1.
+- **La tarjeta tiene `role="status"` y `aria-live="polite"`:** el lector de pantalla la anuncia
+  al aparecer. El ícono es decorativo (`alt=""`), porque el título ya lo dice.
+
+**Seguridad:**
+- Los motivos pueden traer palabras del correo, así que se escriben **solo con `textContent`**,
+  cada uno en un `<li>` creado con `createElement`. Nunca se usa `innerHTML`.
+- Los íconos son SVG locales (`extension/iconos/`), sin scripts ni enlaces. La ruta de cada uno
+  sale de una tabla fija en `lib/tarjeta.js`, nunca de la API.
+
+El rojo y el gris se suman a la paleta de la demo solo para la tarjeta. El azul sigue siendo
+acción y el naranja, alerta.
 
 Qué pasa por dentro:
 1. El panel pide el correo a la pestaña activa con `chrome.tabs.sendMessage`.
@@ -219,7 +257,8 @@ cambió. Una prueba comprueba estos SHA-256.
 La lógica que no depende de Chrome está en dos archivos:
 - `extension/lib/logica.js`: validar la URL y la clave, e interpretar `/salud`;
 - `extension/lib/correo.js`: armar la petición, recortar, contar enlaces e interpretar
-  `/analizar`.
+  `/analizar`;
+- `extension/lib/tarjeta.js`: elegir el estilo, los textos y qué secciones muestra la tarjeta.
 
 Se prueba con el ejecutor que trae Node, **sin npm ni paquetes**:
 
@@ -233,6 +272,12 @@ node --test "extension/tests/*.test.js"
 - **`tests/correo.test.js`:** casos de la petición, el recorte, los enlaces y las respuestas de
   `/analizar`. También comprueba que los campos y límites coincidan con `api/app/esquemas.py` y
   `config.py` (solo los lee).
+- **`tests/tarjeta.test.js`:** prueba la tarjeta:
+  - las 6 combinaciones de categoría × confianza: variante, ícono, título, detalle, consejos y
+    prioridad;
+  - la etiqueta de prioridad;
+  - los motivos: máximo 3, inválidos ignorados, HTML como texto;
+  - que ningún texto diga "es seguro".
 - **`tests/gmail.test.js`:** el content script con **HTML inventado** que imita a Gmail, nunca
   correos reales:
   - correo completo y hilo con varios mensajes;
@@ -254,6 +299,7 @@ node --test "extension/tests/*.test.js"
   - que nada del correo vaya a `chrome.storage`: solo `almacen.js` lo usa, y solo para
     `urlApi` y `claveApi`;
   - que no haya claves escritas en el código;
+  - que los íconos SVG no tengan scripts, eventos ni enlaces;
   - el SHA-256 de las fuentes.
 
 Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su propio job**

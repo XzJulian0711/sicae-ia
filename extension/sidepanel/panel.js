@@ -3,7 +3,7 @@
 // "Analizar este correo":
 //   1. pide a la pestaña activa (Gmail) el correo abierto (gmail/lector.js);
 //   2. arma la petición (lib/correo.js) y la envía a POST /analizar con X-API-Key;
-//   3. muestra categoría, prioridad y confianza.
+//   3. muestra la tarjeta de resultado (lib/tarjeta.js decide estilo, textos y secciones).
 // "Probar conexión":
 //   1. GET /salud (pública): ¿responde la API? ¿hay modelo cargado?
 //   2. GET /estadisticas con X-API-Key: ¿la clave es correcta? (solo se usa el código)
@@ -36,6 +36,7 @@ import {
   urlSalud,
   validarUrlApi,
 } from "../lib/logica.js";
+import { armarTarjeta } from "../lib/tarjeta.js";
 
 const elementos = {
   avisoSinClave: document.getElementById("aviso-sin-clave"),
@@ -44,10 +45,15 @@ const elementos = {
   analizar: document.getElementById("analizar"),
   analisis: document.getElementById("analisis"),
   analisisTexto: document.getElementById("analisis-texto"),
-  resultado: document.getElementById("resultado"),
-  resCategoria: document.getElementById("res-categoria"),
-  resPrioridad: document.getElementById("res-prioridad"),
-  resConfianza: document.getElementById("res-confianza"),
+  tarjeta: document.getElementById("tarjeta"),
+  tarjetaIcono: document.getElementById("tarjeta-icono"),
+  tarjetaTitulo: document.getElementById("tarjeta-titulo"),
+  tarjetaDetalle: document.getElementById("tarjeta-detalle"),
+  tarjetaConsejos: document.getElementById("tarjeta-consejos"),
+  tarjetaPrioridad: document.getElementById("tarjeta-prioridad"),
+  tarjetaMotivos: document.getElementById("tarjeta-motivos"),
+  listaMotivos: document.getElementById("lista-motivos"),
+  tarjetaNota: document.getElementById("tarjeta-nota"),
   avisoRecorte: document.getElementById("aviso-recorte"),
   probar: document.getElementById("probar"),
   estado: document.getElementById("estado"),
@@ -118,18 +124,44 @@ async function enviarAnalisis(base, claveApi, peticion) {
   }
 }
 
+/** Llena una <ul> con textos, cada uno con textContent (los motivos pueden traer texto del correo). */
+function llenarLista(lista, textos) {
+  lista.replaceChildren(...textos.map((texto) => {
+    const item = document.createElement("li");
+    item.textContent = texto;
+    return item;
+  }));
+}
+
 function mostrarResultado(resultado, recortado) {
-  elementos.resultado.dataset.categoria = resultado.categoria;
-  elementos.resCategoria.textContent = resultado.categoriaTexto;
-  elementos.resPrioridad.textContent = resultado.prioridadTexto;
-  elementos.resConfianza.textContent = resultado.confianzaTexto;
-  elementos.avisoRecorte.hidden = !recortado;
-  elementos.resultado.hidden = false;
+  const t = armarTarjeta(resultado);
+  const e = elementos;
+
+  e.tarjeta.dataset.variante = t.variante;
+  e.tarjetaIcono.src = t.icono; // ruta fija de tarjeta.js, nunca de la API
+  e.tarjetaTitulo.textContent = t.titulo;
+
+  e.tarjetaDetalle.textContent = t.detalle ?? "";
+  e.tarjetaDetalle.hidden = !t.detalle;
+
+  llenarLista(e.tarjetaConsejos, t.consejos);
+  e.tarjetaConsejos.hidden = t.consejos.length === 0;
+
+  e.tarjetaPrioridad.textContent = t.prioridad?.texto ?? "";
+  e.tarjetaPrioridad.dataset.prioridad = t.prioridad?.valor ?? "";
+  e.tarjetaPrioridad.hidden = !t.prioridad;
+
+  llenarLista(e.listaMotivos, t.motivos);
+  e.tarjetaMotivos.hidden = t.motivos.length === 0;
+
+  e.avisoRecorte.hidden = !recortado;
+  e.tarjetaNota.textContent = t.nota;
+  e.tarjeta.hidden = false;
 }
 
 async function analizarCorreo() {
   elementos.analisis.hidden = true;
-  elementos.resultado.hidden = true;
+  elementos.tarjeta.hidden = true;
 
   const { urlApi, claveApi } = await leerConfiguracion();
   const url = validarUrlApi(urlApi);

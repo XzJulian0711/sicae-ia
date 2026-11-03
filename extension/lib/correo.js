@@ -169,9 +169,9 @@ export function urlAnalizar(base) {
 
 // ----- Respuesta de POST /analizar -----
 
-const CATEGORIAS = { legitimo: "Legítimo", publicidad: "Publicidad", phishing: "Phishing (posible fraude)" };
-const PRIORIDADES = { alta: "Alta", media: "Media", baja: "Baja" };
-const CONFIANZAS = { alta: "Alta", dudosa: "Dudosa: revísalo con cuidado" };
+const CATEGORIAS = ["legitimo", "publicidad", "phishing"];
+const PRIORIDADES = ["alta", "media", "baja"];
+const CONFIANZAS = ["alta", "dudosa"];
 
 const ERRORES = {
   401: "Clave incorrecta. Revísala en Opciones.",
@@ -184,9 +184,9 @@ const ERRORES = {
 const INESPERADA = { tipo: "error", mensaje: "La API respondió de forma inesperada." };
 
 /**
- * Respuesta de /analizar → {tipo: "resultado", categoria, categoriaTexto, prioridadTexto,
- * confianzaTexto} o {tipo: "error", mensaje}. Solo se aceptan valores conocidos: nada de la
- * respuesta se muestra tal cual.
+ * Respuesta de /analizar → {tipo: "resultado", categoria, confianza, prioridad, motivos} o
+ * {tipo: "error", mensaje}. Solo se aceptan categorías, confianzas y prioridades conocidas.
+ * Los motivos pasan crudos: tarjeta.js los filtra y el panel los muestra como texto.
  */
 export function interpretarAnalisis(estadoHttp, cuerpo) {
   if (estadoHttp !== 200) {
@@ -194,17 +194,11 @@ export function interpretarAnalisis(estadoHttp, cuerpo) {
   }
   if (!cuerpo || typeof cuerpo !== "object") return INESPERADA;
 
-  const { categoria, prioridad, confianza } = cuerpo;
-  if (!Object.hasOwn(CATEGORIAS, categoria) || !Object.hasOwn(CONFIANZAS, confianza)) return INESPERADA;
-  if (prioridad !== null && !Object.hasOwn(PRIORIDADES, prioridad)) return INESPERADA;
+  const { categoria, prioridad, confianza, motivos } = cuerpo;
+  if (!CATEGORIAS.includes(categoria) || !CONFIANZAS.includes(confianza)) return INESPERADA;
+  if (prioridad !== null && !PRIORIDADES.includes(prioridad)) return INESPERADA;
 
-  return {
-    tipo: "resultado",
-    categoria,
-    categoriaTexto: CATEGORIAS[categoria],
-    prioridadTexto: prioridad === null ? "Sin prioridad: es una alerta" : PRIORIDADES[prioridad],
-    confianzaTexto: CONFIANZAS[confianza],
-  };
+  return { tipo: "resultado", categoria, confianza, prioridad, motivos: Array.isArray(motivos) ? motivos : [] };
 }
 
 /** Resultado para fallos de red o tiempo agotado (sin detalles técnicos). */

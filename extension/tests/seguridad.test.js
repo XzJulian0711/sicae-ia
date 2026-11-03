@@ -92,6 +92,21 @@ describe("HTML y CSS", () => {
   });
 });
 
+describe("íconos SVG", () => {
+  test("son locales y sin código: sin scripts, eventos, foreignObject ni enlaces externos", () => {
+    const svgs = readdirSync(join(RAIZ, "iconos")).filter((nombre) => nombre.endsWith(".svg"));
+    assert.ok(svgs.length >= 4, "deberían existir los 4 íconos de la tarjeta");
+    for (const nombre of svgs) {
+      const svg = readFileSync(join(RAIZ, "iconos", nombre), "utf8");
+      assert.doesNotMatch(svg, /<script/i, `${nombre} tiene <script>`);
+      assert.doesNotMatch(svg, /\son[a-z]+\s*=/i, `${nombre} tiene un manejador de eventos`);
+      assert.doesNotMatch(svg, /<foreignObject/i, `${nombre} tiene foreignObject`);
+      assert.doesNotMatch(svg, /\b(xlink:)?href\s*=/i, `${nombre} enlaza otro recurso`);
+      assert.doesNotMatch(svg, /url\(/i, `${nombre} carga un recurso con url()`);
+    }
+  });
+});
+
 describe("manifest.json", () => {
   const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
 
