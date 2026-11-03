@@ -1,0 +1,18 @@
+# Reglas de git para los finales de línea (LF/CRLF) y los archivos binarios.
+# Git no admite comentarios al final de una regla: cada comentario va en su propia línea.
+
+# Fuentes de la extensión y sus licencias OFL: git guarda los bytes exactos, sin convertir
+# LF <-> CRLF. Las pruebas comprueban su SHA-256, y cualquier conversión cambiaría el hash
+# (en Windows con core.autocrlf=true, git cambiaba CRLF por LF y la CI en Linux fallaba).
+extension/fuentes/** -text
+
+# Fuentes: binarias. Sin diff de texto y sin conversión de finales de línea.
+*.ttf binary
+*.woff2 binary
+
+# Modelo entrenado (joblib): binario. Aunque está fuera de git, la regla evita que se dañe
+# si alguna vez se agrega.
+*.joblib binary
+
+# Imágenes: binarias.
+*.png binary

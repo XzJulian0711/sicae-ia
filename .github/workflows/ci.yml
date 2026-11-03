@@ -32,10 +32,10 @@ jobs:
 
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Instalar Python 3.13 (con caché de pip)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -72,12 +72,12 @@ jobs:
 
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Instalar Node 22
         # Solo el ejecutor "node --test" que trae Node: sin npm ni paquetes. Node 22 o más nuevo
         # reconoce solo los módulos ES (import/export) sin necesidad de un package.json.
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
