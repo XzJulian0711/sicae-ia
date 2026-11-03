@@ -228,26 +228,46 @@ Cómo se calculan los motivos y el umbral de "dudosa":
 
 ## API
 
-La API (FastAPI) expone `analizar_correo()` para la extensión. No guarda los correos, no los
-borra ni los envía: solo los clasifica.
+La API (FastAPI) expone `analizar_correo()` para la extensión. No borra ni envía correos: solo
+los clasifica. De cada análisis guarda una fila con fecha, categoría, puntaje, confianza,
+prioridad y versión del modelo, **nunca el texto ni las direcciones** (ver
+[docs/arquitectura.md](docs/arquitectura.md), "Qué se guarda y qué no").
 
-### Instalar y configurar
+### Instalar
 
 Desde la raíz del proyecto, con el entorno virtual activado:
 
 ```bash
 pip install -r api/requirements.txt   # incluye ml/requirements.txt
 pip install -e .                      # instala el paquete sicae_ml
-cp .env.example .env                  # en PowerShell: Copy-Item .env.example .env
 ```
-
-`.env` no se sube a Git. Por defecto no hay que cambiar nada. Las variables `SICAE_…` permiten
-apuntar a otro modelo o cambiar los límites de tamaño.
 
 Para clasificar, la API necesita estos archivos:
 - **`ml/models/clasificador.joblib`:** el modelo v1.0. Está fuera de Git; se genera con
   `python -m sicae_ml.train`.
 - **Los dos JSON de calibración:** se generan con `python -m sicae_ml.calibrar`.
+
+### Crear el archivo .env (obligatorio)
+
+La API **no arranca sin una clave**. Cópiala de la plantilla y cámbiala:
+
+```bash
+cp .env.example .env          # en PowerShell: Copy-Item .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Abre `.env` y pon la clave que imprimió el segundo comando en `SICAE_API_KEY=...`. El valor de
+ejemplo `cambia-esto` no sirve: con él la API no arranca, salvo en modo desarrollo.
+
+`.env` **no se sube a Git**. Otras variables útiles:
+
+| Variable | Para qué | Por defecto |
+|---|---|---|
+| `SICAE_MODO` | `desarrollo` habilita `/docs` | `produccion` |
+| `SICAE_CORS_ORIGINS` | Orígenes de la extensión, separados por comas (`chrome-extension://<id>`). Nunca `*` | vacío (ninguno) |
+| `SICAE_RATE_LIMIT` | Peticiones por minuto por IP | 30 |
+| `SICAE_MAX_BYTES` | Tamaño máximo de una petición | 200000 |
+| `SICAE_DB_PATH` | Archivo SQLite del registro | `api/data/sicae.db` |
 
 ### Arrancar
 
@@ -257,14 +277,35 @@ uvicorn app.main:app --app-dir api --reload
 
 - `--app-dir api` le dice a uvicorn dónde está el paquete `app`.
 - `--reload` reinicia el servidor al guardar cambios. Úsalo solo mientras desarrollas.
+- **Sin `SICAE_API_KEY`**, uvicorn se detiene con el mensaje "Falta SICAE_API_KEY…".
 - **Si falta el modelo, la API arranca igual:** `GET /salud` lo informa y `POST /analizar`
   responde 503.
 
-### Probar desde /docs
+### Probar con curl
 
-1. Abre <http://127.0.0.1:8000/docs>: es la documentación interactiva que genera FastAPI.
-2. **GET /salud → Try it out → Execute.** Con el modelo cargado responde
-   `{"estado": "ok", "modelo_cargado": true, "version": "v1.0", "detalle": null}`.
+`/salud` es pública. `/analizar` y `/estadisticas` piden la clave en el encabezado `X-API-Key`.
+En PowerShell escribe `curl.exe` en lugar de `curl`.
+
+```bash
+curl http://127.0.0.1:8000/salud
+
+curl -X POST http://127.0.0.1:8000/analizar \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: TU_CLAVE" \
+  -d '{"asunto": "Su paquete está detenido", "cuerpo": "Estimado cliente, pague la tasa de envío.", "remitente": "avisos@example.net", "destinatarios": ["usuario@example.org"], "n_urls": 1, "n_adjuntos": 0}'
+
+curl -H "X-API-Key: TU_CLAVE" http://127.0.0.1:8000/estadisticas
+```
+
+`/estadisticas` devuelve solo conteos, por ejemplo
+`{"total": 1, "por_categoria": {"legitimo": 0, "publicidad": 0, "phishing": 1}, "por_prioridad":
+{"alta": 0, "media": 0, "baja": 0, "sin_prioridad": 1}}`.
+
+### Probar desde /docs (solo en modo desarrollo)
+
+1. En `.env`, pon `SICAE_MODO=desarrollo` y reinicia la API. En producción, `/docs` responde 404.
+2. Abre <http://127.0.0.1:8000/docs> y pulsa **Authorize**. Escribe la clave de `.env` en
+   `X-API-Key`.
 3. **POST /analizar → Try it out.** El cuerpo ya viene con un correo de ejemplo inventado; pulsa
    Execute. Con el modelo v1.0 responde `"categoria": "phishing"` con motivos como
    «paquete» y «entrega».
@@ -280,13 +321,19 @@ Campos de `POST /analizar`:
 | `cabeceras` | opcional: `{"List-Unsubscribe": "...", "In-Reply-To": "..."}` | 100 cabeceras |
 | `n_urls`, `n_adjuntos` | enteros ≥ 0 | — |
 
-**Errores:**
-- **422 — Entrada inválida.** Por ejemplo, un campo de más, un número negativo o un texto
-  demasiado largo. La respuesta dice qué campo falló, pero **no devuelve lo que se envió**.
-- **503 — Modelo no cargado.** Revisa `GET /salud`.
+**Errores** (siempre con `{"detalle": ...}` y sin repetir lo que se envió):
 
-**Privacidad.** La API no guarda nada y nunca escribe en los logs el asunto, el cuerpo ni las
-direcciones. Los logs de uvicorn solo muestran el método y la ruta (`POST /analizar`).
+| Código | Cuándo |
+|---|---|
+| 401 | Falta la clave o es incorrecta (mismo mensaje en los dos casos) |
+| 413 | La petición pasa de `SICAE_MAX_BYTES` |
+| 422 | Entrada inválida: dice qué campo falló |
+| 429 | Más de `SICAE_RATE_LIMIT` peticiones por minuto. Espera los segundos de `Retry-After` |
+| 503 | Modelo no cargado: revisa `GET /salud` |
+
+**Privacidad.** La API nunca escribe en los logs el asunto, el cuerpo ni las direcciones. Los
+logs de uvicorn solo muestran el método y la ruta (`POST /analizar`). Las capas de seguridad
+están explicadas en [docs/arquitectura.md](docs/arquitectura.md), "Seguridad de la API".
 
 ### Pruebas
 
@@ -295,7 +342,8 @@ pytest            # ml/tests y api/tests
 pytest api/tests  # solo la API
 ```
 
-Las pruebas de la API usan un modelo inventado, así que corren sin el `.joblib`.
+Las pruebas de la API usan un modelo inventado y una clave de prueba, así que corren sin el
+`.joblib` y sin `.env`.
 
 ## Cómo contribuir
 
