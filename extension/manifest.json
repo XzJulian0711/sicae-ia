@@ -1,23 +1,17 @@
 {
   "manifest_version": 3,
   "name": "SICAE-IA",
-  "version": "0.1.0",
-  "description": "Clasifica el correo abierto en legitimo, publicidad o phishing y le asigna una prioridad.",
+  "version": "0.2.0",
+  "description": "Clasifica correos en legítimo, publicidad o phishing y les asigna prioridad (prototipo académico).",
   "minimum_chrome_version": "114",
-  "permissions": [
-    "sidePanel",
-    "activeTab",
-    "scripting",
-    "storage"
-  ],
-  "host_permissions": [
-    "https://mail.google.com/*",
-    "http://localhost:8000/*"
-  ],
+  "permissions": ["storage"],
+  "host_permissions": ["https://mail.google.com/*", "http://127.0.0.1:8000/*"],
   "action": {
-    "default_title": "Abrir SICAE-IA"
+    "default_title": "SICAE-IA",
+    "default_popup": "popup/popup.html"
   },
-  "side_panel": {
-    "default_path": "sidepanel/panel.html"
+  "options_ui": {
+    "page": "opciones/opciones.html",
+    "open_in_tab": true
   }
 }
