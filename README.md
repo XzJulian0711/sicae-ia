@@ -76,13 +76,20 @@ sicae-ia/
 │   ├── tests/                Pruebas de los endpoints (modelo inventado)
 │   └── requirements.txt
 │
-├── extension/                Extensión de Chrome (Manifest V3)
-│   ├── manifest.json         Permisos y configuración
+├── extension/                Extensión de Chrome (Manifest V3), ver docs/extension.md
+│   ├── manifest.json         Permisos mínimos y configuración
+│   ├── popup/                Popup: "Probar conexión" con la API
+│   ├── opciones/             URL de la API y clave (chrome.storage.local)
+│   ├── lib/                  logica.js (lógica pura, probada) y almacen.js
+│   ├── estilos/sicae.css     Estilo de la demo (Sora + DM Sans, azul/naranja)
+│   ├── fuentes/              Sora y DM Sans locales + licencias OFL
+│   ├── tests/                Pruebas con node --test (sin paquetes)
 │   └── sidepanel/
-│       └── panel.html        Interfaz del panel lateral
+│       └── panel.html        Panel lateral (paso futuro)
 │
 ├── docs/
 │   ├── arquitectura.md       Documentación de arquitectura y decisiones
+│   ├── extension.md          Cómo cargar y configurar la extensión
 │   └── metricas.md           Dataset usado y métricas del modelo
 │
 ├── .github/workflows/

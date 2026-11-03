@@ -1,0 +1,44 @@
+<!doctype html>
+<!--
+  Opciones de SICAE-IA (paso 3.1): URL de la API y clave, guardadas en chrome.storage.local.
+  La clave se escribe aquí; nunca está en el código. Una vez guardada no se vuelve a mostrar.
+-->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>SICAE-IA · Opciones</title>
+  <link rel="stylesheet" href="../estilos/sicae.css">
+  <script type="module" src="opciones.js"></script>
+</head>
+<body class="pagina-opciones">
+  <main class="opciones">
+    <header>
+      <h1>Opciones de SICAE-IA</h1>
+      <p class="suave">Conecta la extensión con la API que corre en tu equipo.</p>
+    </header>
+
+    <form id="formulario" novalidate>
+      <div class="campo">
+        <label for="url">URL de la API</label>
+        <input type="url" id="url" name="url" required spellcheck="false" autocomplete="off"
+               placeholder="http://127.0.0.1:8000">
+        <p class="suave">Por defecto: http://127.0.0.1:8000</p>
+      </div>
+
+      <div class="campo">
+        <label for="clave">Clave de la API</label>
+        <input type="password" id="clave" name="clave" spellcheck="false" autocomplete="off"
+               placeholder="La de SICAE_API_KEY en el archivo .env">
+        <p class="suave" id="estado-clave">Todavía no hay una clave guardada.</p>
+      </div>
+
+      <div class="acciones">
+        <button type="submit" class="boton boton-principal">Guardar</button>
+        <button type="button" class="boton boton-secundario" id="borrar-clave">Borrar clave</button>
+      </div>
+    </form>
+
+    <p class="mensaje" id="mensaje" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>

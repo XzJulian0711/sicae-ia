@@ -1,0 +1,196 @@
+/* Estilo de SICAE-IA (el de la demo): Sora para títulos, DM Sans para texto,
+   azul = acción, naranja = alerta. Las fuentes son archivos locales (licencia OFL,
+   ver fuentes/OFL-*.txt): la extensión no carga nada de internet. */
+
+@font-face {
+  font-family: "Sora";
+  src: url("../fuentes/Sora-Variable.ttf") format("truetype");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  src: url("../fuentes/DMSans-Variable.ttf") format("truetype");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --azul: #1d4ed8;           /* acción: botones, enlaces, foco (contraste 6,7:1 sobre blanco) */
+  --azul-oscuro: #1e40af;
+  --azul-suave: #eff6ff;
+  --naranja: #c2410c;        /* alerta (contraste 5,2:1 sobre blanco) */
+  --naranja-suave: #fff7ed;
+  --naranja-borde: #fdba74;
+  --texto: #0f172a;
+  --texto-suave: #475569;
+  --borde: #e2e8f0;
+  --fondo: #ffffff;
+  --fondo-pagina: #f8fafc;
+  --radio: 10px;
+  --titulos: "Sora", system-ui, sans-serif;
+  --cuerpo: "DM Sans", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--cuerpo);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--texto);
+  background: var(--fondo);
+}
+
+h1, h2 {
+  font-family: var(--titulos);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+h1 { font-size: 18px; }
+h2 { font-size: 16px; }
+
+p { margin: 0; }
+
+.suave { color: var(--texto-suave); }
+
+/* ----- Botones ----- */
+
+.boton {
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radio);
+  border: 1px solid transparent;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+
+.boton-principal { background: var(--azul); color: #ffffff; }
+.boton-principal:hover { background: var(--azul-oscuro); }
+.boton-principal:disabled { opacity: 0.6; cursor: default; }
+
+.boton-secundario { background: var(--fondo); color: var(--azul); border-color: var(--azul); }
+.boton-secundario:hover { background: var(--azul-suave); }
+
+.boton:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--azul);
+  outline-offset: 2px;
+}
+
+/* ----- Avisos y estado ----- */
+
+.aviso {
+  border-radius: var(--radio);
+  padding: 10px 12px;
+  border: 1px solid var(--naranja-borde);
+  background: var(--naranja-suave);
+  color: var(--naranja);
+  font-weight: 500;
+}
+
+.estado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radio);
+  padding: 10px 12px;
+  border: 1px solid var(--borde);
+  min-height: 42px;
+}
+
+.estado::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--borde);
+  flex: none;
+}
+
+.estado[data-tipo="conectado"],
+.estado[data-tipo="clave_correcta"] { border-color: #bfdbfe; background: var(--azul-suave); }
+.estado[data-tipo="conectado"]::before,
+.estado[data-tipo="clave_correcta"]::before { background: var(--azul); }
+
+.estado[data-tipo="sin_modelo"],
+.estado[data-tipo="sin_conexion"],
+.estado[data-tipo="clave_incorrecta"],
+.estado[data-tipo="error"] {
+  border-color: var(--naranja-borde);
+  background: var(--naranja-suave);
+  color: var(--naranja);
+}
+
+.estado[data-tipo="sin_modelo"]::before,
+.estado[data-tipo="sin_conexion"]::before,
+.estado[data-tipo="clave_incorrecta"]::before,
+.estado[data-tipo="error"]::before { background: var(--naranja); }
+
+[hidden] { display: none !important; }
+
+/* ----- Popup ----- */
+
+.popup {
+  width: 320px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.encabezado {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.enlace {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--azul);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ----- Opciones ----- */
+
+.pagina-opciones { background: var(--fondo-pagina); }
+
+.opciones {
+  max-width: 520px;
+  margin: 40px auto;
+  padding: 24px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  display: grid;
+  gap: 18px;
+}
+
+.campo { display: grid; gap: 6px; }
+
+label { font-weight: 600; }
+
+input[type="url"],
+input[type="password"] {
+  font: inherit;
+  padding: 9px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radio);
+  color: var(--texto);
+}
+
+.acciones { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.mensaje { min-height: 21px; font-weight: 500; }
+.mensaje[data-tipo="ok"] { color: var(--azul); }
+.mensaje[data-tipo="error"] { color: var(--naranja); }

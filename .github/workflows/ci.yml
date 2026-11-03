@@ -62,3 +62,24 @@ jobs:
         run: |
           pip install pip-audit==2.10.1
           pip-audit -r api/requirements.txt --desc on
+
+  # Job aparte para la extensión de Chrome: corre en paralelo con el de Python y no necesita
+  # instalar nada de pip. Si falla uno, el otro igual muestra su resultado.
+  extension:
+    name: Pruebas de la extensión (Node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node 22
+        # Solo el ejecutor "node --test" que trae Node: sin npm ni paquetes. Node 22 o más nuevo
+        # reconoce solo los módulos ES (import/export) sin necesidad de un package.json.
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Pruebas de la extensión (node --test)
+        run: node --test "extension/tests/*.test.js"
