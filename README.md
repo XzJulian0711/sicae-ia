@@ -78,14 +78,14 @@ sicae-ia/
 │
 ├── extension/                Extensión de Chrome (Manifest V3), ver docs/extension.md
 │   ├── manifest.json         Permisos mínimos y configuración
-│   ├── popup/                Popup: "Probar conexión" con la API
+│   ├── service-worker.js     Abre el panel lateral al hacer clic en el ícono
+│   ├── sidepanel/            Panel: "Analizar este correo" y "Probar conexión"
+│   ├── gmail/                Content script: lee el correo abierto (selectores.js + lector.js)
 │   ├── opciones/             URL de la API y clave (chrome.storage.local)
-│   ├── lib/                  logica.js (lógica pura, probada) y almacen.js
+│   ├── lib/                  Lógica pura, probada (logica.js, correo.js) y almacen.js
 │   ├── estilos/sicae.css     Estilo de la demo (Sora + DM Sans, azul/naranja)
 │   ├── fuentes/              Sora y DM Sans locales + licencias OFL
-│   ├── tests/                Pruebas con node --test (sin paquetes)
-│   └── sidepanel/
-│       └── panel.html        Panel lateral (paso futuro)
+│   └── tests/                Pruebas con node --test (sin paquetes)
 │
 ├── docs/
 │   ├── arquitectura.md       Documentación de arquitectura y decisiones

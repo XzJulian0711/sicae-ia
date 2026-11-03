@@ -134,6 +134,60 @@ describe("manifest.json", () => {
   });
 });
 
+describe("lectura de Gmail (content script)", () => {
+  const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
+  const codigoDe = (ruta) => sinComentarios(readFileSync(join(RAIZ, ruta), "utf8"), ".js");
+
+  test("el content script corre solo en https://mail.google.com/*", () => {
+    assert.equal(manifest.content_scripts.length, 1);
+    const [script] = manifest.content_scripts;
+    assert.deepEqual(script.matches, ["https://mail.google.com/*"]);
+    assert.deepEqual(script.js, ["gmail/selectores.js", "gmail/lector.js"]);
+    assert.equal(script.all_frames, undefined, "solo el marco principal");
+    assert.equal(script.world, undefined, "debe correr en el mundo aislado, no en el de la página");
+    for (const ruta of script.js) assert.ok(statSync(join(RAIZ, ruta)).isFile(), ruta);
+  });
+
+  test("solo lee: no guarda, no pide nada a internet, no escribe en la consola ni cambia la página", () => {
+    const prohibidos = [
+      /\bfetch\s*\(/, /XMLHttpRequest/, /\bchrome\.storage\b/, /\blocalStorage\b/, /\bsessionStorage\b/,
+      /\bindexedDB\b/, /\bconsole\./, /\bpostMessage\s*\(/, /\bappendChild\b/, /\binsertBefore\b/,
+      /\.remove\s*\(/, /\bsetAttribute\b/, /\bremoveAttribute\b/, /\bclassList\b/,
+      /\.(textContent|innerText|value|src|href)\s*=(?!=)/,
+    ];
+    for (const ruta of manifest.content_scripts[0].js) {
+      const codigo = codigoDe(ruta);
+      for (const patron of prohibidos) assert.doesNotMatch(codigo, patron, `${ruta} usa ${patron}`);
+    }
+  });
+
+  test("solo responde a mensajes de la propia extensión", () => {
+    const codigo = codigoDe("gmail/lector.js");
+    assert.match(codigo, /\.id !== chrome\.runtime\.id/);
+    assert.match(codigo, /"leer-correo"/);
+  });
+
+  test("el panel no guarda el correo ni lo escribe en la consola", () => {
+    const codigo = codigoDe("sidepanel/panel.js");
+    for (const patron of [/\bconsole\./, /\bchrome\.storage\b/, /\blocalStorage\b/, /\bsessionStorage\b/, /\bindexedDB\b/]) {
+      assert.doesNotMatch(codigo, patron, `panel.js usa ${patron}`);
+    }
+  });
+
+  test("solo almacen.js usa chrome.storage, y solo guarda urlApi y claveApi", () => {
+    for (const { nombre, codigo } of leer(".js")) {
+      if (nombre.replaceAll("\\", "/") !== "lib/almacen.js") {
+        assert.doesNotMatch(codigo, /\bchrome\.storage\b/, `${nombre} usa chrome.storage`);
+      }
+    }
+    const almacen = codigoDe("lib/almacen.js");
+    assert.match(almacen, /const CLAVES = \{ url: "urlApi", clave: "claveApi" \};/);
+    for (const [, claves] of almacen.matchAll(/chrome\.storage\.local\.set\(\{([^}]*)\}\)/g)) {
+      assert.match(claves.trim(), /^\[CLAVES\.(url|clave)\]: \w+$/, "solo se guardan las claves de CLAVES");
+    }
+  });
+});
+
 describe("secretos", () => {
   test("no hay claves de API escritas en el código", () => {
     for (const ruta of archivos()) {

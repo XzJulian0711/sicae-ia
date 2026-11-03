@@ -161,6 +161,41 @@ input:focus-visible {
   cursor: pointer;
 }
 
+/* ----- Resultado del análisis (panel lateral) ----- */
+
+.resultado {
+  display: grid;
+  gap: 8px;
+  border-radius: var(--radio);
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  background: var(--azul-suave);
+}
+
+.resultado dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.resultado dt { color: var(--texto-suave); }
+.resultado dd { margin: 0; font-weight: 600; }
+
+/* Phishing es una alerta: naranja. Legítimo y publicidad quedan en azul. */
+.resultado[data-categoria="phishing"] {
+  border-color: var(--naranja-borde);
+  background: var(--naranja-suave);
+}
+.resultado[data-categoria="phishing"] #res-categoria { color: var(--naranja); }
+
+.separador {
+  border: none;
+  border-top: 1px solid var(--borde);
+  margin: 4px 0;
+  width: 100%;
+}
+
 /* ----- Opciones ----- */
 
 .pagina-opciones { background: var(--fondo-pagina); }
