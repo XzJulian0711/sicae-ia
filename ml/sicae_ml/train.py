@@ -33,6 +33,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 
 from sicae_ml.features import COLUMNAS_ENTRADA, construir_preprocesador
+from sicae_ml.integridad import SHA256_MODELO, ModeloAlterado, verificar_sha256
 from sicae_ml.preprocess import RUTA_ENTRADA, calcular_palabras_comunes
 
 CARPETA_ML = Path(__file__).resolve().parents[1]
@@ -191,13 +192,21 @@ def guardar_modelo(pipeline, palabras_comunes, ruta, version=VERSION_MODELO):
     return ruta
 
 
-def cargar_modelo(ruta):
+def cargar_modelo(ruta, sha256_esperado=SHA256_MODELO):
     """Lee el archivo de guardar_modelo(). Devuelve un dict con version, pipeline y
     palabras_minuscula (como frozenset, listo para limpiar_texto()).
+
+    PRIMERO verifica el SHA-256 (por defecto, el del modelo v1.0 de la Release): joblib.load
+    usa pickle, que puede ejecutar código, así que un archivo con otro hash NO se carga y se
+    lanza ModeloAlterado. Un modelo distinto (por ejemplo, uno de prueba) debe pasar su hash.
 
     Falla con AssertionError si el archivo tiene otro formato (por ejemplo, el de antes
     de v1.0, que guardaba solo el pipeline).
     """
+    if not Path(ruta).is_file():
+        raise FileNotFoundError(2, "No existe el archivo del modelo", str(ruta))
+    if not verificar_sha256(ruta, sha256_esperado):
+        raise ModeloAlterado(ruta)
     datos = joblib.load(ruta)
     assert isinstance(datos, dict) and set(datos) == CLAVES_MODELO, (
         f"{ruta} no tiene el formato esperado {sorted(CLAVES_MODELO)}: vuelva a correr train.py"

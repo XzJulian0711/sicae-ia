@@ -6,7 +6,7 @@ Correr desde la raíz:  .venv\\Scripts\\python -m pytest api/tests -v
 """
 
 import pytest
-from conftest import CLAVE, ORIGEN_PERMITIDO, ajustes_para
+from conftest import CLAVE, ORIGEN_PERMITIDO, ajustes_para, crear_app_prueba
 from fastapi.testclient import TestClient
 
 from app.config import Ajustes
@@ -36,7 +36,7 @@ def crear_cliente(archivos_modelo, tmp_path):
 
     def crear(con_clave=False, reloj=None, **cambios):
         ajustes = ajustes_para(archivos_modelo, db_path=tmp_path / "sicae.db", **cambios)
-        cliente = TestClient(crear_app(ajustes, reloj=reloj),
+        cliente = TestClient(crear_app_prueba(ajustes, reloj=reloj),
                              headers={"X-API-Key": CLAVE} if con_clave else {})
         cliente.__enter__()  # ejecuta el lifespan
         abiertos.append(cliente)
@@ -108,6 +108,23 @@ def test_variables_de_entorno(monkeypatch, tmp_path):
     assert ajustes.rate_limit == 7 and ajustes.db_path == tmp_path / "otra.db"
     assert ajustes.api_key.get_secret_value() == "clave-secreta-de-entorno"
     assert "clave-secreta-de-entorno" not in repr(ajustes)  # SecretStr la oculta
+
+
+# ----- integridad del modelo (paso 2.5) -----
+
+
+def test_modelo_con_hash_distinto_no_se_carga_y_analizar_da_503(archivos_modelo, tmp_path, caplog):
+    ajustes = ajustes_para(archivos_modelo, db_path=tmp_path / "sicae.db")
+    hash_equivocado = "0" * 64
+    with caplog.at_level("WARNING"), TestClient(crear_app(ajustes, sha256_modelo=hash_equivocado),
+                                                headers={"X-API-Key": CLAVE}) as cliente:
+        salud = cliente.get("/salud").json()
+        respuesta = cliente.post("/analizar", json=CORREO)
+    assert salud["estado"] == "sin_modelo" and salud["modelo_cargado"] is False
+    assert salud["detalle"] == "El archivo del modelo no pasó la verificación de integridad (SHA-256)."
+    assert respuesta.status_code == 503
+    assert "API sin modelo" in caplog.text and "verificación de integridad" in caplog.text
+    assert hash_equivocado not in caplog.text and "modelo.joblib" not in caplog.text
 
 
 # ----- CORS -----

@@ -8,11 +8,10 @@ import logging
 import sqlite3
 
 import pytest
-from conftest import CLAVE, ajustes_para
+from conftest import CLAVE, ajustes_para, crear_app_prueba
 from fastapi.testclient import TestClient
 
 from app import registro
-from app.main import crear_app
 
 COLUMNAS = ["id", "fecha", "categoria", "puntaje", "confianza", "prioridad", "version_modelo"]
 
@@ -98,7 +97,7 @@ def test_el_texto_del_correo_no_aparece_en_el_archivo_db(cliente, tmp_path):
 def test_si_falla_el_registro_la_respuesta_igual_llega(archivos_modelo, tmp_path, caplog):
     # db_path apunta a una CARPETA: SQLite no puede abrirla como base de datos.
     ajustes = ajustes_para(archivos_modelo, db_path=tmp_path)
-    with caplog.at_level(logging.DEBUG), TestClient(crear_app(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
+    with caplog.at_level(logging.DEBUG), TestClient(crear_app_prueba(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
         respuesta = cliente.post("/analizar", json=CORREO_MARCADO)
     assert respuesta.status_code == 200 and respuesta.json()["categoria"] == "phishing"
     assert "No se pudo registrar el análisis (OperationalError)" in caplog.text

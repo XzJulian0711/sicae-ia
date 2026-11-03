@@ -34,6 +34,7 @@ from app.seguridad import (
     crear_verificador_clave,
     validar_seguridad,
 )
+from sicae_ml.integridad import SHA256_MODELO, ModeloAlterado
 from sicae_ml.priority import cargar_config
 from sicae_ml.sistema import analizar_correo, cargar_recursos
 
@@ -55,16 +56,20 @@ MENSAJES = {
 }
 
 
-def _cargar(ajustes):
+def _cargar(ajustes, sha256_modelo):
     """Carga modelo, calibración y configuración de prioridad.
 
     Devuelve (recursos, config_prioridad, detalle). Si algo falla, recursos es None y
     detalle dice por qué; la API arranca igual y /salud lo informa.
     """
     try:
-        recursos = cargar_recursos(ajustes.ruta_modelo, ajustes.ruta_umbral, ajustes.ruta_promedios)
+        recursos = cargar_recursos(ajustes.ruta_modelo, ajustes.ruta_umbral, ajustes.ruta_promedios,
+                                   sha256_modelo)
         config = cargar_config(ajustes.ruta_config_prioridad)
         return recursos, config, None
+    except ModeloAlterado:
+        # El modelo no se llegó a cargar (pickle podría ejecutar código). Sin hashes ni rutas.
+        return None, None, "El archivo del modelo no pasó la verificación de integridad (SHA-256)."
     except FileNotFoundError as error:
         return None, None, f"Falta un archivo del modelo: {error.filename or error}"
     except AssertionError as error:
@@ -73,9 +78,12 @@ def _cargar(ajustes):
         return None, None, f"No se pudo cargar el modelo ({type(error).__name__})"
 
 
-def crear_app(ajustes=None, reloj=None):
-    """Crea la aplicación. Las pruebas pasan sus propios ajustes (modelo inventado) y,
-    si hace falta, un reloj falso para el límite de peticiones."""
+def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO):
+    """Crea la aplicación. Las pruebas pasan sus propios ajustes (modelo inventado), el
+    SHA-256 de ese modelo y, si hace falta, un reloj falso para el límite de peticiones.
+
+    sha256_modelo NO se lee de .env a propósito: si fuera configurable, se podría cambiar el
+    modelo y su hash a la vez. Por defecto es el del modelo v1.0 (sicae_ml.integridad)."""
     ajustes = ajustes or obtener_ajustes()
     CorreoEntrada = crear_correo_entrada(ajustes)
     verificar_clave = crear_verificador_clave(ajustes)
@@ -90,7 +98,7 @@ def crear_app(ajustes=None, reloj=None):
         except Exception as error:
             logger.error("No se pudo preparar el registro (%s)", type(error).__name__)
         # 3. Modelo: se carga UNA sola vez al arrancar, no en cada petición.
-        recursos, config, detalle = _cargar(ajustes)
+        recursos, config, detalle = _cargar(ajustes, sha256_modelo)
         app.state.recursos = recursos
         app.state.config_prioridad = config
         app.state.detalle = detalle

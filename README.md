@@ -179,8 +179,48 @@ Necesita el modelo (`ml/models/clasificador.joblib`, fuera de Git) y dos archivo
 calibración que se generan una vez, sin reentrenar el modelo:
 
 ```bash
-python -m sicae_ml.calibrar   # crea ml/reports/umbral_confianza.json y promedios_estructurales.json
+python -m sicae_ml.descargar_modelo   # baja el modelo v1.0 de la Release y verifica su SHA-256
+python -m sicae_ml.calibrar           # crea ml/reports/umbral_confianza.json y promedios_estructurales.json
 ```
+
+### Descargar el modelo
+
+El modelo v1.0 no está en Git: está publicado en la Release
+[`v1.0-modelo`](https://github.com/XzJulian0711/sicae-ia/releases/tag/v1.0-modelo). Para tenerlo
+no hay que copiarlo a mano ni reentrenar:
+
+```bash
+python -m sicae_ml.descargar_modelo
+```
+
+**Qué hace el comando:**
+1. **Si `ml/models/clasificador.joblib` ya existe con el SHA-256 correcto,** no descarga nada.
+2. **Si no existe,** lo descarga **solo por HTTPS**, con tiempo máximo de espera, a un archivo
+   temporal, y calcula su SHA-256 mientras llegan los datos.
+3. **Si el hash coincide** con el esperado, lo guarda como `clasificador.joblib`. **Si no
+   coincide,** borra el temporal y termina con error: nunca queda un modelo sin verificar.
+4. **Si existe un `clasificador.joblib` con otro hash,** no lo sobrescribe. Para reemplazarlo
+   por el de la Release:
+
+   ```bash
+   python -m sicae_ml.descargar_modelo --forzar
+   ```
+
+**Por qué se verifica el SHA-256.**
+- El SHA-256 es una "huella" de 64 caracteres: cambia por completo si cambia un solo byte del
+  archivo. Así se detecta una descarga incompleta o dañada, y también un archivo que alguien
+  modificó.
+- Es importante porque `joblib` usa **pickle**, y pickle **puede ejecutar código al cargar** un
+  archivo: un modelo alterado podría ejecutar cualquier cosa en el equipo. Por eso el hash se
+  comprueba **antes** de cargarlo, no después.
+- `cargar_modelo()` (y con ella la API, al arrancar) también lo verifica cada vez. Si no
+  coincide, el modelo no se carga, `GET /salud` dice `sin_modelo` y `POST /analizar` responde
+  503.
+- El hash esperado está escrito en un solo lugar: `SHA256_MODELO` en `ml/sicae_ml/integridad.py`.
+
+**Si alguien reentrena** con `python -m sicae_ml.train`, el archivo nuevo tiene otro SHA-256: ya
+no es el modelo v1.0, así que no se carga hasta publicar una versión nueva y actualizar
+`SHA256_MODELO`.
 
 Ejemplo con un correo inventado. La salida es la real del modelo v1.0:
 
@@ -243,8 +283,8 @@ pip install -e .                      # instala el paquete sicae_ml
 ```
 
 Para clasificar, la API necesita estos archivos:
-- **`ml/models/clasificador.joblib`:** el modelo v1.0. Está fuera de Git; se genera con
-  `python -m sicae_ml.train`.
+- **`ml/models/clasificador.joblib`:** el modelo v1.0. Está fuera de Git; se descarga con
+  `python -m sicae_ml.descargar_modelo` (ver "Descargar el modelo").
 - **Los dos JSON de calibración:** se generan con `python -m sicae_ml.calibrar`.
 
 ### Crear el archivo .env (obligatorio)
