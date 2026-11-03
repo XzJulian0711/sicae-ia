@@ -1,17 +1,63 @@
+<!doctype html>
 <!--
-  Panel lateral (side panel) de la extension de Chrome.
-
-  Que ira aqui:
-  - La estructura del panel: cabecera, tarjeta del correo analizado,
-    la categoria (legitimo / publicidad / phishing) y la prioridad
-    (alta / media / baja).
-  - Los enlaces a panel.css y panel.js (HTML/CSS/JS puro, sin framework).
-
-  Esto es lo UNICO que ve el usuario final: el panel consulta la API
-  y muestra el resultado.
-
-  Estilo visual (el de la demo):
-  - Tipografias: Sora (titulos) + DM Sans (texto)
-  - Azul   = accion
-  - Naranja = alerta
+  Panel lateral de SICAE-IA: se abre al hacer clic en el ícono (ver service-worker.js).
+  - "Analizar este correo": lee el correo abierto en Gmail y muestra categoría, prioridad y
+    confianza (paso 3.2; la tarjeta con los motivos es el paso 3.3).
+  - "Probar conexión": comprueba la API y la clave.
+  Sin scripts en línea ni recursos remotos: la CSP de Manifest V3 los bloquea. El texto
+  dinámico se escribe solo con textContent (panel.js).
 -->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>SICAE-IA</title>
+  <link rel="stylesheet" href="../estilos/sicae.css">
+  <script type="module" src="panel.js"></script>
+</head>
+<body>
+  <main class="popup">
+    <header class="encabezado">
+      <h1>SICAE-IA</h1>
+      <button type="button" class="enlace" id="ir-opciones">Opciones</button>
+    </header>
+
+    <p class="suave">Clasifica correos en legítimo, publicidad o phishing.</p>
+
+    <div class="aviso" id="aviso-sin-clave" role="alert" hidden>
+      <p>Falta configurar la clave de la API.</p>
+    </div>
+    <button type="button" class="boton boton-secundario" id="abrir-opciones" hidden>Abrir opciones</button>
+
+    <button type="button" class="boton boton-principal" id="analizar">Analizar este correo</button>
+
+    <div class="estado" id="analisis" role="status" aria-live="polite" hidden>
+      <span id="analisis-texto"></span>
+    </div>
+
+    <section class="resultado" id="resultado" aria-live="polite" hidden>
+      <h2>Resultado</h2>
+      <dl>
+        <dt>Categoría</dt>
+        <dd id="res-categoria"></dd>
+        <dt>Prioridad</dt>
+        <dd id="res-prioridad"></dd>
+        <dt>Confianza</dt>
+        <dd id="res-confianza"></dd>
+      </dl>
+      <p class="aviso" id="aviso-recorte" hidden>El correo es muy largo: se analizó solo el inicio.</p>
+    </section>
+
+    <hr class="separador">
+
+    <button type="button" class="boton boton-secundario" id="probar">Probar conexión</button>
+
+    <div class="estado" id="estado" role="status" aria-live="polite">
+      <span id="estado-texto">Sin probar todavía.</span>
+    </div>
+
+    <div class="estado" id="estado-clave" role="status" aria-live="polite" hidden>
+      <span id="estado-clave-texto"></span>
+    </div>
+  </main>
+</body>
+</html>

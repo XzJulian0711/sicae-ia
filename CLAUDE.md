@@ -15,6 +15,7 @@ Proyecto de grado, Ingeniería de Sistemas, Fundación Universitaria Los Liberta
 - extension/: Chrome Manifest V3, side panel, HTML/CSS/JS sin framework
 
 ## Reglas para Claude
+- Antes de editar archivos, ejecuta git branch --show-current. Si estás en main o en una rama ya unida, detente y avísame.
 - Explica cada cambio en español y en pasos cortos; somos estudiantes aprendiendo.
 - Un paso a la vez. Pide confirmación antes de crear más de 3 archivos.
 - Nunca escribas claves ni tokens en el código: usa .env y actualiza .env.example.
