@@ -1,7 +1,8 @@
 # Extensión de Chrome de SICAE-IA
 
-Paso 3.1: esqueleto de la extensión. Tiene un **popup** que prueba la conexión con la API y
-una página de **Opciones** para la URL de la API y la clave.
+Paso 3.1: esqueleto de la extensión. Tiene un **panel lateral** que prueba la conexión con la
+API y una página de **Opciones** para la URL de la API y la clave. Necesita **Chrome 116 o más
+nuevo**.
 
 Todo está hecho con HTML, CSS y JavaScript **sin frameworks, sin npm y sin código remoto**: cada
 archivo está en la carpeta `extension/`, incluidas las fuentes.
@@ -13,7 +14,9 @@ archivo está en la carpeta `extension/`, incluidas las fuentes.
 3. Pulsa **Cargar descomprimida** y elige la carpeta `extension/` del proyecto (la que tiene
    `manifest.json`).
 4. Aparece la tarjeta **SICAE-IA**. Fija el ícono en la barra con el ícono de la pieza de
-   rompecabezas → 📌.
+   rompecabezas → 📌. **Al hacer clic en el ícono se abre el panel lateral.** Esto lo activa
+   `service-worker.js` con `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`.
+   Si no se abre, en la tarjeta pulsa **Service worker** → Inspeccionar para ver los errores.
 
 Si cambias archivos de la extensión, vuelve a `chrome://extensions` y pulsa ⟳ (Actualizar) en la
 tarjeta.
@@ -34,13 +37,13 @@ tarjeta.
 3. **Reinicia la API** (`uvicorn app.main:app --app-dir api --reload`), porque `.env` se lee al
    arrancar.
 4. **Configura la extensión:** clic derecho en el ícono → **Opciones**, o el enlace "Opciones"
-   del popup. Escribe:
+   del panel. Escribe:
    - **URL de la API:** `http://127.0.0.1:8000`. Es el valor por defecto y, por ahora, el
      **único** aceptado (ver "Qué URL acepta");
    - **Clave de la API:** el valor de `SICAE_API_KEY` de tu `.env`.
 
    Pulsa **Guardar**.
-5. **Prueba:** abre el popup y pulsa **Probar conexión**. Se hacen dos peticiones:
+5. **Prueba:** abre el panel (clic en el ícono) y pulsa **Probar conexión**. Se hacen dos peticiones:
    1. **`GET /salud`**, que es pública: ¿responde la API? ¿está cargado el modelo?
    2. **`GET /estadisticas` con la clave en `X-API-Key`**: ¿la clave guardada es correcta? Solo
       se usa el código de la respuesta (200 o 401); **los conteos no se leen ni se muestran**.
@@ -61,7 +64,7 @@ tarjeta.
 |---|---|
 | 🔵 "Clave correcta." | La clave de Opciones es igual a `SICAE_API_KEY` del `.env` |
 | 🟠 "Clave incorrecta. Revísala en Opciones." | La API respondió 401: la clave no coincide |
-| 🟠 "Falta la clave: configúrala en Opciones." | Todavía no guardaste una clave. El popup también muestra el aviso **Falta configurar la clave de la API** con el botón **Abrir opciones** |
+| 🟠 "Falta la clave: configúrala en Opciones." | Todavía no guardaste una clave. El panel también muestra el aviso **Falta configurar la clave de la API** con el botón **Abrir opciones** |
 | 🟠 "Demasiadas pruebas seguidas…" | Se pasó el límite de peticiones por minuto de la API (429): espera un minuto |
 | 🟠 "No se pudo comprobar la clave." | Otro error. Por ejemplo, el registro de la API no está disponible |
 
@@ -87,12 +90,15 @@ los dos lugares.
 | Permiso | Para qué |
 |---|---|
 | `storage` | Guardar la URL de la API y la clave en `chrome.storage.local` (solo en este equipo) |
+| `sidePanel` | Abrir el panel lateral (`sidepanel/panel.html`) al hacer clic en el ícono. No da acceso a ningún sitio |
 | `https://mail.google.com/*` | Leer el correo abierto en Gmail. Se usará en el paso siguiente; Chrome avisa al instalar que la extensión puede leer ese sitio |
 | `http://127.0.0.1:8000/*` | Llamar a la API que corre en tu equipo |
 
-**No se pide** `tabs`, `scripting`, `activeTab`, `<all_urls>` ni acceso a otros sitios. Tampoco
-`sidePanel`: el panel lateral (`sidepanel/panel.html`, por ahora solo un marcador) llegará en un
-paso futuro, junto con su permiso.
+**No se pide** `tabs`, `scripting`, `activeTab`, `<all_urls>` ni acceso a otros sitios.
+
+El panel (`sidepanel/panel.html`) reusa `popup/popup.js` y los estilos. `popup/popup.html` ya no
+se usa: el manifest no tiene `default_popup`, porque con él Chrome abriría el popup en vez del
+panel.
 
 ## Seguridad en el código
 
@@ -159,6 +165,8 @@ node --test "extension/tests/*.test.js"
   - que no se use `innerHTML`, `eval` ni código remoto;
   - que no haya scripts en línea;
   - que el manifest tenga exactamente los permisos de la tabla;
+  - que el clic en el ícono abra el panel: sin `default_popup`, con `side_panel.default_path`
+    en `sidepanel/panel.html` y un service worker que llama a `setPanelBehavior`;
   - que `ORIGENES_PERMITIDOS` coincida con `host_permissions`;
   - que no haya claves escritas en el código;
   - el SHA-256 de las fuentes.
@@ -174,6 +182,7 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
 - **Solo funciona con la API en `http://127.0.0.1:8000`.** Para usar otra dirección hay que
   agregarla en `host_permissions` del manifest **y** en `ORIGENES_PERMITIDOS`. Una API que no
   esté en tu equipo debería usar https, para que la clave no viaje sin cifrar.
-- **Todavía no se lee ningún correo de Gmail** ni existe el panel lateral: es el esqueleto.
+- **Todavía no se lee ningún correo de Gmail:** el panel solo prueba la conexión; es el
+  esqueleto.
 - **La revisión visual en Chrome** (cargarla y probarla) se hace a mano, con los pasos de este
   documento.

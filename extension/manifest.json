@@ -3,12 +3,17 @@
   "name": "SICAE-IA",
   "version": "0.2.0",
   "description": "Clasifica correos en legítimo, publicidad o phishing y les asigna prioridad (prototipo académico).",
-  "minimum_chrome_version": "114",
-  "permissions": ["storage"],
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "sidePanel"],
   "host_permissions": ["https://mail.google.com/*", "http://127.0.0.1:8000/*"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
   "action": {
-    "default_title": "SICAE-IA",
-    "default_popup": "popup/popup.html"
+    "default_title": "SICAE-IA"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/panel.html"
   },
   "options_ui": {
     "page": "opciones/opciones.html",

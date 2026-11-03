@@ -97,7 +97,7 @@ describe("manifest.json", () => {
 
   test("es Manifest V3 con permisos mínimos", () => {
     assert.equal(manifest.manifest_version, 3);
-    assert.deepEqual(manifest.permissions, ["storage"]);
+    assert.deepEqual(manifest.permissions, ["storage", "sidePanel"]);
     assert.deepEqual(manifest.host_permissions, ["https://mail.google.com/*", "http://127.0.0.1:8000/*"]);
   });
 
@@ -113,10 +113,24 @@ describe("manifest.json", () => {
     assert.equal(manifest.content_security_policy, undefined);
   });
 
-  test("los archivos del popup y de opciones existen", () => {
-    for (const pagina of [manifest.action.default_popup, manifest.options_ui.page]) {
+  test("los archivos del panel lateral y de opciones existen", () => {
+    for (const pagina of [manifest.side_panel.default_path, manifest.options_ui.page]) {
       assert.ok(statSync(join(RAIZ, pagina)).isFile(), pagina);
     }
+  });
+
+  test("el clic en el ícono abre el panel lateral", () => {
+    // 1. Sin popup: si action tiene default_popup, Chrome abre el popup y no el panel.
+    assert.equal(manifest.action.default_popup, undefined, "action no debe tener default_popup");
+    // 2. El panel apunta a sidepanel/panel.html.
+    assert.equal(manifest.side_panel?.default_path, "sidepanel/panel.html");
+    // 3. Un service worker activa el comportamiento al hacer clic.
+    const worker = manifest.background?.service_worker;
+    assert.ok(worker && statSync(join(RAIZ, worker)).isFile(), "falta el service worker");
+    const codigo = sinComentarios(readFileSync(join(RAIZ, worker), "utf8"), ".js");
+    assert.match(codigo, /chrome\.sidePanel\s*\.setPanelBehavior\(\s*\{\s*openPanelOnActionClick:\s*true\s*\}\s*\)/);
+    // setPanelBehavior existe desde Chrome 116.
+    assert.ok(Number(manifest.minimum_chrome_version) >= 116, "minimum_chrome_version debe ser 116 o más");
   });
 });
 
