@@ -26,17 +26,18 @@ tarjeta.
 
 ## Conectarla con la API
 
-1. **Copia el ID de la extensión.** Está en la tarjeta de `chrome://extensions`: es una cadena
-   de 32 letras, como `abcdefghijklmnopabcdefghijklmnop`. El ID no cambia mientras cargues la
-   misma carpeta.
+1. **El ID de la extensión es fijo para todo el equipo:** `kaabamgfaihcpmchpeacpohpchlgildf`.
+   Sale del campo `"key"` del manifest (ver "ID fijo"), así que es el mismo en todos los
+   equipos, cargues la carpeta desde donde la cargues. Es el que aparece en la tarjeta de
+   `chrome://extensions`.
 2. **Ponlo en el archivo `.env` de la API** (en la raíz del proyecto):
 
    ```
-   SICAE_CORS_ORIGINS=chrome-extension://abcdefghijklmnopabcdefghijklmnop
+   SICAE_CORS_ORIGINS=chrome-extension://kaabamgfaihcpmchpeacpohpchlgildf
    ```
 
    Así la API acepta explícitamente a la extensión (CORS). **Nunca uses `*`**: la API no arranca
-   con ese valor. Si hay varios integrantes con IDs distintos, sepáralos con comas.
+   con ese valor. Como el ID es el mismo para todos, ya no hace falta una lista de IDs.
 3. **Reinicia la API** (`uvicorn app.main:app --app-dir api --reload`), porque `.env` se lee al
    arrancar.
 4. **Configura la extensión:** clic derecho en el ícono → **Opciones**, o el botón de ajustes
@@ -237,6 +238,43 @@ El content script **no hace nada hasta que el panel le pide `leer-correo`**:
 - no hace peticiones.
 
 Todos los selectores de Gmail están en **`gmail/selectores.js`**, con un comentario cada uno.
+
+### ID fijo (paso 4.1)
+
+Chrome calcula el ID de una extensión a partir de la clave **pública** del campo `"key"` del
+manifest:
+1. SHA-256 de la clave en DER;
+2. los primeros 16 bytes, es decir 32 dígitos hex;
+3. cada dígito `0–f` se cambia por una letra `a–p`.
+
+Con esa clave en el manifest, el ID es **`kaabamgfaihcpmchpeacpohpchlgildf`** para todo el
+equipo. Ese mismo ID es el que se registra en **Google Cloud** para OAuth y la API de Gmail.
+
+| Qué | Dónde | ¿Se sube? |
+|---|---|---|
+| Clave **pública** (RSA 2048, base64) | `"key"` en `extension/manifest.json` | **Sí.** No es secreta: solo fija el ID |
+| Clave **privada** (`.pem`) | Fuera del repo, en el equipo de quien la generó (`%USERPROFILE%\.sicae-ia\sicae-ia-extension.pem`), legible solo por ese usuario | **Nunca.** `.gitignore` ignora `*.pem` y `*.crx` |
+
+- **Para usar la extensión no se necesita la privada:** basta la pública del manifest. La
+  privada solo haría falta para empaquetar un `.crx` con el mismo ID. Conviene guardar una copia
+  en un gestor de contraseñas.
+- **Ver el ID que da el manifest:**
+
+  ```bash
+  node herramientas/id-extension.js
+  ```
+
+  El script, sin paquetes (solo `node:crypto`), también genera un par nuevo con `--generar
+  <ruta.pem>`.
+  - Se niega a guardar la privada dentro del repo o encima de un archivo que ya existe.
+  - Nunca la muestra.
+  - **No hay que volver a generarla:** un par nuevo cambiaría el ID para todos.
+
+**Si ya tenías la extensión cargada con el ID anterior:**
+1. En `chrome://extensions`, **quítala y vuelve a cargarla** con "Cargar descomprimida".
+2. **Guarda otra vez la URL y la clave en Opciones.** `chrome.storage` es por ID, así que la
+   extensión con el ID nuevo empieza vacía.
+3. **En tu `.env`,** cambia `SICAE_CORS_ORIGINS` al ID nuevo y reinicia la API.
 
 ### Qué URL acepta
 

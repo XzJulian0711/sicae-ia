@@ -27,6 +27,11 @@ build/
 .env
 .env.*
 !.env.example
+# Clave PRIVADA de la extensión (paso 4.1) y extensiones empaquetadas (.crx, firmadas con ella).
+# La privada vive fuera del repo; esto evita subirla por accidente. La PÚBLICA sí va en el
+# manifest ("key"): es la que fija el ID.
+*.pem
+*.crx
 
 # ---------- Datos crudos (pesados y pueden traer datos personales) ----------
 # Se ignora el CONTENIDO, pero el .gitkeep conserva la carpeta al clonar.
