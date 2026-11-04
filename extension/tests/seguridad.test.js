@@ -119,6 +119,17 @@ describe("panel (paso 3.4)", () => {
     }
   });
 
+  test("el estado vacío se ve al cargar, antes del resultado (que empieza oculto)", async () => {
+    const { TEXTO_VACIO } = await import("../lib/tarjeta.js");
+    const vacio = /<div class="vacio" id="estado-vacio"([^>]*)>([\s\S]*?)<\/div>/.exec(panel);
+    assert.ok(vacio, "falta #estado-vacio");
+    assert.doesNotMatch(vacio[1], /\bhidden\b/, "el estado vacío debe verse al cargar");
+    assert.match(vacio[2], /<svg[^>]*aria-hidden="true"/, "el escudo es decorativo");
+    assert.ok(vacio[2].includes(TEXTO_VACIO), "el texto del HTML debe ser TEXTO_VACIO");
+    assert.match(panel, /id="resultado"[^>]*\bhidden\b/, "el resultado empieza oculto");
+    assert.ok(panel.indexOf('id="estado-vacio"') < panel.indexOf('id="resultado"'), "va en el lugar del resultado");
+  });
+
   test("los botones de solo ícono tienen nombre accesible", () => {
     assert.match(panel, /id="ir-opciones"[^>]*aria-label="Ajustes"/);
   });

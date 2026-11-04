@@ -12,9 +12,11 @@ import {
   ICONOS,
   MAX_MOTIVOS,
   NOTA,
+  TEXTO_VACIO,
   armarTarjeta,
   datosCorreoAbierto,
   extraerMotivos,
+  vistaResultado,
 } from "../lib/tarjeta.js";
 
 const PANEL = join(import.meta.dirname, "..", "sidepanel");
@@ -153,6 +155,25 @@ describe("motivos", () => {
   test("el HTML queda como texto (el panel usa textContent) y se recorta lo enorme", () => {
     assert.deepEqual(extraerMotivos([motivo("<b>Hola</b> «Juan»")]), ["<b>Hola</b> «Juan»"]);
     assert.equal(extraerMotivos([motivo("x".repeat(1000))])[0].length, 200);
+  });
+});
+
+describe("estado vacío", () => {
+  test("el texto es el pedido", () => {
+    assert.equal(TEXTO_VACIO, "Abre un correo en Gmail y pulsa Analizar este correo.");
+  });
+
+  test("sin resultado se ve el estado vacío; con resultado, solo el resultado", () => {
+    assert.deepEqual(vistaResultado(false), { vacio: true, resultado: false });
+    assert.deepEqual(vistaResultado(true), { vacio: false, resultado: true });
+  });
+
+  test("nunca se ven los dos a la vez ni ninguno, aunque llegue un valor raro", () => {
+    for (const valor of [true, false, undefined, null, 1, "si"]) {
+      const vista = vistaResultado(valor);
+      assert.notEqual(vista.vacio, vista.resultado, String(valor));
+    }
+    assert.equal(vistaResultado("si").vacio, true, "solo true cuenta como resultado");
   });
 });
 

@@ -91,6 +91,7 @@ arriba hacia abajo:
 | **Encabezado** | Escudo en un cuadro oscuro, "SICAE-IA" y el botón de **ajustes** (engranaje), que abre Opciones |
 | Aviso "Falta configurar la clave" | Solo si todavía no hay clave |
 | **Analizar este correo** | Botón azul (acción). El panel no lee el correo solo: espera el clic |
+| **Estado vacío** | Antes de analizar, en el lugar del resultado: escudo gris y "Abre un correo en Gmail y pulsa Analizar este correo." Desaparece al mostrar un resultado, y vuelve si la lectura falla. Nunca se ven los dos a la vez (`vistaResultado()` en `lib/tarjeta.js`) |
 | **CORREO ABIERTO** | Asunto (o "(Sin asunto)") y remitente leídos de Gmail. Se ve aunque la API falle |
 | **Franja de resultado** | Ícono + título en color, con consejos, prioridad, motivos y la nota (ver la tabla siguiente) |
 | **Estado de la conexión** | Sección plegable (`<details>`) con "Probar conexión" y sus dos líneas |

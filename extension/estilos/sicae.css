@@ -211,6 +211,19 @@ input:focus-visible {
   margin: 0 0 6px;
 }
 
+/* Estado vacío (antes de analizar): escudo gris + texto. #475569 sobre #f6f6f4: 7:1 (AA). */
+.vacio {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 22px 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radio-caja);
+  color: var(--texto-suave);
+  text-align: center;
+  font-size: 13px;
+}
+
 .resultado { display: grid; gap: 12px; }
 
 .correo-asunto {
