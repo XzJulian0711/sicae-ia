@@ -130,6 +130,36 @@ describe("panel (paso 3.4)", () => {
     assert.ok(panel.indexOf('id="estado-vacio"') < panel.indexOf('id="resultado"'), "va en el lugar del resultado");
   });
 
+  test("3 pantallas; al cargar solo se ve la bienvenida (y la barra inferior está oculta)", () => {
+    const abre = (id) => new RegExp(`<(?:section|div)[^>]*id="${id}"[^>]*>`).exec(panel)?.[0] ?? "";
+    assert.doesNotMatch(abre("pantalla-bienvenida"), /\bhidden\b/);
+    assert.match(abre("pantalla-permisos"), /\bhidden\b/);
+    assert.match(abre("pantalla-principal"), /\bhidden\b/);
+    assert.match(panel, /id="barra-inferior"[^>]*\bhidden\b/);
+  });
+
+  test("la bienvenida solo ofrece Google, y los permisos incluyen Nunca haremos y la Ley 1581", () => {
+    const bienvenida = /id="pantalla-bienvenida"[\s\S]*?<\/section>/.exec(panel)[0];
+    assert.match(bienvenida, /Continuar con Google/);
+    assert.match(bienvenida, /Nunca te pedimos la contraseña de tu correo/);
+    assert.doesNotMatch(bienvenida, /Microsoft|Outlook|Otro proveedor/i);
+    assert.equal((bienvenida.match(/<li>/g) || []).length, 3, "3 beneficios");
+    const permisos = /id="pantalla-permisos"[\s\S]*?<\/section>/.exec(panel)[0];
+    assert.equal((permisos.match(/class="permiso"/g) || []).length, 1, "solo el permiso que se pide hoy");
+    assert.match(permisos, /Identificarte con tu correo de Google/);
+    assert.match(permisos, /Nunca haremos/);
+    assert.match(permisos, /Ley 1581 de 2012/);
+    assert.match(permisos, /id="ahora-no"[^>]*>Ahora no</);
+    assert.match(permisos, /id="aceptar-permisos"[^>]*>Aceptar y continuar</);
+  });
+
+  test("la cuenta del encabezado abre un menú accesible con Cerrar sesión (oculto al cargar)", () => {
+    assert.match(panel, /<button[^>]*id="cuenta"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="menu-cuenta"[^>]*hidden/);
+    assert.match(panel, /id="menu-cuenta"[^>]*role="menu"[^>]*hidden/);
+    assert.match(panel, /role="menuitem" id="menu-cerrar-sesion">Cerrar sesión</);
+    assert.doesNotMatch(panel, /@gmail\.com/, "el correo no va escrito en el HTML: se pide en el momento");
+  });
+
   test("los botones de solo ícono tienen nombre accesible", () => {
     assert.match(panel, /id="ir-opciones"[^>]*aria-label="Ajustes"/);
   });
@@ -158,14 +188,28 @@ describe("manifest.json", () => {
 
   test("es Manifest V3 con permisos mínimos", () => {
     assert.equal(manifest.manifest_version, 3);
-    assert.deepEqual(manifest.permissions, ["storage", "sidePanel"]);
-    assert.deepEqual(manifest.host_permissions, ["https://mail.google.com/*", "http://127.0.0.1:8000/*"]);
+    // identity (paso 4.2): token de Google con la cuenta del navegador, sin contraseñas.
+    assert.deepEqual(manifest.permissions, ["storage", "sidePanel", "identity"]);
+    // oauth2.googleapis.com (paso 4.2): solo para revocar el token al cerrar sesión.
+    // openidconnect.googleapis.com (paso 4.2): solo para leer el correo de la sesión (userinfo).
+    assert.deepEqual(manifest.host_permissions, [
+      "https://mail.google.com/*",
+      "http://127.0.0.1:8000/*",
+      "https://oauth2.googleapis.com/*",
+      "https://openidconnect.googleapis.com/*",
+    ]);
+  });
+
+  test("oauth2: client_id de Google y solo los alcances openid y email (sin acceso a Gmail)", () => {
+    assert.match(manifest.oauth2.client_id, /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/);
+    assert.deepEqual(manifest.oauth2.scopes, ["openid", "https://www.googleapis.com/auth/userinfo.email"]);
+    assert.deepEqual(Object.keys(manifest.oauth2).sort(), ["client_id", "scopes"]);
   });
 
   test("las direcciones de la API en logica.js coinciden con host_permissions", async () => {
     const { ORIGENES_PERMITIDOS } = await import("../lib/logica.js");
     const deLaApi = manifest.host_permissions
-      .filter((permiso) => !permiso.startsWith("https://mail.google.com"))
+      .filter((permiso) => !/^https:\/\/(mail\.google\.com|oauth2\.googleapis\.com|openidconnect\.googleapis\.com)\//.test(permiso))
       .map((permiso) => permiso.replace(/\/\*$/, ""));
     assert.deepEqual([...ORIGENES_PERMITIDOS].sort(), deLaApi.sort());
   });
@@ -235,16 +279,36 @@ describe("lectura de Gmail (content script)", () => {
     }
   });
 
-  test("solo almacen.js usa chrome.storage, y solo guarda urlApi y claveApi", () => {
+  test("solo almacen.js usa chrome.storage, y solo guarda urlApi, claveApi y consentimiento", () => {
     for (const { nombre, codigo } of leer(".js")) {
       if (nombre.replaceAll("\\", "/") !== "lib/almacen.js") {
         assert.doesNotMatch(codigo, /\bchrome\.storage\b/, `${nombre} usa chrome.storage`);
       }
     }
     const almacen = codigoDe("lib/almacen.js");
-    assert.match(almacen, /const CLAVES = \{ url: "urlApi", clave: "claveApi" \};/);
-    for (const [, claves] of almacen.matchAll(/chrome\.storage\.local\.set\(\{([^}]*)\}\)/g)) {
-      assert.match(claves.trim(), /^\[CLAVES\.(url|clave)\]: \w+$/, "solo se guardan las claves de CLAVES");
+    assert.match(almacen, /const CLAVES = \{ url: "urlApi", clave: "claveApi", consentimiento: "consentimiento" \};/);
+    const guardados = [...almacen.matchAll(/chrome\.storage\.local\.set\(\{\s*\[CLAVES\.(\w+)\]: (.+?) \}\);/g)];
+    assert.equal(guardados.length, (almacen.match(/chrome\.storage\.local\.set\(/g) || []).length,
+                 "cada set guarda una sola clave de CLAVES");
+    for (const [, clave, valor] of guardados) {
+      assert.ok(["url", "clave", "consentimiento"].includes(clave), clave);
+      if (clave === "consentimiento") {
+        // Del consentimiento solo se guardan estos 3 campos.
+        assert.equal(valor.trim(), "{ aceptado, version, fecha }");
+      }
+    }
+  });
+
+  test("el token de Google nunca se guarda, ni se escribe en la consola", () => {
+    for (const { nombre, codigo } of leer(".js")) {
+      for (const llamada of codigo.match(/chrome\.storage\.[\s\S]*?\)/g) || []) {
+        assert.doesNotMatch(llamada, /token/i, `${nombre} guarda algo con "token"`);
+        assert.doesNotMatch(llamada, /correo|email/i, `${nombre} guarda el correo de la sesión`);
+      }
+      for (const llamada of codigo.match(/console\.\w+\([\s\S]*?\)/g) || []) {
+        assert.doesNotMatch(llamada, /token/i, `${nombre} escribe un token en la consola`);
+      }
+      assert.doesNotMatch(codigo, /\b(localStorage|sessionStorage|indexedDB)\b/, `${nombre} usa otro almacenamiento`);
     }
   });
 });

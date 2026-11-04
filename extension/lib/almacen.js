@@ -6,7 +6,8 @@
 
 import { URL_POR_DEFECTO } from "./logica.js";
 
-const CLAVES = { url: "urlApi", clave: "claveApi" };
+// consentimiento: solo {aceptado, version, fecha} (paso 4.2). El token de Google NUNCA se guarda.
+const CLAVES = { url: "urlApi", clave: "claveApi", consentimiento: "consentimiento" };
 
 /** Devuelve {urlApi, claveApi}. Si no hay URL guardada, usa la de por defecto. */
 export async function leerConfiguracion() {
@@ -27,4 +28,19 @@ export async function guardarClave(clave) {
 
 export async function borrarClave() {
   await chrome.storage.local.remove(CLAVES.clave);
+}
+
+/** Consentimiento guardado ({aceptado, version, fecha}) o null. */
+export async function leerConsentimiento() {
+  const datos = await chrome.storage.local.get(CLAVES.consentimiento);
+  return datos[CLAVES.consentimiento] ?? null;
+}
+
+/** Guarda solo los 3 campos del consentimiento (los arma crearConsentimiento en lib/sesion.js). */
+export async function guardarConsentimiento({ aceptado, version, fecha }) {
+  await chrome.storage.local.set({ [CLAVES.consentimiento]: { aceptado, version, fecha } });
+}
+
+export async function borrarConsentimiento() {
+  await chrome.storage.local.remove(CLAVES.consentimiento);
 }

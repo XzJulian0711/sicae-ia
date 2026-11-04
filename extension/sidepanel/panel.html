@@ -1,7 +1,10 @@
 <!doctype html>
 <!--
-  Panel lateral de SICAE-IA (paso 3.4, diseño del demo). Se abre al hacer clic en el ícono
-  (ver service-worker.js). De arriba hacia abajo:
+  Panel lateral de SICAE-IA (pasos 3.4 y 4.2, diseño del demo). Se abre al hacer clic en el
+  ícono (ver service-worker.js). Tiene 3 pantallas y solo una se ve a la vez (lib/sesion.js):
+  - bienvenida: "Continuar con Google" (si no hay sesión o no aceptó los permisos);
+  - permisos: "Revisa los permisos", "Ahora no" / "Aceptar y continuar";
+  - principal (lo de abajo). De arriba hacia abajo:
   - encabezado con el escudo, el nombre y el botón de ajustes (abre Opciones);
   - "Analizar este correo" → tarjeta "CORREO ABIERTO" + franja de resultado + motivos;
   - "Estado de la conexión" (plegable) con "Probar conexión";
@@ -29,13 +32,102 @@
         </span>
         <h1>SICAE-IA</h1>
       </div>
-      <button type="button" class="boton-redondo" id="ir-opciones" aria-label="Ajustes" title="Ajustes">
+      <div class="encabezado-acciones">
+        <!-- Cuenta de la sesión (el correo lo pide panel.js a Google en el momento; no se guarda).
+             Al pulsarla abre un menú con "Cerrar sesión". -->
+        <div class="cuenta-contenedor">
+          <button type="button" class="cuenta" id="cuenta" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-cuenta" hidden>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="8" r="4"/>
+              <path d="M4 21a8 8 0 0 1 16 0"/>
+            </svg>
+            <span class="cuenta-correo" id="cuenta-correo"></span>
+          </button>
+          <div class="menu-cuenta" id="menu-cuenta" role="menu" aria-labelledby="cuenta" hidden>
+            <button type="button" role="menuitem" id="menu-cerrar-sesion">Cerrar sesión</button>
+          </div>
+        </div>
+        <button type="button" class="boton-redondo" id="ir-opciones" aria-label="Ajustes" title="Ajustes">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3"/>
           <path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>
         </svg>
       </button>
+      </div>
     </header>
+
+    <!-- Pantalla 1: bienvenida (demo, página 2). Se ve si no hay sesión o no aceptó. -->
+    <section class="pantalla bienvenida" id="pantalla-bienvenida" aria-labelledby="titulo-bienvenida">
+      <h2 class="titulo-grande" id="titulo-bienvenida" tabindex="-1">Tu correo, ordenado y protegido</h2>
+      <p class="subtitulo">Detecta phishing, prioriza lo importante y separa la publicidad. Tú decides cada acción.</p>
+      <ul class="beneficios">
+        <li>
+          <span class="beneficio-icono" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3 19 5.5V11q0 6-7 9.5Q5 17 5 11V5.5z"/>
+              <path d="M12 8v4M12 15.5h.01"/>
+            </svg>
+          </span>
+          Alertas de phishing con motivos claros
+        </li>
+        <li>
+          <span class="beneficio-icono" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
+              <path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>
+            </svg>
+          </span>
+          Prioridad alta, media y baja
+        </li>
+        <li>
+          <span class="beneficio-icono" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <path d="m22 7-10 6L2 7"/>
+            </svg>
+          </span>
+          Publicidad separada del resto
+        </li>
+      </ul>
+      <button type="button" class="boton boton-principal boton-grande" id="continuar-google">Continuar con Google</button>
+      <p class="estado" id="error-sesion" role="alert" data-tipo="error" hidden></p>
+      <p class="nota-candado">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="5" y="11" width="14" height="10" rx="2"/>
+          <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+        </svg>
+        <span>Nunca te pedimos la contraseña de tu correo. El acceso usa el inicio de sesión oficial de Google (OAuth 2.0).</span>
+      </p>
+    </section>
+
+    <!-- Pantalla 2: revisa los permisos (demo, página 3). Solo lo que se pide HOY. -->
+    <section class="pantalla permisos" id="pantalla-permisos" aria-labelledby="titulo-permisos" hidden>
+      <h2 class="titulo-grande" id="titulo-permisos" tabindex="-1">Revisa los permisos</h2>
+      <p class="subtitulo">Solo pedimos lo necesario.</p>
+      <ul class="caja lista-permisos">
+        <li class="permiso">
+          <input type="checkbox" id="permiso-identidad" checked disabled>
+          <div>
+            <label for="permiso-identidad">Identificarte con tu correo de Google</label>
+            <span class="etiqueta-obligatorio">Obligatorio</span>
+            <p class="suave">Para saber quién usa la extensión. Este permiso no lee tus correos.</p>
+          </div>
+        </li>
+      </ul>
+      <p class="suave nota-pequena">Leer correos, organizar, borradores y recordatorios se pedirán aparte cuando existan.</p>
+      <div class="nunca-haremos">
+        <p class="nunca-titulo">Nunca haremos</p>
+        <p>Borrar correos de forma permanente, enviar sin tu aprobación, ni vender o compartir tus datos.</p>
+      </div>
+      <p class="suave nota-pequena">Al continuar autorizas el tratamiento de tus datos según la Ley 1581 de 2012. Puedes revocar el acceso cuando quieras.</p>
+      <div class="fila-botones">
+        <button type="button" class="boton boton-secundario" id="ahora-no">Ahora no</button>
+        <button type="button" class="boton boton-principal" id="aceptar-permisos">Aceptar y continuar</button>
+      </div>
+    </section>
+
+    <!-- Pantalla 3: la vista principal (análisis). Solo con sesión y consentimiento. -->
+    <div class="pantalla principal" id="pantalla-principal" hidden>
 
     <div class="aviso" id="aviso-sin-clave" role="alert" hidden>
       <p>Falta configurar la clave de la API.</p>
@@ -95,9 +187,11 @@
         </div>
       </div>
     </details>
+
+    </div><!-- fin de #pantalla-principal -->
   </main>
 
-  <nav class="barra-inferior" aria-label="Secciones">
+  <nav class="barra-inferior" id="barra-inferior" aria-label="Secciones" hidden>
     <p class="proximamente" id="proximamente" role="status" aria-live="polite"></p>
     <div class="barra-botones">
       <button type="button" class="pestana" id="nav-bandeja" aria-disabled="true">

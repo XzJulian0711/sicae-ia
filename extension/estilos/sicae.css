@@ -409,6 +409,153 @@ input:focus-visible {
 .pestana[aria-current="page"] { background: var(--azul-suave); color: var(--azul); }
 .pestana[aria-disabled="true"] { cursor: default; }
 
+/* ----- Cuenta de la sesión en el encabezado (paso 4.2) -----
+   Texto #0f172a sobre blanco 17,9:1; "Cerrar sesión" #0f172a sobre blanco / #eff6ff ≥ 16:1. */
+
+.encabezado-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0; /* deja que el correo se recorte con "…" */
+}
+
+.cuenta-contenedor { position: relative; min-width: 0; }
+
+.cuenta {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--fondo);
+  color: var(--texto);
+  cursor: pointer;
+}
+.cuenta svg { flex: none; }
+.cuenta:hover { background: var(--azul-suave); }
+.cuenta[aria-expanded="true"] { border-color: var(--azul); }
+
+.cuenta-correo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-cuenta {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.menu-cuenta [role="menuitem"] {
+  font: inherit;
+  font-weight: 600;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--texto);
+  cursor: pointer;
+}
+.menu-cuenta [role="menuitem"]:hover { background: var(--azul-suave); }
+
+.cuenta:focus-visible,
+.menu-cuenta [role="menuitem"]:focus-visible {
+  outline: 3px solid var(--azul);
+  outline-offset: 2px;
+}
+
+/* ----- Bienvenida y permisos (paso 4.2, demo páginas 2 y 3) -----
+   Contrastes (WCAG AA ≥ 4,5:1): títulos #0f172a sobre #f6f6f4 16,5 · texto suave #475569
+   sobre #f6f6f4 7,0 · ícono de beneficio azul sobre #eff6ff 6,2 · "Nunca haremos" azul
+   sobre #e8eefc ≥ 5,6 · "Obligatorio" #475569 sobre #f1f5f9 6,9. */
+
+.pantalla { display: grid; gap: 14px; }
+
+.titulo-grande {
+  font-size: 26px;
+  line-height: 1.2;
+  margin-top: 12px;
+}
+.titulo-grande:focus { outline: none; } /* recibe el foco al cambiar de pantalla, sin marco */
+
+.subtitulo { color: var(--texto-suave); font-size: 15px; line-height: 1.5; }
+
+.beneficios {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.beneficios li { display: flex; align-items: center; gap: 14px; font-size: 15px; }
+
+.beneficio-icono {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--azul-suave);
+  color: var(--azul);
+}
+
+.boton-grande { padding: 13px 16px; font-size: 15px; }
+
+.nota-candado {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--texto-suave);
+}
+.nota-candado svg { flex: none; margin-top: 3px; }
+
+.lista-permisos { list-style: none; margin: 0; display: grid; gap: 10px; }
+
+.permiso { display: flex; align-items: flex-start; gap: 12px; }
+.permiso input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--azul); flex: none; }
+.permiso label { font-weight: 700; margin-right: 8px; }
+.permiso .suave { margin-top: 4px; font-size: 13px; }
+
+.etiqueta-obligatorio {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--texto-suave);
+}
+
+.nota-pequena { font-size: 12px; line-height: 1.5; }
+
+.nunca-haremos {
+  border-radius: var(--radio-caja);
+  padding: 14px 16px;
+  background: #e8eefc;
+}
+.nunca-titulo { color: var(--azul); font-weight: 700; margin-bottom: 4px; }
+
+.fila-botones { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+
 /* ----- Opciones ----- */
 
 .pagina-opciones { background: var(--fondo-pagina); }
@@ -448,3 +595,11 @@ input[type="password"] {
 .mensaje { min-height: 21px; font-weight: 500; }
 .mensaje[data-tipo="ok"] { color: var(--azul); }
 .mensaje[data-tipo="error"] { color: var(--naranja); }
+
+/* Sesión y consentimiento (paso 4.2), separada del formulario. */
+.seccion-sesion {
+  display: grid;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--borde);
+}

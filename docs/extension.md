@@ -73,6 +73,103 @@ tarjeta.
 | 🟠 "Demasiadas pruebas seguidas…" | Se pasó el límite de peticiones por minuto de la API (429): espera un minuto |
 | 🟠 "No se pudo comprobar la clave." | Otro error. Por ejemplo, el registro de la API no está disponible |
 
+## Inicio de sesión y consentimiento (paso 4.2)
+
+Sigue el demo: la página 2 es la bienvenida, la 3 los permisos y la 7 el diagrama del flujo.
+**La verificación del token en la API es el paso 4.3:** por ahora la API no lo recibe.
+
+**Requisitos:**
+- **Google Chrome** con una sesión de Google iniciada en el navegador. En Edge, Brave y otros,
+  `getAuthToken` no funciona, y el panel lo dice.
+- La cuenta debe estar en la **lista de usuarios de prueba** de la pantalla de consentimiento
+  OAuth del proyecto en Google Cloud.
+
+**Flujo:**
+
+```
+Abrir el panel ─┬─ con sesión y consentimiento ─→ vista principal (análisis)
+                └─ si no ─→ Bienvenida ─ "Continuar con Google" (ventana oficial de Google)
+                              ├─ ya había aceptado ─→ vista principal
+                              └─ si no ─→ "Revisa los permisos"
+                                            ├─ "Aceptar y continuar" ─→ guarda el consentimiento ─→ vista principal
+                                            └─ "Ahora no" ─→ no guarda nada ─→ Bienvenida
+```
+
+- **Bienvenida:** título, 3 beneficios que ya funcionan y **solo** "Continuar con Google". No
+  hay Microsoft ni otros proveedores. Lleva la nota "Nunca te pedimos la contraseña de tu
+  correo".
+- **Permisos:** muestra **solo lo que se pide hoy**, identificarte con tu correo de Google.
+  - Leer correos, papelera, borradores y recordatorios se pedirán aparte cuando existan.
+  - Incluye "Nunca haremos…" y el texto de la **Ley 1581 de 2012**.
+- **Qué se guarda al aceptar:** solo `{aceptado: true, version: "1", fecha}`, en
+  `chrome.storage.local` (`lib/sesion.js` → `crearConsentimiento`). Si cambia el texto de los
+  permisos, se sube la versión y se vuelve a pedir.
+- **El token nunca:**
+  - se guarda en `storage`;
+  - se muestra en pantalla ni se escribe en la consola;
+  - sale de `lib/sesion.js`, cuyas funciones devuelven solo `{ok, mensaje}` o sí/no.
+
+  Chrome lo guarda en su propia caché. Al abrir el panel, `getAuthToken({interactive: false})`
+  solo comprueba si hay sesión.
+
+**Errores** (nunca se muestra el texto crudo del error):
+
+| Caso | Mensaje |
+|---|---|
+| Cerraste la ventana de Google sin terminar | "Cerraste la ventana de Google sin terminar… Si Google mostró «Acceso bloqueado», tu cuenta no está en la lista de usuarios de prueba." |
+| La cuenta no es usuario de prueba | "Google no permitió el acceso: tu cuenta debe estar en la lista de usuarios de prueba del proyecto…" |
+| Sin internet | "Sin conexión a internet. Revísala e inténtalo de nuevo." |
+| Navegador sin `chrome.identity` | "Este navegador no permite iniciar sesión con Google desde la extensión. Usa Google Chrome." |
+| Otro | "No se pudo iniciar sesión con Google. Inténtalo de nuevo." |
+
+Chrome no siempre distingue "cerré la ventana" de "Google me bloqueó". Por eso el primer
+mensaje también menciona la lista de usuarios de prueba.
+
+**La cuenta en el encabezado:**
+- Con la sesión iniciada, el encabezado del panel muestra el correo de la cuenta, por ejemplo
+  `sicae.pruebas.2026@gmail.com`.
+- Se pide **en el momento** a Google (`obtenerCorreo()` en `lib/sesion.js`, endpoint userinfo):
+  - **no se guarda** en `chrome.storage`;
+  - solo se muestra con `textContent`;
+  - si el token venció (401), se quita de la caché y se reintenta una vez;
+  - si falla, el botón no aparece y el resto del panel sigue igual.
+- **Al pulsar el correo** se abre un menú con **"Cerrar sesión"**. Hace lo mismo que el botón de
+  Opciones y vuelve a la bienvenida con el mensaje del resultado.
+- El menú se cierra con **Escape** o con un clic fuera. Es accesible:
+  - el botón tiene `aria-haspopup="menu"` y `aria-expanded`;
+  - el menú tiene `role="menu"`;
+  - al abrirse, el foco va a "Cerrar sesión".
+
+### Usar otra cuenta: otro perfil de Chrome
+
+La extensión usa **una sesión por perfil de Chrome**. Para usar otra cuenta de Google, se abre
+**otro perfil**:
+1. ícono de perfil de Chrome, arriba a la derecha → **Agregar**;
+2. inicia sesión con la otra cuenta;
+3. en ese perfil, carga la extensión otra vez con "Cargar descomprimida". **El ID es el mismo**,
+   gracias a la `key`.
+
+**Por qué:**
+- `chrome.identity.getAuthToken` siempre usa la cuenta con la que **ese perfil** tiene sesión en
+  Chrome;
+- la caché de tokens, `chrome.storage` (URL, clave y consentimiento) y las extensiones también
+  son **por perfil**.
+
+Así nunca se mezclan tokens, consentimientos ni claves de cuentas distintas. Elegir otra cuenta
+dentro del mismo perfil necesitaría el permiso `identity.email` y un selector de cuentas que
+Chrome no ofrece de forma estable a las extensiones.
+
+**En Opciones → "Sesión y consentimiento":**
+- **Cerrar sesión:**
+  1. quita el token de la caché de Chrome (`removeCachedAuthToken`);
+  2. lo revoca en `https://oauth2.googleapis.com/revoke`, con el token en el cuerpo de un
+     `POST` y nunca en la URL.
+
+  Si Google no confirma, o no hay red, la caché igual queda limpia y el mensaje pide **quitar el
+  acceso a mano en myaccount.google.com/permissions**.
+- **Retirar consentimiento:** borra `{aceptado, version, fecha}`. La próxima vez que abras el
+  panel verás la bienvenida.
+
 ## Analizar un correo de Gmail
 
 1. Abre Gmail en Chrome con una **cuenta de prueba**. Si la pestaña ya estaba abierta antes de
@@ -297,10 +394,25 @@ los dos lugares.
 
 | Permiso | Para qué |
 |---|---|
-| `storage` | Guardar la URL de la API y la clave en `chrome.storage.local` (solo en este equipo) |
+| `storage` | Guardar la URL de la API, la clave y el consentimiento (`{aceptado, version, fecha}`) en `chrome.storage.local` (solo en este equipo). **Nunca el token de Google** |
 | `sidePanel` | Abrir el panel lateral (`sidepanel/panel.html`) al hacer clic en el ícono. No da acceso a ningún sitio |
+| `identity` (paso 4.2) | Iniciar sesión con Google: `chrome.identity.getAuthToken` pide el token con la cuenta con la que Chrome tiene sesión, en la ventana oficial de Google. La extensión **no ve ni guarda contraseñas**, y el token lo guarda Chrome en su propia caché, no la extensión. Sin este permiso no existe `chrome.identity` |
 | `https://mail.google.com/*` | Correr el content script (`content_scripts` del manifest) que lee el correo abierto. Chrome avisa al instalar que la extensión puede leer ese sitio. También deja ver la URL de la pestaña solo si es Gmail |
 | `http://127.0.0.1:8000/*` | Llamar a la API que corre en tu equipo |
+| `https://oauth2.googleapis.com/*` (paso 4.2) | **Solo** para revocar el token al cerrar sesión (`POST /revoke`) y **leer la respuesta**, para confirmar que Google lo revocó. Sin este permiso la petición se podría enviar, pero no se sabría si funcionó. No da acceso a la cuenta ni al correo |
+| `https://openidconnect.googleapis.com/*` (paso 4.2) | **Solo** para leer el correo de la sesión que se muestra en el encabezado: `GET /v1/userinfo`, con el token en la cabecera `Authorization`. Usa el alcance `userinfo.email`, que el usuario ya aceptó en "Revisa los permisos". El correo no se guarda |
+
+**Alcances (scopes) de `oauth2`:** solo `openid` y `https://www.googleapis.com/auth/userinfo.email`,
+para saber quién eres por tu correo. **No hay ningún alcance de Gmail**, así que este inicio de
+sesión no da acceso a tus correos. El `client_id` no es secreto: en una extensión es público por
+diseño, y Google solo lo acepta para el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
+
+**Por qué userinfo y no `chrome.identity.getProfileUserInfo`:**
+- `getProfileUserInfo` necesita otro permiso, `identity.email`, que al instalar avisa "Conocer
+  tu dirección de correo electrónico";
+- además da la cuenta del **perfil de Chrome**, mientras que userinfo da la cuenta que
+  **autorizó el token**. Esa es la que usará la API en el paso 4.3. Hoy son la misma, pero
+  userinfo es la fuente correcta.
 
 **No se pide** `tabs`, `scripting`, `activeTab`, `<all_urls>` ni acceso a otros sitios:
 - el content script se declara en el manifest, así que no hace falta `scripting`;
@@ -365,7 +477,9 @@ La lógica que no depende de Chrome está en dos archivos:
 - `extension/lib/logica.js`: validar la URL y la clave, e interpretar `/salud`;
 - `extension/lib/correo.js`: armar la petición, recortar, contar enlaces e interpretar
   `/analizar`;
-- `extension/lib/tarjeta.js`: elegir el estilo, los textos y qué secciones muestra la tarjeta.
+- `extension/lib/tarjeta.js`: elegir el estilo, los textos y qué secciones muestra la tarjeta;
+- `extension/lib/sesion.js`: inicio y cierre de sesión con Google, consentimiento y qué
+  pantalla se ve. Recibe `chrome.identity` y `fetch` como parámetros, así se prueba con dobles.
 
 Se prueba con el ejecutor que trae Node, **sin npm ni paquetes**:
 
@@ -388,6 +502,20 @@ node --test "extension/tests/*.test.js"
   - el título de los motivos por categoría y los repetidos (palabra dentro de una frase,
     duplicados exactos, el límite de 3 después de quitarlos);
   - los datos de "CORREO ABIERTO", también sin asunto.
+- **`tests/sesion.test.js`:** con un **doble de `chrome.identity` y de `fetch`**, que nunca
+  hablan con Google:
+  - qué pantalla se ve en cada caso;
+  - el consentimiento: los campos exactos y los inválidos;
+  - el inicio de sesión: éxito sin devolver el token, y cada mensaje de error;
+  - la comprobación de sesión: sin ventana y con tiempo máximo;
+  - "Ahora no";
+  - el cierre de sesión: el token en el cuerpo del `POST` y nunca en la URL, y qué pasa si
+    Google falla o no hay red;
+  - el correo del encabezado (`obtenerCorreo`):
+    - el token va en `Authorization`, nunca en la URL;
+    - se devuelve solo el correo;
+    - con 401 reintenta una sola vez;
+    - con datos inválidos, error o sin red da `{ok: false}`.
 - **`tests/iconos.test.js`:** prueba los íconos de la extensión:
   - el CRC32 propio;
   - que cada PNG tenga firma, tamaño y tipo RGBA correctos;
@@ -412,7 +540,11 @@ node --test "extension/tests/*.test.js"
   - que el content script corra solo en Gmail y solo lea: sin `fetch`, sin `storage`, sin
     `console` y sin cambiar la página;
   - que nada del correo vaya a `chrome.storage`: solo `almacen.js` lo usa, y solo para
-    `urlApi` y `claveApi`;
+    `urlApi`, `claveApi` y el consentimiento (`{aceptado, version, fecha}`);
+  - que el token de Google nunca vaya a `chrome.storage` ni a la consola;
+  - el bloque `oauth2`: solo los alcances `openid` y email;
+  - las 3 pantallas del panel: al cargar solo se ve la bienvenida, que ofrece solo Google;
+  - que los permisos incluyan "Nunca haremos" y la Ley 1581;
   - que no haya claves escritas en el código;
   - que los íconos SVG no tengan scripts, eventos ni enlaces;
   - el SHA-256 de las fuentes.
@@ -422,6 +554,15 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
 
 ## Limitaciones
 
+- **La API todavía no verifica quién eres.** El inicio de sesión del paso 4.2 solo ocurre en la
+  extensión; la verificación del token en FastAPI llega en el paso 4.3. Hasta entonces, la API
+  sigue protegida solo por `X-API-Key`.
+- **La pestaña de Gmail puede ser de otra cuenta.** Gmail permite varias cuentas a la vez
+  (`/mail/u/0/`, `/mail/u/1/`…). El panel analiza el correo abierto en la pestaña activa aunque
+  sea de una cuenta distinta a la de la sesión que muestra el encabezado. Por ahora no se
+  comprueba; se resuelve en el **paso 4.4**.
+- **Todavía no hay política de privacidad publicada:** la pantalla de permisos cita la Ley 1581,
+  pero no enlaza a una política.
 - **La clave queda guardada sin cifrar en el perfil de Chrome.** Manifest V3 no ofrece un
   almacén seguro de secretos: quien tenga acceso a tu sesión del sistema operativo podría leerla.
   Por eso es una clave solo para este prototipo, y se cambia en `.env` si se filtra.

@@ -4,8 +4,9 @@
 //   avisa que existe. Para cambiarla se escribe una nueva.
 // - Todo el texto se muestra con textContent (nunca innerHTML).
 
-import { borrarClave, guardarClave, guardarUrl, leerConfiguracion } from "../lib/almacen.js";
+import { borrarClave, borrarConsentimiento, guardarClave, guardarUrl, leerConfiguracion } from "../lib/almacen.js";
 import { validarClave, validarUrlApi } from "../lib/logica.js";
+import { cerrarSesion } from "../lib/sesion.js";
 
 const elementos = {
   formulario: document.getElementById("formulario"),
@@ -77,6 +78,37 @@ async function borrar() {
   mostrarMensaje("Clave borrada.", "ok");
 }
 
+// ----- Sesión y consentimiento (paso 4.2) -----
+
+const sesion = {
+  cerrar: document.getElementById("cerrar-sesion"),
+  retirar: document.getElementById("retirar-consentimiento"),
+  mensaje: document.getElementById("mensaje-sesion"),
+};
+
+function mostrarMensajeSesion(texto, tipo) {
+  sesion.mensaje.dataset.tipo = tipo;
+  sesion.mensaje.textContent = texto;
+}
+
+/** Quita el token de la caché de Chrome y lo revoca en Google (el token nunca se muestra). */
+async function cerrarLaSesion() {
+  sesion.cerrar.disabled = true;
+  try {
+    const resultado = await cerrarSesion(chrome.identity, fetch);
+    mostrarMensajeSesion(resultado.mensaje, resultado.ok ? "ok" : "error");
+  } finally {
+    sesion.cerrar.disabled = false;
+  }
+}
+
+async function retirarConsentimiento() {
+  await borrarConsentimiento();
+  mostrarMensajeSesion("Consentimiento retirado. El panel lo volverá a pedir.", "ok");
+}
+
 elementos.formulario.addEventListener("submit", guardar);
+sesion.cerrar.addEventListener("click", cerrarLaSesion);
+sesion.retirar.addEventListener("click", retirarConsentimiento);
 elementos.borrar.addEventListener("click", borrar);
 cargar();
