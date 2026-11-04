@@ -66,6 +66,19 @@ export function extraerMotivos(lista) {
   return candidatos.filter((c) => !contenidoEnOtro(c)).slice(0, MAX_MOTIVOS).map((c) => c.etiqueta);
 }
 
+// ----- Estado vacío (antes de analizar) -----
+
+export const TEXTO_VACIO = "Abre un correo en Gmail y pulsa Analizar este correo.";
+
+/**
+ * Qué se ve en el espacio del resultado: el estado vacío o el resultado, nunca los dos a la
+ * vez ni ninguno. hayResultado = ya se leyó un correo (y se muestra su tarjeta).
+ */
+export function vistaResultado(hayResultado) {
+  const hay = hayResultado === true;
+  return { vacio: !hay, resultado: hay };
+}
+
 const LARGO_MAX_ASUNTO = 300;
 const LARGO_MAX_REMITENTE = 320;
 

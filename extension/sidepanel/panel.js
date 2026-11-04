@@ -38,7 +38,7 @@ import {
   urlSalud,
   validarUrlApi,
 } from "../lib/logica.js";
-import { armarTarjeta, datosCorreoAbierto } from "../lib/tarjeta.js";
+import { TEXTO_VACIO, armarTarjeta, datosCorreoAbierto, vistaResultado } from "../lib/tarjeta.js";
 
 const elementos = {
   avisoSinClave: document.getElementById("aviso-sin-clave"),
@@ -47,6 +47,8 @@ const elementos = {
   analizar: document.getElementById("analizar"),
   analisis: document.getElementById("analisis"),
   analisisTexto: document.getElementById("analisis-texto"),
+  estadoVacio: document.getElementById("estado-vacio"),
+  estadoVacioTexto: document.getElementById("estado-vacio-texto"),
   resultado: document.getElementById("resultado"),
   correoAsunto: document.getElementById("correo-asunto"),
   correoRemitente: document.getElementById("correo-remitente"),
@@ -145,13 +147,20 @@ function llenarLista(lista, textos) {
   }));
 }
 
+/** Estado vacío o resultado: nunca los dos a la vez (lo decide vistaResultado()). */
+function mostrarVista(hayResultado) {
+  const vista = vistaResultado(hayResultado);
+  elementos.estadoVacio.hidden = !vista.vacio;
+  elementos.resultado.hidden = !vista.resultado;
+}
+
 /** Tarjeta "CORREO ABIERTO": asunto y remitente leídos de Gmail (solo textContent). */
 function mostrarCorreoAbierto(correo) {
   const datos = datosCorreoAbierto(correo);
   elementos.correoAsunto.textContent = datos.asunto;
   elementos.correoRemitente.textContent = datos.remitente;
   elementos.tarjeta.hidden = true; // la franja aparece cuando responde la API
-  elementos.resultado.hidden = false;
+  mostrarVista(true);
 }
 
 function mostrarResultado(resultado, recortado) {
@@ -183,8 +192,8 @@ function mostrarResultado(resultado, recortado) {
 
 async function analizarCorreo() {
   elementos.analisis.hidden = true;
-  elementos.resultado.hidden = true;
   elementos.tarjeta.hidden = true;
+  mostrarVista(false); // si la lectura falla, vuelve el estado vacío junto al mensaje
 
   const { urlApi, claveApi } = await leerConfiguracion();
   const url = validarUrlApi(urlApi);
@@ -290,6 +299,8 @@ function avisarProximamente(evento) {
 }
 
 async function iniciar() {
+  elementos.estadoVacioTexto.textContent = TEXTO_VACIO;
+  mostrarVista(false);
   elementos.irOpciones.addEventListener("click", abrirOpciones);
   elementos.abrirOpciones.addEventListener("click", abrirOpciones);
   elementos.analizar.addEventListener("click", analizarCorreo);
