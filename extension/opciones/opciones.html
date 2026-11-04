@@ -39,6 +39,18 @@
     </form>
 
     <p class="mensaje" id="mensaje" role="status" aria-live="polite"></p>
+
+    <!-- Paso 4.2: el token de Google nunca se guarda ni se muestra (lib/sesion.js). -->
+    <section class="seccion-sesion" aria-labelledby="titulo-sesion">
+      <h2 id="titulo-sesion">Sesión y consentimiento</h2>
+      <p class="suave">Cerrar sesión revoca el acceso de SICAE-IA a tu cuenta de Google. Retirar el
+        consentimiento hace que el panel vuelva a pedirlo.</p>
+      <div class="acciones">
+        <button type="button" class="boton boton-secundario" id="cerrar-sesion">Cerrar sesión</button>
+        <button type="button" class="boton boton-secundario" id="retirar-consentimiento">Retirar consentimiento</button>
+      </div>
+      <p class="mensaje" id="mensaje-sesion" role="status" aria-live="polite"></p>
+    </section>
   </main>
 </body>
 </html>
