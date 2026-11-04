@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
-  Opciones de SICAE-IA (paso 3.1): URL de la API y clave, guardadas en chrome.storage.local.
-  La clave se escribe aquí; nunca está en el código. Una vez guardada no se vuelve a mostrar.
+  Opciones de SICAE-IA: la URL de la API (chrome.storage.local) y la sesión.
+  Desde el paso 4.3 no hay clave de API: el acceso es con la sesión de Google.
 -->
 <html lang="es">
 <head>
@@ -25,16 +25,8 @@
         <p class="suave">Por defecto: http://127.0.0.1:8000</p>
       </div>
 
-      <div class="campo">
-        <label for="clave">Clave de la API</label>
-        <input type="password" id="clave" name="clave" spellcheck="false" autocomplete="off"
-               placeholder="La de SICAE_API_KEY en el archivo .env">
-        <p class="suave" id="estado-clave">Todavía no hay una clave guardada.</p>
-      </div>
-
       <div class="acciones">
         <button type="submit" class="boton boton-principal">Guardar</button>
-        <button type="button" class="boton boton-secundario" id="borrar-clave">Borrar clave</button>
       </div>
     </form>
 
@@ -43,8 +35,9 @@
     <!-- Paso 4.2: el token de Google nunca se guarda ni se muestra (lib/sesion.js). -->
     <section class="seccion-sesion" aria-labelledby="titulo-sesion">
       <h2 id="titulo-sesion">Sesión y consentimiento</h2>
-      <p class="suave">Cerrar sesión revoca el acceso de SICAE-IA a tu cuenta de Google. Retirar el
-        consentimiento hace que el panel vuelva a pedirlo.</p>
+      <p class="suave">Cerrar sesión cierra tu sesión en la API y revoca el acceso de SICAE-IA a tu
+        cuenta de Google. Retirar el consentimiento borra tu cuenta en la API (y sus sesiones) y hace
+        que el panel vuelva a pedirlo.</p>
       <div class="acciones">
         <button type="button" class="boton boton-secundario" id="cerrar-sesion">Cerrar sesión</button>
         <button type="button" class="boton boton-secundario" id="retirar-consentimiento">Retirar consentimiento</button>

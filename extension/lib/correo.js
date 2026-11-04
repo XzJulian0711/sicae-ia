@@ -174,7 +174,8 @@ const PRIORIDADES = ["alta", "media", "baja"];
 const CONFIANZAS = ["alta", "dudosa"];
 
 const ERRORES = {
-  401: "Clave incorrecta. Revísala en Opciones.",
+  401: "La API no aceptó la sesión: vuelve a iniciar sesión.",
+  403: "Falta tu consentimiento en la API: cierra sesión y vuelve a aceptar los permisos.",
   413: "El correo es demasiado grande para la API.",
   422: "La API no aceptó los datos del correo.",
   429: "Demasiados análisis seguidos: espera un minuto e inténtalo de nuevo.",

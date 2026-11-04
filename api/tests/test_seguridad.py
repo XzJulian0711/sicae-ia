@@ -1,12 +1,13 @@
-"""Pruebas de la seguridad de la API (paso 2.4).
+"""Pruebas de la seguridad de la API (pasos 2.4 y 4.3).
 
-Clave de API, arranque sin clave, CORS, tamaño máximo (413), límite por IP (429),
-cabeceras de seguridad y /docs según el modo.
+Sesión (Authorization: Bearer), arranque sin SICAE_GOOGLE_CLIENT_ID, CORS, tamaño máximo (413),
+límite por IP (429), cabeceras de seguridad y /docs según el modo.
+Las pruebas de /auth/google, consentimiento, cerrar sesión y borrar cuenta están en test_auth.py.
 Correr desde la raíz:  .venv\\Scripts\\python -m pytest api/tests -v
 """
 
 import pytest
-from conftest import CLAVE, ORIGEN_PERMITIDO, ajustes_para, crear_app_prueba
+from conftest import ORIGEN_PERMITIDO, ajustes_para, crear_app_prueba, iniciar_sesion
 from fastapi.testclient import TestClient
 
 from app.config import Ajustes
@@ -31,15 +32,16 @@ CABECERAS = {
 
 @pytest.fixture
 def crear_cliente(archivos_modelo, tmp_path):
-    """Fábrica: cliente con ajustes cambiados. Por defecto NO envía la clave."""
+    """Fábrica: cliente con ajustes cambiados. Por defecto NO tiene sesión."""
     abiertos = []
 
-    def crear(con_clave=False, reloj=None, **cambios):
+    def crear(con_sesion=False, reloj=None, **cambios):
         ajustes = ajustes_para(archivos_modelo, db_path=tmp_path / "sicae.db", **cambios)
-        cliente = TestClient(crear_app_prueba(ajustes, reloj=reloj),
-                             headers={"X-API-Key": CLAVE} if con_clave else {})
+        cliente = TestClient(crear_app_prueba(ajustes, reloj=reloj))
         cliente.__enter__()  # ejecuta el lifespan
         abiertos.append(cliente)
+        if con_sesion:
+            iniciar_sesion(cliente)
         return cliente
 
     yield crear
@@ -51,21 +53,23 @@ def tiene_cabeceras_de_seguridad(respuesta):
     return all(respuesta.headers.get(nombre) == valor for nombre, valor in CABECERAS.items())
 
 
-# ----- clave de API -----
+# ----- sesión (paso 4.3: reemplaza a la antigua X-API-Key) -----
 
 
-def test_sin_clave_o_con_clave_mala_da_401_generico(crear_cliente):
+def test_sin_sesion_o_con_sesion_inventada_da_401_generico(crear_cliente):
     cliente = crear_cliente()
-    sin_clave = cliente.post("/analizar", json=CORREO)
-    mala = cliente.post("/analizar", json=CORREO, headers={"X-API-Key": "clave-incorrecta"})
-    assert sin_clave.status_code == mala.status_code == 401
-    assert sin_clave.json() == mala.json() == {"detalle": "No autorizado."}  # no dice cuál falló
-    assert sin_clave.headers["www-authenticate"] == "ApiKey"
+    sin_sesion = cliente.post("/analizar", json=CORREO)
+    inventada = cliente.post("/analizar", json=CORREO, headers={"Authorization": "Bearer inventada-123"})
+    otro_esquema = cliente.post("/analizar", json=CORREO, headers={"Authorization": "Basic dXN1YXJpbzpjbGF2ZQ=="})
+    vieja = cliente.post("/analizar", json=CORREO, headers={"X-API-Key": "cualquier-cosa"})
+    assert sin_sesion.status_code == inventada.status_code == otro_esquema.status_code == vieja.status_code == 401
+    assert sin_sesion.json() == inventada.json() == {"detalle": "No autorizado."}  # no dice cuál falló
+    assert sin_sesion.headers["www-authenticate"] == "Bearer"
 
 
-def test_con_clave_correcta_da_200(crear_cliente):
-    cliente = crear_cliente()
-    respuesta = cliente.post("/analizar", json=CORREO, headers={"X-API-Key": CLAVE})
+def test_con_sesion_y_consentimiento_da_200(crear_cliente):
+    cliente = crear_cliente(con_sesion=True)
+    respuesta = cliente.post("/analizar", json=CORREO)
     assert respuesta.status_code == 200 and respuesta.json()["categoria"] == "phishing"
 
 
@@ -76,20 +80,29 @@ def test_salud_es_publica(crear_cliente):
 # ----- arranque -----
 
 
-def test_sin_sicae_api_key_la_app_no_arranca(archivos_modelo, tmp_path, monkeypatch):
+def test_sin_google_client_id_la_app_no_arranca(archivos_modelo, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # así no se lee un .env real del proyecto
-    monkeypatch.delenv("SICAE_API_KEY", raising=False)
+    monkeypatch.delenv("SICAE_GOOGLE_CLIENT_ID", raising=False)
     ajustes = Ajustes(ruta_modelo=archivos_modelo / "modelo.joblib", db_path=tmp_path / "sicae.db")
-    assert ajustes.api_key is None
-    with pytest.raises(RuntimeError, match="Falta SICAE_API_KEY"):
+    assert ajustes.google_client_id == ""
+    with pytest.raises(RuntimeError, match="Falta SICAE_GOOGLE_CLIENT_ID"):
         with TestClient(crear_app(ajustes)):
             pass
 
 
-def test_clave_de_ejemplo_no_arranca_en_produccion(crear_cliente):
-    with pytest.raises(RuntimeError, match="valor de ejemplo"):
-        crear_cliente(api_key="cambia-esto", modo="produccion")
-    assert crear_cliente(api_key="cambia-esto", modo="desarrollo").get("/salud").status_code == 200
+def test_client_id_raro_o_duracion_invalida_no_arranca(crear_cliente):
+    with pytest.raises(RuntimeError, match="no parece un client ID"):
+        crear_cliente(google_client_id="cualquier-cosa")
+    with pytest.raises(RuntimeError, match="DURACION_SESION"):
+        crear_cliente(duracion_sesion_horas=0)
+
+
+def test_sicae_api_key_ya_no_se_usa_y_se_ignora(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SICAE_API_KEY", "clave-vieja-del-paso-2")
+    ajustes = Ajustes()
+    assert not hasattr(ajustes, "api_key")
+    assert "clave-vieja-del-paso-2" not in repr(ajustes)
 
 
 def test_cors_con_asterisco_no_arranca(crear_cliente):
@@ -99,15 +112,16 @@ def test_cors_con_asterisco_no_arranca(crear_cliente):
 
 def test_variables_de_entorno(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SICAE_API_KEY", "clave-secreta-de-entorno")
+    monkeypatch.setenv("SICAE_GOOGLE_CLIENT_ID", "999-entorno.apps.googleusercontent.com")
+    monkeypatch.setenv("SICAE_DURACION_SESION_HORAS", "4")
     monkeypatch.setenv("SICAE_CORS_ORIGINS", "chrome-extension://a , chrome-extension://b,")
     monkeypatch.setenv("SICAE_RATE_LIMIT", "7")
     monkeypatch.setenv("SICAE_DB_PATH", str(tmp_path / "otra.db"))
     ajustes = Ajustes()
     assert ajustes.origenes_cors == ["chrome-extension://a", "chrome-extension://b"]
     assert ajustes.rate_limit == 7 and ajustes.db_path == tmp_path / "otra.db"
-    assert ajustes.api_key.get_secret_value() == "clave-secreta-de-entorno"
-    assert "clave-secreta-de-entorno" not in repr(ajustes)  # SecretStr la oculta
+    assert ajustes.google_client_id == "999-entorno.apps.googleusercontent.com"
+    assert ajustes.duracion_sesion_horas == 4
 
 
 # ----- integridad del modelo (paso 2.5) -----
@@ -116,8 +130,8 @@ def test_variables_de_entorno(monkeypatch, tmp_path):
 def test_modelo_con_hash_distinto_no_se_carga_y_analizar_da_503(archivos_modelo, tmp_path, caplog):
     ajustes = ajustes_para(archivos_modelo, db_path=tmp_path / "sicae.db")
     hash_equivocado = "0" * 64
-    with caplog.at_level("WARNING"), TestClient(crear_app(ajustes, sha256_modelo=hash_equivocado),
-                                                headers={"X-API-Key": CLAVE}) as cliente:
+    with caplog.at_level("WARNING"), TestClient(crear_app_prueba(ajustes, sha256_modelo=hash_equivocado)) as cliente:
+        iniciar_sesion(cliente)
         salud = cliente.get("/salud").json()
         respuesta = cliente.post("/analizar", json=CORREO)
     assert salud["estado"] == "sin_modelo" and salud["modelo_cargado"] is False
@@ -132,11 +146,16 @@ def test_modelo_con_hash_distinto_no_se_carga_y_analizar_da_503(archivos_modelo,
 
 def test_cors_solo_para_el_origen_permitido(crear_cliente):
     cliente = crear_cliente()
-    previa = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-api-key"}
+    previa = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,authorization"}
 
     permitida = cliente.options("/analizar", headers={"Origin": ORIGEN_PERMITIDO, **previa})
     assert permitida.headers.get("access-control-allow-origin") == ORIGEN_PERMITIDO
-    assert "x-api-key" in permitida.headers.get("access-control-allow-headers", "").lower()
+    assert "authorization" in permitida.headers.get("access-control-allow-headers", "").lower()
+
+    # DELETE /cuenta también se permite desde la extensión (paso 4.3).
+    borrar = cliente.options("/cuenta", headers={"Origin": ORIGEN_PERMITIDO, "Access-Control-Request-Method": "DELETE",
+                                                 "Access-Control-Request-Headers": "authorization"})
+    assert borrar.status_code == 200 and "DELETE" in borrar.headers.get("access-control-allow-methods", "")
 
     otra = cliente.options("/analizar", headers={"Origin": "https://sitio-malo.example", **previa})
     assert "access-control-allow-origin" not in otra.headers
@@ -151,7 +170,7 @@ def test_cors_solo_para_el_origen_permitido(crear_cliente):
 
 
 def test_cuerpo_grande_da_413_sin_repetir_el_contenido(crear_cliente):
-    cliente = crear_cliente(con_clave=True, max_bytes=1_000)
+    cliente = crear_cliente(con_sesion=True, max_bytes=1_000)
     respuesta = cliente.post("/analizar", json={**CORREO, "cuerpo": "SECRETOGRANDE " * 200})
     assert respuesta.status_code == 413
     assert respuesta.json() == {"detalle": "La petición es demasiado grande."}
@@ -160,7 +179,7 @@ def test_cuerpo_grande_da_413_sin_repetir_el_contenido(crear_cliente):
 
 
 def test_cuerpo_grande_por_partes_sin_content_length_da_413(crear_cliente):
-    cliente = crear_cliente(con_clave=True, max_bytes=1_000)
+    cliente = crear_cliente(con_sesion=True, max_bytes=1_000)
 
     def partes():  # un generador: httpx lo envía por partes, sin Content-Length
         yield b'{"asunto": "x", "cuerpo": "'
@@ -174,7 +193,7 @@ def test_cuerpo_grande_por_partes_sin_content_length_da_413(crear_cliente):
 
 
 def test_cuerpo_justo_en_el_limite_pasa(crear_cliente):
-    cliente = crear_cliente(con_clave=True, max_bytes=200_000)
+    cliente = crear_cliente(con_sesion=True, max_bytes=200_000)
     assert cliente.post("/analizar", json=CORREO).status_code == 200
 
 

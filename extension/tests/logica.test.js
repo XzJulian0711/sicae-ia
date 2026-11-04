@@ -7,14 +7,11 @@ import { describe, test } from "node:test";
 import {
   ORIGENES_PERMITIDOS,
   URL_POR_DEFECTO,
-  interpretarClave,
   interpretarSalud,
-  resultadoClaveSinConexion,
-  resultadoSinClave,
+  interpretarSesionApi,
   resultadoSinConexion,
   urlEstadisticas,
   urlSalud,
-  validarClave,
   validarUrlApi,
 } from "../lib/logica.js";
 
@@ -88,53 +85,26 @@ describe("urlSalud y urlEstadisticas", () => {
   });
 });
 
-describe("interpretarClave", () => {
-  test("200 es clave correcta", () => {
-    assert.deepEqual(interpretarClave(200), { tipo: "clave_correcta", mensaje: "Clave correcta." });
+describe("interpretarSesionApi (paso 4.3: reemplaza a interpretarClave)", () => {
+  test("200 es sesión correcta", () => {
+    assert.deepEqual(interpretarSesionApi(200), { tipo: "sesion_correcta", mensaje: "Sesión correcta." });
   });
 
-  test("401 es clave incorrecta y lleva a Opciones", () => {
-    const r = interpretarClave(401);
-    assert.equal(r.tipo, "clave_incorrecta");
-    assert.match(r.mensaje, /Opciones/);
+  test("401 pide volver a iniciar sesión", () => {
+    const r = interpretarSesionApi(401);
+    assert.equal(r.tipo, "sesion_incorrecta");
+    assert.match(r.mensaje, /vuelve a iniciar sesión/);
   });
 
-  test("429 pide esperar", () => {
-    const r = interpretarClave(429);
-    assert.equal(r.tipo, "error");
-    assert.match(r.mensaje, /espera/);
+  test("429 pide esperar y 503 dice que la API no pudo hablar con Google", () => {
+    assert.match(interpretarSesionApi(429).mensaje, /espera/);
+    assert.match(interpretarSesionApi(503).mensaje, /Google/);
   });
 
   test("cualquier otro código da un mensaje genérico", () => {
-    for (const estado of [500, 503, 404, 0]) {
-      assert.deepEqual(interpretarClave(estado), { tipo: "error", mensaje: "No se pudo comprobar la clave." }, String(estado));
+    for (const estado of [500, 404, 0]) {
+      assert.deepEqual(interpretarSesionApi(estado), { tipo: "error", mensaje: "No se pudo comprobar la sesión." }, String(estado));
     }
-  });
-
-  test("sin conexión y sin clave tienen su propio mensaje", () => {
-    assert.equal(resultadoClaveSinConexion().tipo, "error");
-    const sinClave = resultadoSinClave();
-    assert.equal(sinClave.tipo, "error");
-    assert.match(sinClave.mensaje, /Opciones/);
-  });
-});
-
-describe("validarClave", () => {
-  test("acepta una clave larga sin espacios y quita espacios de los extremos", () => {
-    const clave = "Ab3_xY-9kLmN0pQrStUvWxYz12345678";
-    assert.deepEqual(validarClave(`  ${clave} `), { ok: true, clave });
-  });
-
-  test("rechaza vacía, corta o muy larga", () => {
-    assert.equal(validarClave("").ok, false);
-    assert.equal(validarClave("corta").ok, false);
-    assert.equal(validarClave("x".repeat(257)).ok, false);
-  });
-
-  test("rechaza espacios internos y caracteres que no son ASCII visibles", () => {
-    assert.equal(validarClave("clave con espacios 12345").ok, false);
-    assert.equal(validarClave("contraseñamuylarga123456").ok, false);
-    assert.equal(validarClave("clave\tcon-tabulador-1234").ok, false);
   });
 });
 

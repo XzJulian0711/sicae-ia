@@ -1,7 +1,9 @@
 """Seguridad de la API (paso 2.4), solo con la librería estándar y lo que ya trae FastAPI.
 
-- validar_seguridad(): revisa la configuración al arrancar (sin clave, la API no arranca).
-- crear_verificador_clave(): dependencia que exige el encabezado X-API-Key.
+- validar_seguridad(): revisa la configuración al arrancar (sin SICAE_GOOGLE_CLIENT_ID, la API
+  no arranca).
+- crear_verificador_sesion(): dependencia que exige una sesión válida (Authorization: Bearer),
+  paso 4.3. Reemplaza a la antigua X-API-Key.
 - LimiteTamano: rechaza peticiones de más de SICAE_MAX_BYTES con 413.
 - LimitePeticiones: máximo SICAE_RATE_LIMIT peticiones por minuto por IP (429).
 - CabecerasSeguridad: agrega cabeceras de seguridad a TODAS las respuestas.
@@ -13,18 +15,17 @@ FastAPI. Ninguna lee ni guarda el contenido de los correos; los errores no lo re
 import json
 import logging
 import math
-import secrets
 import threading
 import time
 from collections import deque
 
 from fastapi import HTTPException, Security
-from fastapi.security import APIKeyHeader
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-logger = logging.getLogger("sicae.api")
+from app import usuarios
 
-CLAVE_DE_EJEMPLO = "cambia-esto"  # el valor de .env.example: no sirve como clave real
+logger = logging.getLogger("sicae.api")
 
 CABECERAS_SEGURIDAD = [
     (b"x-content-type-options", b"nosniff"),  # el navegador no "adivina" el tipo de archivo
@@ -43,22 +44,19 @@ def validar_seguridad(ajustes):
     """Revisa la configuración de seguridad. Lanza RuntimeError con un mensaje claro si falla.
 
     Se llama al arrancar la API (lifespan), no al importar el módulo: así las pruebas y la CI
-    pueden importar app.main sin tener una clave.
+    pueden importar app.main sin tener un .env.
     """
-    clave = ajustes.api_key.get_secret_value().strip() if ajustes.api_key else ""
-    if not clave:
+    client_id = ajustes.google_client_id.strip()
+    if not client_id:
         raise RuntimeError(
-            "Falta SICAE_API_KEY. Créela en el archivo .env (vea .env.example), por ejemplo con:\n"
-            '    python -c "import secrets; print(secrets.token_urlsafe(32))"'
+            "Falta SICAE_GOOGLE_CLIENT_ID. Cópielo de .env.example al archivo .env: es el client ID "
+            "de OAuth de la extensión (público, no es un secreto)."
         )
-    if clave == CLAVE_DE_EJEMPLO:
-        if ajustes.modo == "produccion":
-            raise RuntimeError(
-                f'SICAE_API_KEY sigue con el valor de ejemplo "{CLAVE_DE_EJEMPLO}". '
-                "Cámbiela en .env por una clave larga y aleatoria."
-            )
-        logger.warning('SICAE_API_KEY tiene el valor de ejemplo "%s": cámbiela antes de usar la API en serio.',
-                       CLAVE_DE_EJEMPLO)
+    if not client_id.endswith(".apps.googleusercontent.com"):
+        raise RuntimeError("SICAE_GOOGLE_CLIENT_ID no parece un client ID de Google "
+                           "(debe terminar en .apps.googleusercontent.com).")
+    if ajustes.duracion_sesion_horas < 1:
+        raise RuntimeError("SICAE_DURACION_SESION_HORAS debe ser mayor que 0.")
     if "*" in ajustes.origenes_cors:
         raise RuntimeError('SICAE_CORS_ORIGINS no puede ser "*": liste los orígenes permitidos, '
                            "por ejemplo chrome-extension://<id-de-la-extension>.")
@@ -67,28 +65,49 @@ def validar_seguridad(ajustes):
 
 
 # ---------------------------------------------------------------------------
-# Clave de API
+# Sesión (paso 4.3): Authorization: Bearer <token>
 # ---------------------------------------------------------------------------
 
+LARGO_MAX_BEARER = 4096
 
-def crear_verificador_clave(ajustes):
-    """Dependencia de FastAPI que exige X-API-Key igual a SICAE_API_KEY.
 
-    compare_digest compara en tiempo constante: no deja adivinar la clave midiendo cuánto
-    tarda la respuesta. Sin clave o con clave incorrecta, el mismo 401 genérico.
+def no_autorizado():
+    """El mismo 401 genérico para todo: sin token, token inventado, vencido o cerrado."""
+    return HTTPException(status_code=401, detail="No autorizado.", headers={"WWW-Authenticate": "Bearer"})
+
+
+def token_bearer(autorizacion):
+    """Saca el token de "Authorization: Bearer <token>". Lanza el 401 genérico si no hay uno."""
+    if not autorizacion or not isinstance(autorizacion.credentials, str):
+        raise no_autorizado()
+    token = autorizacion.credentials.strip()
+    if not token or len(token) > LARGO_MAX_BEARER or autorizacion.scheme.lower() != "bearer":
+        raise no_autorizado()
+    return token
+
+
+ESQUEMA_BEARER = HTTPBearer(auto_error=False, description="Authorization: Bearer <token>.")
+
+
+def crear_verificador_sesion(ajustes, reloj):
+    """Dependencia que exige una sesión válida de la API. Devuelve
+    {"id", "consentimiento_version", "token"} del usuario; si no, el 401 genérico.
+
+    El token de sesión nunca se guarda en claro: usuarios.py busca por su hash (SHA-256).
     """
-    encabezado = APIKeyHeader(name="X-API-Key", auto_error=False,
-                              description="Clave de la API (SICAE_API_KEY del archivo .env).")
 
-    def verificar_clave(enviada: str | None = Security(encabezado)):
-        esperada = ajustes.api_key.get_secret_value() if ajustes.api_key else ""
-        if not esperada or not enviada or not secrets.compare_digest(
-            enviada.encode("utf-8"), esperada.encode("utf-8")
-        ):
-            raise HTTPException(status_code=401, detail="No autorizado.",
-                                headers={"WWW-Authenticate": "ApiKey"})
+    def verificar_sesion(autorizacion: HTTPAuthorizationCredentials | None = Security(ESQUEMA_BEARER)):
+        token = token_bearer(autorizacion)
+        try:
+            usuario = usuarios.usuario_de_sesion(ajustes.db_path, token, ahora=reloj())
+        except Exception as error:
+            logger.error("No se pudo leer la sesión (%s)", type(error).__name__)
+            raise HTTPException(status_code=503, detail="Las sesiones no están disponibles.") from None
+        if usuario is None:
+            raise no_autorizado()
+        return {**usuario, "token": token}
 
-    return verificar_clave
+    return verificar_sesion
 
 
 # ---------------------------------------------------------------------------

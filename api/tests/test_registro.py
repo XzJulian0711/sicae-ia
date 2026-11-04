@@ -8,7 +8,7 @@ import logging
 import sqlite3
 
 import pytest
-from conftest import CLAVE, ajustes_para, crear_app_prueba
+from conftest import ajustes_para, crear_app_prueba, iniciar_sesion
 from fastapi.testclient import TestClient
 
 from app import registro
@@ -94,10 +94,15 @@ def test_el_texto_del_correo_no_aparece_en_el_archivo_db(cliente, tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["sicae.db"]
 
 
-def test_si_falla_el_registro_la_respuesta_igual_llega(archivos_modelo, tmp_path, caplog):
-    # db_path apunta a una CARPETA: SQLite no puede abrirla como base de datos.
-    ajustes = ajustes_para(archivos_modelo, db_path=tmp_path)
-    with caplog.at_level(logging.DEBUG), TestClient(crear_app_prueba(ajustes), headers={"X-API-Key": CLAVE}) as cliente:
+def test_si_falla_el_registro_la_respuesta_igual_llega(archivos_modelo, tmp_path, caplog, monkeypatch):
+    # Solo falla el registro de análisis (las sesiones, en la misma base, siguen funcionando).
+    def registrar_que_falla(ruta, resultado):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(registro, "registrar", registrar_que_falla)
+    ajustes = ajustes_para(archivos_modelo, db_path=tmp_path / "sicae.db")
+    with caplog.at_level(logging.DEBUG), TestClient(crear_app_prueba(ajustes)) as cliente:
+        iniciar_sesion(cliente)
         respuesta = cliente.post("/analizar", json=CORREO_MARCADO)
     assert respuesta.status_code == 200 and respuesta.json()["categoria"] == "phishing"
     assert "No se pudo registrar el análisis (OperationalError)" in caplog.text
@@ -118,5 +123,7 @@ def test_estadisticas_cuenta_por_categoria_y_prioridad(cliente):
     assert sum(datos["por_prioridad"].values()) == 2
 
 
-def test_estadisticas_pide_clave(cliente):
-    assert cliente.get("/estadisticas", headers={"X-API-Key": "otra"}).status_code == 401
+def test_estadisticas_pide_sesion(cliente):
+    assert cliente.get("/estadisticas", headers={"Authorization": "Bearer otra"}).status_code == 401
+    del cliente.headers["Authorization"]
+    assert cliente.get("/estadisticas").status_code == 401

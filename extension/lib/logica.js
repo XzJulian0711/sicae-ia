@@ -1,9 +1,8 @@
 // Lógica pura de la extensión: no usa APIs de Chrome, así se prueba con  node --test.
 //
 // - validarUrlApi(): revisa la URL de la API que escribe el usuario en Opciones.
-// - validarClave(): revisa la clave de la API antes de guardarla.
 // - interpretarSalud(): convierte la respuesta de GET /salud en un resultado para mostrar.
-// - interpretarClave(): convierte el código de GET /estadisticas en "clave correcta/incorrecta".
+// - interpretarSesionApi(): convierte el código de GET /estadisticas en "sesión correcta/incorrecta".
 //
 // Los mensajes son genéricos a propósito: nunca se muestra el texto crudo de un error.
 
@@ -15,8 +14,6 @@ export const TIEMPO_ESPERA_MS = 5000; // si la API no responde en 5 s, se da por
 // Cuando se agregue una API por https, se agrega en los dos lugares.
 export const ORIGENES_PERMITIDOS = ["http://127.0.0.1:8000"];
 
-const CLAVE_MIN = 16;
-const CLAVE_MAX = 256;
 const VERSION_VALIDA = /^[\w.-]{1,20}$/;
 
 // ----- URL de la API -----
@@ -73,27 +70,6 @@ export function urlSalud(base) {
   return `${base.replace(/\/+$/, "")}/salud`;
 }
 
-// ----- Clave de la API -----
-
-/**
- * Valida la clave antes de guardarla.
- * Debe tener entre 16 y 256 caracteres ASCII visibles (sin espacios): así se puede enviar
- * en el encabezado X-API-Key sin que fetch falle.
- */
-export function validarClave(texto) {
-  const clave = typeof texto === "string" ? texto.trim() : "";
-  if (!clave) {
-    return { ok: false, error: "Escribe la clave de la API." };
-  }
-  if (clave.length < CLAVE_MIN || clave.length > CLAVE_MAX) {
-    return { ok: false, error: `La clave debe tener entre ${CLAVE_MIN} y ${CLAVE_MAX} caracteres.` };
-  }
-  if (!/^[\x21-\x7e]+$/.test(clave)) {
-    return { ok: false, error: "La clave solo puede tener letras, números y símbolos, sin espacios ni tildes." };
-  }
-  return { ok: true, clave };
-}
-
 // ----- Respuesta de GET /salud -----
 
 /**
@@ -118,39 +94,32 @@ export function interpretarSalud(estadoHttp, cuerpo) {
   return { tipo: "error", mensaje: "La API respondió de forma inesperada. Revisa la URL en Opciones.", version: null };
 }
 
-/** URL completa de GET /estadisticas (se usa solo para comprobar la clave). */
+/** URL completa de GET /estadisticas (se usa solo para comprobar la sesión). */
 export function urlEstadisticas(base) {
   return `${base.replace(/\/+$/, "")}/estadisticas`;
 }
 
-// ----- Comprobar la clave con GET /estadisticas -----
+// ----- Comprobar la sesión con GET /estadisticas (paso 4.3) -----
 
 /**
- * Convierte el código HTTP de GET /estadisticas (con X-API-Key) en {tipo, mensaje}.
- * Solo importa el código: los conteos de la respuesta no se leen ni se muestran.
- * tipo: "clave_correcta" | "clave_incorrecta" | "error".
+ * Convierte el código HTTP de GET /estadisticas (con Authorization: Bearer <sesión>) en
+ * {tipo, mensaje}. Solo importa el código: los conteos no se leen ni se muestran.
+ * tipo: "sesion_correcta" | "sesion_incorrecta" | "error".
  */
-export function interpretarClave(estadoHttp) {
+export function interpretarSesionApi(estadoHttp) {
   if (estadoHttp === 200) {
-    return { tipo: "clave_correcta", mensaje: "Clave correcta." };
+    return { tipo: "sesion_correcta", mensaje: "Sesión correcta." };
   }
   if (estadoHttp === 401) {
-    return { tipo: "clave_incorrecta", mensaje: "Clave incorrecta. Revísala en Opciones." };
+    return { tipo: "sesion_incorrecta", mensaje: "La API no aceptó la sesión: vuelve a iniciar sesión." };
   }
   if (estadoHttp === 429) {
     return { tipo: "error", mensaje: "Demasiadas pruebas seguidas: espera un minuto e inténtalo de nuevo." };
   }
-  return { tipo: "error", mensaje: "No se pudo comprobar la clave." };
-}
-
-/** Resultado de la clave cuando la petición no llegó (red o tiempo agotado). */
-export function resultadoClaveSinConexion() {
-  return { tipo: "error", mensaje: "No se pudo comprobar la clave." };
-}
-
-/** Resultado de la clave cuando todavía no hay una guardada. */
-export function resultadoSinClave() {
-  return { tipo: "error", mensaje: "Falta la clave: configúrala en Opciones." };
+  if (estadoHttp === 503) {
+    return { tipo: "error", mensaje: "La API no pudo verificar con Google." };
+  }
+  return { tipo: "error", mensaje: "No se pudo comprobar la sesión." };
 }
 
 /** Resultado para fallos de red o tiempo agotado (sin detalles técnicos). */

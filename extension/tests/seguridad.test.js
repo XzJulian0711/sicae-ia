@@ -279,19 +279,20 @@ describe("lectura de Gmail (content script)", () => {
     }
   });
 
-  test("solo almacen.js usa chrome.storage, y solo guarda urlApi, claveApi y consentimiento", () => {
+  test("solo almacen.js usa chrome.storage: en local solo urlApi y consentimiento (ya no hay clave)", () => {
     for (const { nombre, codigo } of leer(".js")) {
       if (nombre.replaceAll("\\", "/") !== "lib/almacen.js") {
         assert.doesNotMatch(codigo, /\bchrome\.storage\b/, `${nombre} usa chrome.storage`);
       }
     }
     const almacen = codigoDe("lib/almacen.js");
-    assert.match(almacen, /const CLAVES = \{ url: "urlApi", clave: "claveApi", consentimiento: "consentimiento" \};/);
+    assert.match(almacen, /const CLAVES = \{ url: "urlApi", consentimiento: "consentimiento" \};/);
+    assert.doesNotMatch(almacen, /claveApi/);
     const guardados = [...almacen.matchAll(/chrome\.storage\.local\.set\(\{\s*\[CLAVES\.(\w+)\]: (.+?) \}\);/g)];
     assert.equal(guardados.length, (almacen.match(/chrome\.storage\.local\.set\(/g) || []).length,
                  "cada set guarda una sola clave de CLAVES");
     for (const [, clave, valor] of guardados) {
-      assert.ok(["url", "clave", "consentimiento"].includes(clave), clave);
+      assert.ok(["url", "consentimiento"].includes(clave), clave);
       if (clave === "consentimiento") {
         // Del consentimiento solo se guardan estos 3 campos.
         assert.equal(valor.trim(), "{ aceptado, version, fecha }");
@@ -299,10 +300,25 @@ describe("lectura de Gmail (content script)", () => {
     }
   });
 
+  test("la sesión de la API va SOLO a chrome.storage.session (memoria), nunca a local", () => {
+    const almacen = codigoDe("lib/almacen.js");
+    assert.match(almacen, /const CLAVE_SESION = "sesionApi";/);
+    const enSession = almacen.match(/chrome\.storage\.session\.\w+\([^)]*\)/g) || [];
+    assert.equal(enSession.length, 3, "leer, guardar y borrar");
+    for (const llamada of enSession) assert.match(llamada, /CLAVE_SESION/);
+    assert.match(almacen, /chrome\.storage\.session\.set\(\{ \[CLAVE_SESION\]: \{ token, expira \} \}\)/);
+    for (const llamada of almacen.match(/chrome\.storage\.local\.\w+\([^)]*\)/g) || []) {
+      assert.doesNotMatch(llamada, /CLAVE_SESION|sesionApi|token/i, `local no guarda la sesión: ${llamada}`);
+    }
+  });
+
   test("el token de Google nunca se guarda, ni se escribe en la consola", () => {
     for (const { nombre, codigo } of leer(".js")) {
       for (const llamada of codigo.match(/chrome\.storage\.[\s\S]*?\)/g) || []) {
-        assert.doesNotMatch(llamada, /token/i, `${nombre} guarda algo con "token"`);
+        // La única excepción es la sesión de la API ({token, expira}) en storage.session.
+        if (!/^chrome\.storage\.session\.set\(\{ \[CLAVE_SESION\]: \{ token, expira \}/.test(llamada)) {
+          assert.doesNotMatch(llamada, /token/i, `${nombre} guarda algo con "token"`);
+        }
         assert.doesNotMatch(llamada, /correo|email/i, `${nombre} guarda el correo de la sesión`);
       }
       for (const llamada of codigo.match(/console\.\w+\([\s\S]*?\)/g) || []) {
@@ -310,6 +326,32 @@ describe("lectura de Gmail (content script)", () => {
       }
       assert.doesNotMatch(codigo, /\b(localStorage|sessionStorage|indexedDB)\b/, `${nombre} usa otro almacenamiento`);
     }
+  });
+});
+
+describe("sesión con la API (paso 4.3)", () => {
+  test("X-API-Key ya no se usa en ningún archivo de la extensión", () => {
+    for (const { nombre, codigo } of [...leer(".js"), ...leer(".html")]) {
+      assert.doesNotMatch(codigo, /X-API-Key|claveApi/i, `${nombre} todavía usa la clave de API`);
+    }
+  });
+
+  test("un 403 de /analizar usa queHacerAnte403 y, sin consentimiento válido, vuelve a los permisos", () => {
+    const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    const bloque = /if \(intento\.ok && intento\.respuesta\.status === 403\) \{[\s\S]*?\n {4}\}/.exec(panel)?.[0] ?? "";
+    assert.ok(bloque, "falta el manejo del 403");
+    // La decisión va ANTES de registrar nada.
+    assert.ok(bloque.indexOf("queHacerAnte403(await leerConsentimiento())") < bloque.indexOf("registrarConsentimiento("));
+    assert.match(bloque, /!== "registrar"\) return \{ tipo: "pedir_permisos" \}/);
+    assert.match(panel, /resultado\.tipo === "pedir_permisos"\) \{\s*mostrarPantalla\("permisos"\)/);
+  });
+
+  test("Opciones ya no tiene el campo de clave, solo la URL", () => {
+    const opciones = sinComentarios(readFileSync(join(RAIZ, "opciones", "opciones.html"), "utf8"), ".html");
+    assert.doesNotMatch(opciones, /type="password"|id="clave"|borrar-clave/);
+    assert.match(opciones, /id="url"/);
+    assert.match(opciones, /id="cerrar-sesion"/);
+    assert.match(opciones, /id="retirar-consentimiento"/);
   });
 });
 

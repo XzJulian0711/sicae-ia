@@ -82,7 +82,7 @@ sicae-ia/
 │   ├── sidepanel/            Panel: "Analizar este correo" (tarjeta de resultado) y "Probar conexión"
 │   ├── iconos/               Íconos de la extensión (PNG) y SVG locales de la franja
 │   ├── gmail/                Content script: lee el correo abierto (selectores.js + lector.js)
-│   ├── opciones/             URL de la API y clave (chrome.storage.local)
+│   ├── opciones/             URL de la API, cerrar sesión y retirar consentimiento
 │   ├── lib/                  Lógica pura, probada (logica.js, correo.js, tarjeta.js) y almacen.js
 │   ├── estilos/sicae.css     Estilo de la demo (Sora + DM Sans, azul/naranja)
 │   ├── fuentes/              Sora y DM Sans locales + licencias OFL
@@ -301,25 +301,30 @@ Para clasificar, la API necesita estos archivos:
 
 ### Crear el archivo .env (obligatorio)
 
-La API **no arranca sin una clave**. Cópiala de la plantilla y cámbiala:
+La API **no arranca sin `SICAE_GOOGLE_CLIENT_ID`** (paso 4.3). Copia la plantilla, que ya
+trae el valor:
 
 ```bash
 cp .env.example .env          # en PowerShell: Copy-Item .env.example .env
-python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Abre `.env` y pon la clave que imprimió el segundo comando en `SICAE_API_KEY=...`. El valor de
-ejemplo `cambia-esto` no sirve: con él la API no arranca, salvo en modo desarrollo.
+`SICAE_GOOGLE_CLIENT_ID` es el client ID de OAuth de la extensión: **es público, no es un
+secreto**. La API solo acepta tokens de Google emitidos para él.
+
+**`SICAE_API_KEY` ya no se usa:** desde el paso 4.3 se entra con la cuenta de Google. Si sigue en
+tu `.env`, se ignora y puedes borrarla.
 
 `.env` **no se sube a Git**. Otras variables útiles:
 
 | Variable | Para qué | Por defecto |
 |---|---|---|
+| `SICAE_GOOGLE_CLIENT_ID` | Client ID de OAuth de la extensión (obligatorio, público) | vacío: la API no arranca |
+| `SICAE_DURACION_SESION_HORAS` | Cuánto dura una sesión de la API | 8 |
 | `SICAE_MODO` | `desarrollo` habilita `/docs` | `produccion` |
 | `SICAE_CORS_ORIGINS` | Orígenes de la extensión, separados por comas (`chrome-extension://<id>`). Nunca `*` | vacío (ninguno) |
 | `SICAE_RATE_LIMIT` | Peticiones por minuto por IP | 30 |
 | `SICAE_MAX_BYTES` | Tamaño máximo de una petición | 200000 |
-| `SICAE_DB_PATH` | Archivo SQLite del registro | `api/data/sicae.db` |
+| `SICAE_DB_PATH` | Archivo SQLite del registro, los usuarios y las sesiones | `api/data/sicae.db` |
 
 ### Arrancar
 
@@ -329,24 +334,37 @@ uvicorn app.main:app --app-dir api --reload
 
 - `--app-dir api` le dice a uvicorn dónde está el paquete `app`.
 - `--reload` reinicia el servidor al guardar cambios. Úsalo solo mientras desarrollas.
-- **Sin `SICAE_API_KEY`**, uvicorn se detiene con el mensaje "Falta SICAE_API_KEY…".
+- **Sin `SICAE_GOOGLE_CLIENT_ID`**, uvicorn se detiene con el mensaje "Falta SICAE_GOOGLE_CLIENT_ID…".
 - **Si falta el modelo, la API arranca igual:** `GET /salud` lo informa y `POST /analizar`
   responde 503.
 
 ### Probar con curl
 
-`/salud` es pública. `/analizar` y `/estadisticas` piden la clave en el encabezado `X-API-Key`.
-En PowerShell escribe `curl.exe` en lugar de `curl`.
+`/salud` es pública. Las demás rutas piden una **sesión** en `Authorization: Bearer`
+(paso 4.3):
+
+| Ruta | Qué hace |
+|---|---|
+| `POST /auth/google` | Con el token de Google en `Bearer`: lo verifica con Google y devuelve `{token_sesion, expira, consentimiento_version}`. La sesión dura 8 h |
+| `POST /consentimiento` | Con sesión y `{"version": "1"}`: guarda qué versión de los permisos aceptó |
+| `POST /analizar` | Con sesión **y consentimiento** |
+| `GET /estadisticas` | Con sesión |
+| `POST /auth/cerrar` | Cierra esa sesión |
+| `DELETE /cuenta` | Borra el usuario y todas sus sesiones |
+
+Normalmente todo esto lo hace la extensión sola. Para probar a mano con curl, primero se necesita
+una sesión, y para eso un token de Google de una cuenta de prueba. Lo más simple es probar desde
+la extensión. En PowerShell escribe `curl.exe` en lugar de `curl`.
 
 ```bash
 curl http://127.0.0.1:8000/salud
 
 curl -X POST http://127.0.0.1:8000/analizar \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: TU_CLAVE" \
+  -H "Authorization: Bearer TU_SESION" \
   -d '{"asunto": "Su paquete está detenido", "cuerpo": "Estimado cliente, pague la tasa de envío.", "remitente": "avisos@example.net", "destinatarios": ["usuario@example.org"], "n_urls": 1, "n_adjuntos": 0}'
 
-curl -H "X-API-Key: TU_CLAVE" http://127.0.0.1:8000/estadisticas
+curl -H "Authorization: Bearer TU_SESION" http://127.0.0.1:8000/estadisticas
 ```
 
 `/estadisticas` devuelve solo conteos, por ejemplo
@@ -356,8 +374,8 @@ curl -H "X-API-Key: TU_CLAVE" http://127.0.0.1:8000/estadisticas
 ### Probar desde /docs (solo en modo desarrollo)
 
 1. En `.env`, pon `SICAE_MODO=desarrollo` y reinicia la API. En producción, `/docs` responde 404.
-2. Abre <http://127.0.0.1:8000/docs> y pulsa **Authorize**. Escribe la clave de `.env` en
-   `X-API-Key`.
+2. Abre <http://127.0.0.1:8000/docs> y pulsa **Authorize**. Escribe un token de sesión, el de
+   `POST /auth/google`, en `HTTPBearer`.
 3. **POST /analizar → Try it out.** El cuerpo ya viene con un correo de ejemplo inventado; pulsa
    Execute. Con el modelo v1.0 responde `"categoria": "phishing"` con motivos como
    «paquete» y «entrega».
@@ -377,11 +395,12 @@ Campos de `POST /analizar`:
 
 | Código | Cuándo |
 |---|---|
-| 401 | Falta la clave o es incorrecta (mismo mensaje en los dos casos) |
+| 401 | Sin sesión, o la sesión es inventada, venció o se cerró: siempre el mismo mensaje |
+| 403 | `/analizar` sin consentimiento registrado |
 | 413 | La petición pasa de `SICAE_MAX_BYTES` |
 | 422 | Entrada inválida: dice qué campo falló |
 | 429 | Más de `SICAE_RATE_LIMIT` peticiones por minuto. Espera los segundos de `Retry-After` |
-| 503 | Modelo no cargado: revisa `GET /salud` |
+| 503 | Modelo no cargado (revisa `GET /salud`), o `/auth/google` no pudo hablar con Google |
 
 **Privacidad.** La API nunca escribe en los logs el asunto, el cuerpo ni las direcciones. Los
 logs de uvicorn solo muestran el método y la ruta (`POST /analizar`). Las capas de seguridad
@@ -394,8 +413,8 @@ pytest            # ml/tests y api/tests
 pytest api/tests  # solo la API
 ```
 
-Las pruebas de la API usan un modelo inventado y una clave de prueba, así que corren sin el
-`.joblib` y sin `.env`.
+Las pruebas de la API usan un modelo inventado y **Google simulado**, así que corren sin el
+`.joblib`, sin `.env` y sin internet.
 
 ## Cómo contribuir
 
