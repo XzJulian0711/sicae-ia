@@ -18,11 +18,15 @@
 
 <!-- Endpoints, esquemas de entrada/salida, modelo de datos en SQLite. -->
 
-| Endpoint | Clave | Qué hace |
+| Endpoint | Pide | Qué hace |
 |---|---|---|
 | `GET /salud` | Pública | Dice si la API está arriba, si el modelo está cargado y su versión |
-| `POST /analizar` | `X-API-Key` | Clasifica un correo y registra el resultado (sin el texto) |
-| `GET /estadisticas` | `X-API-Key` | Conteos por categoría y prioridad |
+| `POST /auth/google` | Token de Google (`Bearer`) | Lo verifica con Google (`tokeninfo`) y crea una sesión de 8 h (paso 4.3) |
+| `POST /consentimiento` | Sesión | Guarda qué versión del texto de permisos aceptó y cuándo |
+| `POST /auth/cerrar` | Sesión | Cierra esa sesión |
+| `DELETE /cuenta` | Sesión | Borra el usuario y todas sus sesiones |
+| `POST /analizar` | Sesión + consentimiento | Clasifica un correo y registra el resultado (sin el texto ni el usuario) |
+| `GET /estadisticas` | Sesión | Conteos por categoría y prioridad |
 
 ### 3.1 Seguridad de la API
 
@@ -32,14 +36,25 @@ que ya trae FastAPI. Cada petición atraviesa estas capas, de afuera hacia adent
 | # | Capa | Qué hace | Por qué |
 |---|---|---|---|
 | 1 | Cabeceras de seguridad | Agrega a **todas** las respuestas: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` | Evitan que el navegador interprete mal la respuesta, que la API se muestre dentro de otra página, que se filtre la URL de origen y que un resultado quede guardado en caché |
-| 2 | CORS | Solo los orígenes de `SICAE_CORS_ORIGINS` (por ejemplo `chrome-extension://<id>`) reciben permiso del navegador. Métodos GET y POST; encabezados `Content-Type` y `X-API-Key`. **Nunca `"*"`**: si aparece, la API no arranca | Impide que cualquier página web abierta en el navegador del usuario llame a la API |
-| 3 | Límite por IP | Como máximo `SICAE_RATE_LIMIT` peticiones por minuto (30 por defecto), en una ventana deslizante en memoria. Si se pasa: **429** con `Retry-After` | Frena el abuso y los intentos repetidos de adivinar la clave |
+| 2 | CORS | Solo los orígenes de `SICAE_CORS_ORIGINS` (por ejemplo `chrome-extension://<id>`) reciben permiso del navegador. Métodos GET, POST y DELETE; encabezados `Content-Type` y `Authorization`. **Nunca `"*"`**: si aparece, la API no arranca | Impide que cualquier página web abierta en el navegador del usuario llame a la API |
+| 3 | Límite por IP | Como máximo `SICAE_RATE_LIMIT` peticiones por minuto (30 por defecto), en una ventana deslizante en memoria. Si se pasa: **429** con `Retry-After` | Frena el abuso y los intentos repetidos de adivinar una sesión |
 | 4 | Tamaño máximo | Peticiones de más de `SICAE_MAX_BYTES` (200.000 por defecto): **413**, sin leerlas enteras ni repetir su contenido | Evita que un cuerpo gigante consuma memoria |
-| 5 | Clave de API | `/analizar` y `/estadisticas` exigen `X-API-Key` igual a `SICAE_API_KEY`, comparada con `secrets.compare_digest`. Si falta o no coincide: **401** con el mismo mensaje genérico | La comparación en tiempo constante no deja adivinar la clave midiendo tiempos; el mensaje único no dice si faltó o si estaba mal |
+| 5 | Sesión (paso 4.3) | Las rutas protegidas exigen `Authorization: Bearer <sesión>`. La API busca el **hash SHA-256** del token en la tabla `sesiones` (`usuarios.py`). Si falta, es inventada, venció o se cerró: **401** con el mismo mensaje genérico. `/analizar` además exige el consentimiento (**403**) | Solo se guarda el hash, así que copiar la base no da sesiones válidas. Los tokens son aleatorios de 256 bits (`secrets.token_urlsafe(32)`), imposibles de adivinar. El mensaje único no dice cuál fue el problema |
 
 Además:
-- **Arranque seguro.** Sin `SICAE_API_KEY`, la API **no arranca** y muestra cómo crearla. En
-  modo producción tampoco arranca con el valor de ejemplo `cambia-esto`.
+- **Arranque seguro.** Sin `SICAE_GOOGLE_CLIENT_ID`, o con un valor que no parece un client ID de
+  Google, la API **no arranca** y explica qué falta. `SICAE_API_KEY` ya no se usa.
+- **Verificación con Google** (`api/app/google.py`, solo `urllib`). Se pregunta a `tokeninfo` con
+  el token en el **cuerpo** de un `POST`, nunca en la URL, y con 5 s como máximo. Se acepta solo si
+  cumple todo:
+  - `aud` y `azp` iguales al client ID;
+  - no está vencido;
+  - incluye el alcance de email;
+  - `email_verified` es `true`.
+
+  Si Google no responde: **503**. De la respuesta solo se usa `sub`; el correo se descarta.
+- **Sin secretos en los logs.** Nunca se escriben el token de Google, el de sesión ni el correo:
+  solo el tipo de error.
 - **Documentación cerrada.** `/docs`, `/redoc` y `/openapi.json` solo existen con
   `SICAE_MODO=desarrollo`.
 - **Errores sin contenido.** Los errores de validación (422) no devuelven lo que se envió.
@@ -54,8 +69,11 @@ Además:
     hicieron peticiones en los últimos 60 s.
 - **La IP se toma de la conexión.** Detrás de un proxy, todas las peticiones parecerían venir de
   la IP del proxy. No se usa `X-Forwarded-For` porque cualquiera puede falsificarlo.
-- **La clave es una sola, compartida.** No hay usuarios ni permisos distintos. Si se filtra, se
-  cambia en `.env` y se reinicia la API.
+- **No hay roles:** cualquier cuenta que Google acepte para el client ID (en modo de prueba, los
+  usuarios de prueba del proyecto) puede usar la API. No hay administradores ni permisos
+  distintos.
+- **La API necesita internet para abrir sesión** (verifica con Google). Las sesiones ya abiertas
+  siguen sirviendo hasta que vencen.
 
 ### 3.2 Qué se guarda y qué no
 
@@ -89,6 +107,20 @@ Una prueba envía un correo con un texto único en todos sus campos y comprueba 
 **Si el registro falla** (disco lleno, archivo bloqueado), la respuesta igual se entrega. En el
 log queda solo el tipo de error, sin contenido. `GET /estadisticas` lee esta tabla y devuelve
 solo conteos.
+
+**Usuarios y sesiones (paso 4.3)**, en la misma base. El código está en
+[`api/app/usuarios.py`](../api/app/usuarios.py):
+
+| Tabla | Columnas | Qué **no** se guarda |
+|---|---|---|
+| `usuarios` | `id`, `google_sub` (UNIQUE: el identificador de la cuenta que da Google), `creado`, `ultimo_acceso`, `consentimiento_version`, `consentimiento_fecha` | El correo, el nombre y el token de Google |
+| `sesiones` | `hash` (SHA-256 del token de sesión, 64 hex), `usuario_id` (con `ON DELETE CASCADE`), `creada`, `expira` | El token en claro |
+
+- **Los análisis no se ligan al usuario:** la tabla `analisis` no tiene columna de usuario.
+- **`DELETE /cuenta`** borra la fila de `usuarios` y, en cascada, todas sus sesiones.
+- **Las sesiones vencidas** se borran al usarse y cada vez que se crea una nueva.
+- **Una prueba revisa los bytes del `.db`:** después de iniciar sesión y analizar, no aparecen ni
+  el correo de Google, ni el token de Google, ni el token de sesión.
 
 ## 4. Extension de Chrome (`extension/`)
 

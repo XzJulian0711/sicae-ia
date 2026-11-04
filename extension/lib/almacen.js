@@ -1,33 +1,26 @@
-// Guarda y lee la configuración en chrome.storage.local.
+// Guarda y lee la configuración de la extensión.
 //
-// Se usa "local" y no "sync": así la clave de la API se queda en este equipo y no se copia
-// a la cuenta de Google. La clave NUNCA está escrita en el código: la escribe el usuario
-// en la página de Opciones.
+// chrome.storage.local (se queda en este equipo, no se copia a la cuenta de Google):
+//   - urlApi: la dirección de la API.
+//   - consentimiento: solo {aceptado, version, fecha} (paso 4.2).
+// chrome.storage.session (en memoria: se borra al cerrar el navegador; los content scripts no
+// pueden leerla) (paso 4.3):
+//   - sesionApi: {token, expira} de la sesión que entrega la API. Nunca va a "local".
+// El token de GOOGLE nunca se guarda en ningún lado. Ya no hay clave de API (paso 4.3).
 
 import { URL_POR_DEFECTO } from "./logica.js";
 
-// consentimiento: solo {aceptado, version, fecha} (paso 4.2). El token de Google NUNCA se guarda.
-const CLAVES = { url: "urlApi", clave: "claveApi", consentimiento: "consentimiento" };
+const CLAVES = { url: "urlApi", consentimiento: "consentimiento" };
+const CLAVE_SESION = "sesionApi";
 
-/** Devuelve {urlApi, claveApi}. Si no hay URL guardada, usa la de por defecto. */
+/** Devuelve {urlApi}. Si no hay URL guardada, usa la de por defecto. */
 export async function leerConfiguracion() {
-  const datos = await chrome.storage.local.get([CLAVES.url, CLAVES.clave]);
-  return {
-    urlApi: typeof datos[CLAVES.url] === "string" ? datos[CLAVES.url] : URL_POR_DEFECTO,
-    claveApi: typeof datos[CLAVES.clave] === "string" ? datos[CLAVES.clave] : "",
-  };
+  const datos = await chrome.storage.local.get(CLAVES.url);
+  return { urlApi: typeof datos[CLAVES.url] === "string" ? datos[CLAVES.url] : URL_POR_DEFECTO };
 }
 
 export async function guardarUrl(url) {
   await chrome.storage.local.set({ [CLAVES.url]: url });
-}
-
-export async function guardarClave(clave) {
-  await chrome.storage.local.set({ [CLAVES.clave]: clave });
-}
-
-export async function borrarClave() {
-  await chrome.storage.local.remove(CLAVES.clave);
 }
 
 /** Consentimiento guardado ({aceptado, version, fecha}) o null. */
@@ -44,3 +37,22 @@ export async function guardarConsentimiento({ aceptado, version, fecha }) {
 export async function borrarConsentimiento() {
   await chrome.storage.local.remove(CLAVES.consentimiento);
 }
+
+// ----- Sesión de la API: SOLO en chrome.storage.session -----
+
+export async function leerSesionApi() {
+  const datos = await chrome.storage.session.get(CLAVE_SESION);
+  return datos[CLAVE_SESION] ?? null;
+}
+
+/** Guarda solo {token, expira} de la sesión de la API. */
+export async function guardarSesionApi({ token, expira }) {
+  await chrome.storage.session.set({ [CLAVE_SESION]: { token, expira } });
+}
+
+export async function borrarSesionApi() {
+  await chrome.storage.session.remove(CLAVE_SESION);
+}
+
+/** Lo que usan las funciones de lib/sesion.js para leer, guardar y borrar la sesión de la API. */
+export const almacenSesionApi = Object.freeze({ leer: leerSesionApi, guardar: guardarSesionApi, borrar: borrarSesionApi });

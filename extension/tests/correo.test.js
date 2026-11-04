@@ -257,8 +257,15 @@ describe("interpretarAnalisis", () => {
     }
   });
 
-  test("mensajes claros para 401, 413, 422, 429 y 503", () => {
-    const esperado = { 401: /Clave incorrecta/, 413: /demasiado grande/, 422: /no aceptó/, 429: /espera un minuto/, 503: /modelo no está cargado/ };
+  test("mensajes claros para 401, 403, 413, 422, 429 y 503", () => {
+    const esperado = {
+      401: /vuelve a iniciar sesión/,
+      403: /consentimiento/,
+      413: /demasiado grande/,
+      422: /no aceptó/,
+      429: /espera un minuto/,
+      503: /modelo no está cargado/,
+    };
     for (const [codigo, patron] of Object.entries(esperado)) {
       const r = interpretarAnalisis(Number(codigo), null);
       assert.equal(r.tipo, "error");

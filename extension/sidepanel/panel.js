@@ -2,13 +2,14 @@
 //
 // "Analizar este correo":
 //   1. pide a la pestaña activa (Gmail) el correo abierto (gmail/lector.js);
-//   2. arma la petición (lib/correo.js) y la envía a POST /analizar con X-API-Key;
+//   2. arma la petición (lib/correo.js) y la envía a POST /analizar con la sesión de la API
+//      (Authorization: Bearer; si responde 401, la sesión se renueva una vez: lib/sesion.js);
 //   3. muestra la tarjeta "CORREO ABIERTO" (asunto y remitente) y la franja de resultado con
 //      sus motivos (lib/tarjeta.js decide estilo, textos y secciones).
 // Barra inferior: Bandeja y Redactar solo dicen "Próximamente" (llegan con la API de Gmail).
 // "Probar conexión":
 //   1. GET /salud (pública): ¿responde la API? ¿hay modelo cargado?
-//   2. GET /estadisticas con X-API-Key: ¿la clave es correcta? (solo se usa el código)
+//   2. GET /estadisticas con la sesión: ¿la API acepta la sesión? (solo se usa el código)
 //
 // Seguridad:
 // - El correo solo vive en variables locales: no se guarda en chrome.storage ni va a la consola.
@@ -16,7 +17,7 @@
 // - Cada fetch tiene tiempo máximo (AbortSignal.timeout) y va sin cookies.
 // - Mensajes genéricos: nunca se muestra el texto crudo de un error.
 
-import { guardarConsentimiento, leerConfiguracion, leerConsentimiento } from "../lib/almacen.js";
+import { almacenSesionApi, guardarConsentimiento, leerConfiguracion, leerConsentimiento } from "../lib/almacen.js";
 import {
   armarPeticion,
   esPestanaGmail,
@@ -29,17 +30,18 @@ import {
 } from "../lib/correo.js";
 import {
   TIEMPO_ESPERA_MS,
-  interpretarClave,
   interpretarSalud,
-  resultadoClaveSinConexion,
-  resultadoSinClave,
+  interpretarSesionApi,
   resultadoSinConexion,
   urlEstadisticas,
   urlSalud,
   validarUrlApi,
 } from "../lib/logica.js";
 import {
-  cerrarSesion,
+  asegurarSesionApi,
+  cerrarSesionCompleta,
+  conSesion,
+  consentimientoValido,
   crearConsentimiento,
   haySesion,
   iniciarSesion,
@@ -47,6 +49,8 @@ import {
   olvidarToken,
   pantallaInicial,
   pantallaTrasIniciarSesion,
+  queHacerAnte403,
+  registrarConsentimiento,
 } from "../lib/sesion.js";
 import { TEXTO_VACIO, armarTarjeta, datosCorreoAbierto, vistaResultado } from "../lib/tarjeta.js";
 
@@ -70,8 +74,6 @@ const acceso = {
 };
 
 const elementos = {
-  avisoSinClave: document.getElementById("aviso-sin-clave"),
-  abrirOpciones: document.getElementById("abrir-opciones"),
   irOpciones: document.getElementById("ir-opciones"),
   analizar: document.getElementById("analizar"),
   analisis: document.getElementById("analisis"),
@@ -98,11 +100,26 @@ const elementos = {
   probar: document.getElementById("probar"),
   estado: document.getElementById("estado"),
   estadoTexto: document.getElementById("estado-texto"),
-  estadoClave: document.getElementById("estado-clave"),
-  estadoClaveTexto: document.getElementById("estado-clave-texto"),
+  estadoSesion: document.getElementById("estado-sesion"),
+  estadoSesionTexto: document.getElementById("estado-sesion-texto"),
 };
 
 const URL_NO_VALIDA = { tipo: "error", mensaje: "La URL de la API no es válida. Corrígela en Opciones." };
+
+/**
+ * Lo que necesitan las funciones de sesión de lib/sesion.js (paso 4.3): la sesión de la API se
+ * guarda SOLO en chrome.storage.session, y se registra el consentimiento local si es válido.
+ */
+async function contextoSesion(base) {
+  const consentimiento = await leerConsentimiento();
+  return {
+    identidad: chrome.identity,
+    pedir: fetch,
+    base,
+    almacen: almacenSesionApi,
+    version: consentimientoValido(consentimiento) ? consentimiento.version : null,
+  };
+}
 
 function mostrar(caja, texto, resultado) {
   caja.dataset.tipo = resultado.tipo;
@@ -143,13 +160,35 @@ async function leerCorreoDeLaPestana() {
   return interpretarLectura(respuesta);
 }
 
-async function enviarAnalisis(base, claveApi, peticion) {
+/**
+ * POST /analizar con la sesión de la API. conSesion() la abre si hace falta y, si la API
+ * responde 401, la renueva UNA vez y reintenta.
+ * Si responde 403 (la API no tiene el consentimiento, p. ej. porque la cuenta se borró en otro
+ * equipo), queHacerAnte403() decide:
+ *   - "registrar": hay un consentimiento aceptado de la MISMA versión del texto en este equipo →
+ *     se registra en la API y se reintenta una vez;
+ *   - "pedir_permisos": no lo hay (o es de otra versión) → NO se registra solo: se devuelve
+ *     {tipo: "pedir_permisos"} y el panel vuelve a "Revisa los permisos".
+ */
+async function enviarAnalisis(base, peticion) {
   try {
-    const respuesta = await pedir(urlAnalizar(base), {
+    const contexto = await contextoSesion(base);
+    const enviar = (sesion) => pedir(urlAnalizar(base), {
       metodo: "POST",
-      cabeceras: { "Content-Type": "application/json", "X-API-Key": claveApi },
+      cabeceras: { "Content-Type": "application/json", Authorization: `Bearer ${sesion.token}` },
       cuerpo: JSON.stringify(peticion),
     });
+    let intento = await conSesion(contexto, enviar);
+    if (intento.ok && intento.respuesta.status === 403) {
+      if (queHacerAnte403(await leerConsentimiento()) !== "registrar") return { tipo: "pedir_permisos" };
+      intento = await conSesion(contexto, async (sesion) => {
+        await registrarConsentimiento(fetch, base, sesion, contexto.version);
+        return enviar(sesion);
+      });
+      if (intento.ok && intento.respuesta.status === 403) return { tipo: "pedir_permisos" };
+    }
+    if (!intento.ok) return { tipo: "error", mensaje: intento.mensaje };
+    const respuesta = intento.respuesta;
     let cuerpo = null;
     if (respuesta.status === 200) {
       try {
@@ -224,14 +263,10 @@ async function analizarCorreo() {
   elementos.tarjeta.hidden = true;
   mostrarVista(false); // si la lectura falla, vuelve el estado vacío junto al mensaje
 
-  const { urlApi, claveApi } = await leerConfiguracion();
+  const { urlApi } = await leerConfiguracion();
   const url = validarUrlApi(urlApi);
   if (!url.ok) {
     mostrar(elementos.analisis, elementos.analisisTexto, URL_NO_VALIDA);
-    return;
-  }
-  if (!claveApi) {
-    mostrar(elementos.analisis, elementos.analisisTexto, resultadoSinClave());
     return;
   }
 
@@ -249,9 +284,11 @@ async function analizarCorreo() {
       mostrar(elementos.analisis, elementos.analisisTexto, armado.resultado);
       return;
     }
-    const resultado = await enviarAnalisis(url.url, claveApi, armado.peticion);
+    const resultado = await enviarAnalisis(url.url, armado.peticion);
     if (resultado.tipo === "resultado") {
       mostrarResultado(resultado, armado.recortado);
+    } else if (resultado.tipo === "pedir_permisos") {
+      mostrarPantalla("permisos"); // sin consentimiento válido no se registra nada solo
     } else {
       mostrar(elementos.analisis, elementos.analisisTexto, resultado);
     }
@@ -279,22 +316,18 @@ async function comprobarSalud(base) {
   }
 }
 
-async function comprobarClave(base, claveApi) {
-  if (!claveApi) {
-    return resultadoSinClave();
-  }
-  try {
-    const respuesta = await pedir(urlEstadisticas(base), { cabeceras: { "X-API-Key": claveApi } });
-    return interpretarClave(respuesta.status); // el cuerpo (conteos) no se lee
-  } catch {
-    return resultadoClaveSinConexion();
-  }
+/** Abre (o reusa) la sesión con la API y prueba GET /estadisticas: solo se usa el código. */
+async function comprobarSesionApi(base) {
+  const intento = await conSesion(await contextoSesion(base),
+                                  (sesion) => pedir(urlEstadisticas(base), { cabeceras: { Authorization: `Bearer ${sesion.token}` } }));
+  if (!intento.ok) return { tipo: "error", mensaje: intento.mensaje };
+  return interpretarSesionApi(intento.respuesta.status); // el cuerpo (conteos) no se lee
 }
 
 async function probarConexion() {
-  const { urlApi, claveApi } = await leerConfiguracion();
+  const { urlApi } = await leerConfiguracion();
   const url = validarUrlApi(urlApi);
-  elementos.estadoClave.hidden = true;
+  elementos.estadoSesion.hidden = true;
   if (!url.ok) {
     mostrar(elementos.estado, elementos.estadoTexto, URL_NO_VALIDA);
     return;
@@ -305,9 +338,9 @@ async function probarConexion() {
   try {
     const salud = await comprobarSalud(url.url);
     mostrar(elementos.estado, elementos.estadoTexto, salud);
-    // La clave solo se prueba si la API respondió (con o sin modelo).
+    // La sesión solo se prueba si la API respondió (con o sin modelo).
     if (salud.tipo === "conectado" || salud.tipo === "sin_modelo") {
-      mostrar(elementos.estadoClave, elementos.estadoClaveTexto, await comprobarClave(url.url, claveApi));
+      mostrar(elementos.estadoSesion, elementos.estadoSesionTexto, await comprobarSesionApi(url.url));
     }
   } finally {
     elementos.probar.disabled = false;
@@ -387,7 +420,12 @@ function cerrarMenuCuenta({ devolverFoco = true } = {}) {
 async function cerrarSesionDesdeMenu() {
   acceso.menuCerrarSesion.disabled = true;
   try {
-    const resultado = await cerrarSesion(chrome.identity, fetch); // la misma lógica de Opciones
+    // La misma lógica de Opciones: cierra la sesión de la API, la borra de storage.session y
+    // luego cierra la de Google (caché de Chrome + revocar).
+    const { urlApi } = await leerConfiguracion();
+    const url = validarUrlApi(urlApi);
+    const resultado = await cerrarSesionCompleta({ identidad: chrome.identity, pedir: fetch, base: url.ok ? url.url : null,
+                                                   almacen: almacenSesionApi });
     ocultarCuenta();
     mostrarPantalla("bienvenida");
     mostrarErrorSesion(resultado.mensaje, resultado.ok ? "conectado" : "error");
@@ -426,8 +464,26 @@ async function continuarConGoogle() {
 }
 
 async function aceptarPermisos() {
-  await guardarConsentimiento(crearConsentimiento()); // solo {aceptado, version, fecha}
+  const consentimiento = crearConsentimiento();
+  await guardarConsentimiento(consentimiento); // solo {aceptado, version, fecha}
   mostrarPantalla("principal");
+  registrarEnLaApi(consentimiento.version); // sin esperar: si la API está apagada, se reintenta al analizar
+}
+
+/**
+ * Paso 4.3: abre la sesión con la API (POST /auth/google) y registra el consentimiento
+ * (POST /consentimiento). Si falla (API apagada), no pasa nada: se intenta otra vez al analizar.
+ */
+async function registrarEnLaApi(version) {
+  try {
+    const { urlApi } = await leerConfiguracion();
+    const url = validarUrlApi(urlApi);
+    if (!url.ok) return;
+    const lista = await asegurarSesionApi({ identidad: chrome.identity, pedir: fetch, base: url.url, almacen: almacenSesionApi, version });
+    if (lista.ok) await registrarConsentimiento(fetch, url.url, lista.sesion, version);
+  } catch {
+    // Se reintenta al analizar.
+  }
 }
 
 async function ahoraNo() {
@@ -452,16 +508,10 @@ async function iniciar() {
   elementos.estadoVacioTexto.textContent = TEXTO_VACIO;
   mostrarVista(false);
   elementos.irOpciones.addEventListener("click", abrirOpciones);
-  elementos.abrirOpciones.addEventListener("click", abrirOpciones);
   elementos.analizar.addEventListener("click", analizarCorreo);
   elementos.probar.addEventListener("click", probarConexion);
   elementos.navBandeja.addEventListener("click", avisarProximamente);
   elementos.navRedactar.addEventListener("click", avisarProximamente);
-
-  const { claveApi } = await leerConfiguracion();
-  const faltaClave = !claveApi;
-  elementos.avisoSinClave.hidden = !faltaClave;
-  elementos.abrirOpciones.hidden = !faltaClave;
 }
 
 iniciar();

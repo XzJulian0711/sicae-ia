@@ -6,22 +6,35 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  MENSAJES_API,
   MENSAJES_AUTH,
   MENSAJES_CIERRE,
+  MENSAJES_CUENTA,
   URL_REVOCAR,
   URL_USERINFO,
   VERSION_CONSENTIMIENTO,
+  abrirSesionApi,
+  asegurarSesionApi,
+  borrarCuentaApi,
   cerrarSesion,
+  cerrarSesionApi,
+  cerrarSesionCompleta,
+  conSesion,
   consentimientoValido,
   crearConsentimiento,
   haySesion,
   iniciarSesion,
+  interpretarAuthApi,
   interpretarErrorAuth,
   interpretarUserinfo,
   obtenerCorreo,
   olvidarToken,
   pantallaInicial,
   pantallaTrasIniciarSesion,
+  queHacerAnte403,
+  registrarConsentimiento,
+  retirarConsentimiento,
+  sesionVigente,
 } from "../lib/sesion.js";
 
 const TOKEN = "ya29.token-inventado-para-pruebas";
@@ -67,6 +80,29 @@ describe("consentimiento", () => {
                         { ...bueno, version: "0" }, { ...bueno, fecha: "ayer" }, { aceptado: true, version: "1" },
                         { ...bueno, token: TOKEN }]) {
       assert.equal(consentimientoValido(malo), false, JSON.stringify(malo));
+    }
+  });
+});
+
+describe("queHacerAnte403 (paso 4.3: /analizar sin consentimiento en la API)", () => {
+  test("registra solo con un consentimiento aceptado de la MISMA versión del texto", () => {
+    assert.equal(queHacerAnte403(crearConsentimiento()), "registrar");
+  });
+
+  test("otra versión, sin consentimiento o datos raros → vuelve a Revisa los permisos", () => {
+    const bueno = crearConsentimiento();
+    for (const local of [
+      { ...bueno, version: "0" },
+      { ...bueno, version: "2" },
+      { ...bueno, version: 1 },
+      null,
+      undefined,
+      { ...bueno, aceptado: false },
+      { aceptado: true, version: VERSION_CONSENTIMIENTO },
+      { ...bueno, fecha: "ayer" },
+      { ...bueno, token: TOKEN },
+    ]) {
+      assert.equal(queHacerAnte403(local), "pedir_permisos", JSON.stringify(local));
     }
   });
 });
@@ -293,5 +329,224 @@ describe("cerrarSesion", () => {
 
   test("navegador sin chrome.identity → mensaje de navegador", async () => {
     assert.deepEqual(await cerrarSesion(undefined, fetchFalso().pedir), { ok: false, mensaje: MENSAJES_AUTH.navegador });
+  });
+});
+
+// ===================== Paso 4.3: sesión con la API =====================
+
+const BASE = "http://127.0.0.1:8000";
+const SESION = { token: "s".repeat(43), expira: "2026-11-05T16:00:00+00:00" };
+const AHORA_MS = Date.parse("2026-11-05T08:00:00Z");
+const OK_AUTH = { estado: 200, cuerpo: { token_sesion: SESION.token, expira: SESION.expira, consentimiento_version: null } };
+
+/** Doble de fetch para la API: rutas = {"METODO /ruta": [respuestas en orden]}. */
+function apiFalsa(rutas) {
+  const llamadas = [];
+  const pedir = async (url, opciones) => {
+    const clave = `${opciones.method} ${new URL(url).pathname}`;
+    llamadas.push({ clave, url, opciones });
+    const lista = rutas[clave] ?? [{ estado: 404 }];
+    const r = lista[Math.min(llamadas.filter((l) => l.clave === clave).length - 1, lista.length - 1)];
+    if (r === "sin-red") throw new TypeError("Failed to fetch");
+    return { status: r.estado, json: async () => r.cuerpo };
+  };
+  return { pedir, llamadas };
+}
+
+/** Doble de chrome.storage.session para la sesión de la API. */
+function almacenFalso(inicial = null) {
+  let valor = inicial;
+  const registro = [];
+  return {
+    registro,
+    get valor() { return valor; },
+    leer: async () => valor,
+    guardar: async (s) => { registro.push("guardar"); valor = { ...s }; },
+    borrar: async () => { registro.push("borrar"); valor = null; },
+  };
+}
+
+describe("sesionVigente e interpretarAuthApi", () => {
+  test("vigente solo con forma correcta y si vence en más de 1 minuto", () => {
+    assert.equal(sesionVigente(SESION, AHORA_MS), true);
+    assert.equal(sesionVigente({ ...SESION, expira: "2026-11-05T08:00:30Z" }, AHORA_MS), false, "vence en 30 s");
+    assert.equal(sesionVigente({ ...SESION, expira: "2026-11-05T07:00:00Z" }, AHORA_MS), false, "vencida");
+    for (const mala of [null, {}, "texto", { token: "corto", expira: SESION.expira }, { token: SESION.token },
+                        { token: "<script>".repeat(6), expira: SESION.expira }]) {
+      assert.equal(sesionVigente(mala, AHORA_MS), false, JSON.stringify(mala));
+    }
+  });
+
+  test("respuesta de /auth/google", () => {
+    assert.deepEqual(interpretarAuthApi(200, OK_AUTH.cuerpo), { ok: true, sesion: SESION });
+    assert.equal(interpretarAuthApi(200, { token_sesion: "x", expira: SESION.expira }).ok, false);
+    assert.equal(interpretarAuthApi(200, null).mensaje, MENSAJES_API.inesperada);
+    assert.equal(interpretarAuthApi(401).mensaje, MENSAJES_API.googleRechazo);
+    assert.equal(interpretarAuthApi(503).mensaje, MENSAJES_API.googleCaido);
+    assert.equal(interpretarAuthApi(429).mensaje, MENSAJES_API.limite);
+  });
+});
+
+describe("abrirSesionApi", () => {
+  test("manda el token de Google en Bearer a /auth/google y devuelve SOLO la sesión de la API", async () => {
+    const api = apiFalsa({ "POST /auth/google": [OK_AUTH] });
+    const r = await abrirSesionApi(identidadFalsa(), api.pedir, BASE);
+    assert.deepEqual(r, { ok: true, sesion: SESION });
+    noContieneToken(r);
+    const [llamada] = api.llamadas;
+    assert.equal(llamada.url, `${BASE}/auth/google`);
+    assert.equal(llamada.opciones.headers.Authorization, `Bearer ${TOKEN}`);
+    assert.ok(!llamada.url.includes(TOKEN));
+    assert.equal(llamada.opciones.credentials, "omit");
+    assert.ok(llamada.opciones.signal instanceof AbortSignal);
+  });
+
+  test("sin token de Google no llama a la API", async () => {
+    const api = apiFalsa({ "POST /auth/google": [OK_AUTH] });
+    assert.deepEqual(await abrirSesionApi(identidadFalsa({}), api.pedir, BASE), { ok: false, mensaje: MENSAJES_API.sinSesionGoogle });
+    assert.equal(api.llamadas.length, 0);
+  });
+
+  test("401: quita el token de Google de la caché y reintenta UNA vez", async () => {
+    const identidad = identidadFalsa();
+    const api = apiFalsa({ "POST /auth/google": [{ estado: 401 }, OK_AUTH] });
+    assert.equal((await abrirSesionApi(identidad, api.pedir, BASE)).ok, true);
+    assert.deepEqual(identidad.llamadas.removeCachedAuthToken, [{ token: TOKEN }]);
+
+    const siempre = apiFalsa({ "POST /auth/google": [{ estado: 401 }] });
+    assert.deepEqual(await abrirSesionApi(identidadFalsa(), siempre.pedir, BASE), { ok: false, mensaje: MENSAJES_API.googleRechazo });
+    assert.equal(siempre.llamadas.length, 2);
+  });
+
+  test("Google caído (503) y sin red dan mensajes claros", async () => {
+    const caido = apiFalsa({ "POST /auth/google": [{ estado: 503 }] });
+    assert.equal((await abrirSesionApi(identidadFalsa(), caido.pedir, BASE)).mensaje, MENSAJES_API.googleCaido);
+    const sinRed = apiFalsa({ "POST /auth/google": ["sin-red"] });
+    assert.equal((await abrirSesionApi(identidadFalsa(), sinRed.pedir, BASE)).mensaje, MENSAJES_API.sinConexion);
+  });
+});
+
+describe("consentimiento, cerrar y borrar en la API", () => {
+  test("registrarConsentimiento: POST /consentimiento con {version} y Bearer de la sesión", async () => {
+    const api = apiFalsa({ "POST /consentimiento": [{ estado: 204 }] });
+    assert.deepEqual(await registrarConsentimiento(api.pedir, BASE, SESION, "1"), { ok: true });
+    const { opciones } = api.llamadas[0];
+    assert.equal(opciones.headers.Authorization, `Bearer ${SESION.token}`);
+    assert.equal(opciones.headers["Content-Type"], "application/json");
+    assert.equal(opciones.body, JSON.stringify({ version: "1" }));
+    const sinRed = apiFalsa({ "POST /consentimiento": ["sin-red"] });
+    assert.deepEqual(await registrarConsentimiento(sinRed.pedir, BASE, SESION, "1"), { ok: false });
+  });
+
+  test("cerrarSesionApi: 204 o 401 (ya cerrada) cuentan como cerrada", async () => {
+    for (const estado of [204, 401]) {
+      assert.deepEqual(await cerrarSesionApi(apiFalsa({ "POST /auth/cerrar": [{ estado }] }).pedir, BASE, SESION), { ok: true });
+    }
+    assert.deepEqual(await cerrarSesionApi(apiFalsa({ "POST /auth/cerrar": [{ estado: 503 }] }).pedir, BASE, SESION), { ok: false });
+  });
+
+  test("borrarCuentaApi: DELETE /cuenta con Bearer", async () => {
+    const api = apiFalsa({ "DELETE /cuenta": [{ estado: 204 }] });
+    assert.equal((await borrarCuentaApi(api.pedir, BASE, SESION)).status, 204);
+    assert.equal(api.llamadas[0].opciones.headers.Authorization, `Bearer ${SESION.token}`);
+  });
+});
+
+describe("asegurarSesionApi y conSesion", () => {
+  const contexto = (api, almacen, version = "1") => ({
+    identidad: identidadFalsa(), pedir: api.pedir, base: BASE, almacen, version, ahora: AHORA_MS,
+  });
+
+  test("usa la sesión guardada si sigue vigente (no llama a la API)", async () => {
+    const api = apiFalsa({});
+    assert.deepEqual(await asegurarSesionApi(contexto(api, almacenFalso(SESION))), { ok: true, sesion: SESION });
+    assert.equal(api.llamadas.length, 0);
+  });
+
+  test("si no hay sesión: abre una, registra el consentimiento y la guarda", async () => {
+    const api = apiFalsa({ "POST /auth/google": [OK_AUTH], "POST /consentimiento": [{ estado: 204 }] });
+    const almacen = almacenFalso();
+    assert.deepEqual(await asegurarSesionApi(contexto(api, almacen)), { ok: true, sesion: SESION });
+    assert.deepEqual(api.llamadas.map((l) => l.clave), ["POST /auth/google", "POST /consentimiento"]);
+    assert.deepEqual(almacen.valor, SESION);
+  });
+
+  test("sin versión de consentimiento no lo registra", async () => {
+    const api = apiFalsa({ "POST /auth/google": [OK_AUTH] });
+    await asegurarSesionApi(contexto(api, almacenFalso(), null));
+    assert.deepEqual(api.llamadas.map((l) => l.clave), ["POST /auth/google"]);
+  });
+
+  test("conSesion: con 401 borra la sesión, abre otra y reintenta UNA vez", async () => {
+    const api = apiFalsa({ "POST /auth/google": [OK_AUTH], "POST /consentimiento": [{ estado: 204 }] });
+    const almacen = almacenFalso(SESION);
+    const estados = [401, 200];
+    const r = await conSesion(contexto(api, almacen), async () => ({ status: estados.shift() }));
+    assert.equal(r.ok, true);
+    assert.equal(r.respuesta.status, 200);
+    assert.deepEqual(almacen.registro, ["borrar", "guardar"]);
+
+    const siempre401 = await conSesion(contexto(api, almacenFalso(SESION)), async () => ({ status: 401 }));
+    assert.equal(siempre401.ok, true);
+    assert.equal(siempre401.respuesta.status, 401, "devuelve el segundo 401 sin seguir intentando");
+  });
+
+  test("conSesion: si no se puede abrir sesión, da el mensaje y no ejecuta la acción", async () => {
+    let ejecutada = false;
+    const r = await conSesion(contexto(apiFalsa({ "POST /auth/google": [{ estado: 503 }] }), almacenFalso()),
+                              async () => { ejecutada = true; return { status: 200 }; });
+    assert.deepEqual(r, { ok: false, mensaje: MENSAJES_API.googleCaido });
+    assert.equal(ejecutada, false);
+  });
+
+  test("conSesion: sin red en la acción → sin conexión", async () => {
+    const r = await conSesion(contexto(apiFalsa({}), almacenFalso(SESION)), async () => { throw new TypeError("Failed to fetch"); });
+    assert.deepEqual(r, { ok: false, mensaje: MENSAJES_API.sinConexion });
+  });
+});
+
+describe("cerrarSesionCompleta y retirarConsentimiento", () => {
+  test("cerrar: /auth/cerrar, borra la sesión guardada y luego cierra la de Google", async () => {
+    const identidad = identidadFalsa();
+    const api = apiFalsa({ "POST /auth/cerrar": [{ estado: 204 }] });
+    const pedir = async (url, opciones) => (url === URL_REVOCAR ? { ok: true, status: 200 } : api.pedir(url, opciones));
+    const almacen = almacenFalso(SESION);
+    const r = await cerrarSesionCompleta({ identidad, pedir, base: BASE, almacen });
+    assert.deepEqual(r, { ok: true, mensaje: MENSAJES_CIERRE.revocado });
+    assert.deepEqual(api.llamadas.map((l) => l.clave), ["POST /auth/cerrar"]);
+    assert.equal(almacen.valor, null);
+    assert.deepEqual(identidad.llamadas.removeCachedAuthToken, [{ token: TOKEN }]);
+  });
+
+  test("cerrar sin URL válida: no envía la sesión a la API, pero igual la borra y cierra Google", async () => {
+    const api = apiFalsa({});
+    const pedir = async (url, opciones) => (url === URL_REVOCAR ? { ok: true, status: 200 } : api.pedir(url, opciones));
+    const almacen = almacenFalso(SESION);
+    await cerrarSesionCompleta({ identidad: identidadFalsa(), pedir, base: null, almacen });
+    assert.equal(api.llamadas.length, 0);
+    assert.equal(almacen.valor, null);
+  });
+
+  test("retirar: DELETE /cuenta y borra la sesión y el consentimiento local", async () => {
+    const api = apiFalsa({ "DELETE /cuenta": [{ estado: 204 }] });
+    const almacen = almacenFalso(SESION);
+    let localBorrado = false;
+    const r = await retirarConsentimiento({ identidad: identidadFalsa(), pedir: api.pedir, base: BASE, almacen, ahora: AHORA_MS },
+                                          async () => { localBorrado = true; });
+    assert.deepEqual(r, { ok: true, mensaje: MENSAJES_CUENTA.borrada });
+    assert.deepEqual(api.llamadas.map((l) => l.clave), ["DELETE /cuenta"]);
+    assert.equal(almacen.valor, null);
+    assert.equal(localBorrado, true);
+  });
+
+  test("retirar con la API apagada: igual se retira en este equipo y lo avisa", async () => {
+    const almacen = almacenFalso(SESION);
+    let localBorrado = false;
+    const sinRed = apiFalsa({ "DELETE /cuenta": ["sin-red"] });
+    const r = await retirarConsentimiento({ identidad: identidadFalsa(), pedir: sinRed.pedir, base: BASE, almacen, ahora: AHORA_MS },
+                                          async () => { localBorrado = true; });
+    assert.deepEqual(r, { ok: false, mensaje: MENSAJES_CUENTA.noConfirmada });
+    assert.equal(almacen.valor, null);
+    assert.equal(localBorrado, true);
   });
 });

@@ -1,12 +1,13 @@
-// Inicio de sesión con Google y consentimiento (paso 4.2). Lógica sin "chrome" global: recibe
-// `identidad` (chrome.identity) y `pedir` (fetch) por parámetro, así se prueba con dobles en
-// node --test. La verificación del token en la API es el paso 4.3.
+// Inicio de sesión con Google, consentimiento (paso 4.2) y sesión con la API (paso 4.3).
+// Lógica sin "chrome" global: recibe `identidad` (chrome.identity), `pedir` (fetch) y el
+// almacenamiento por parámetro, así se prueba con dobles en node --test.
 //
-// Reglas del token:
+// Reglas del token de GOOGLE:
 // - NUNCA se guarda (ni en chrome.storage ni en ningún otro lado), ni se muestra, ni va a la
 //   consola. Chrome lo guarda en su propia caché; aquí solo se mira si llegó.
-// - Ninguna función de este archivo lo devuelve: devuelven {ok, mensaje} o true/false.
-// - Solo viaja a Google al cerrar sesión, para revocarlo (oauth2.googleapis.com/revoke).
+// - Ninguna función de este archivo lo devuelve.
+// - Solo viaja a Google (userinfo, revocar) y a nuestra API en POST /auth/google, que lo
+//   verifica con Google y entrega su propia sesión.
 //
 // Los mensajes son propios: nunca se muestra el texto crudo de un error.
 
@@ -51,6 +52,17 @@ export function consentimientoValido(guardado) {
     && guardado.version === VERSION_CONSENTIMIENTO
     && typeof guardado.fecha === "string"
     && !Number.isNaN(Date.parse(guardado.fecha));
+}
+
+/**
+ * /analizar respondió 403 (la API no tiene registrado el consentimiento). ¿Qué hace el panel?
+ * - "registrar": solo si en este equipo hay un consentimiento ACEPTADO de la MISMA versión del
+ *   texto actual (consentimientoValido). Se registra en la API y se reintenta una vez.
+ * - "pedir_permisos": en cualquier otro caso (sin consentimiento, otra versión, no aceptado o
+ *   datos raros). NUNCA se registra automáticamente: vuelve "Revisa los permisos".
+ */
+export function queHacerAnte403(consentimientoLocal) {
+  return consentimientoValido(consentimientoLocal) ? "registrar" : "pedir_permisos";
 }
 
 // ----- Qué pantalla se ve -----
@@ -124,6 +136,203 @@ export async function olvidarToken(identidad) {
   } catch {
     // Sin token en caché: no hay nada que olvidar.
   }
+}
+
+// ----- Sesión con la API (paso 4.3) -----
+// La API verifica el token de Google (POST /auth/google) y entrega SU PROPIA sesión, que dura
+// 8 h. Esa sesión sí la conoce la extensión (va en Authorization: Bearer) y se guarda SOLO en
+// chrome.storage.session (memoria; se borra al cerrar el navegador). El token de Google sigue
+// sin salir de este archivo: solo viaja a la API en /auth/google.
+
+const TIEMPO_API_MS = 5_000;
+const MARGEN_VENCIMIENTO_MS = 60_000; // una sesión que vence en menos de 1 min se renueva antes
+const FORMA_SESION = /^[A-Za-z0-9_-]{30,100}$/;
+
+export const MENSAJES_API = Object.freeze({
+  googleRechazo: "La API no pudo confirmar tu cuenta con Google: vuelve a iniciar sesión.",
+  googleCaido: "La API no pudo verificar tu cuenta con Google. Inténtalo más tarde.",
+  sinSesionGoogle: "Tu sesión de Google terminó: vuelve a iniciar sesión.",
+  sinConexion: "Sin conexión con la API. Revisa que esté encendida y la URL en Opciones.",
+  limite: "Demasiadas peticiones seguidas: espera un minuto e inténtalo de nuevo.",
+  inesperada: "La API respondió de forma inesperada.",
+});
+
+export const MENSAJES_CUENTA = Object.freeze({
+  borrada: "Consentimiento retirado y cuenta borrada en la API.",
+  noConfirmada:
+    "Consentimiento retirado en este equipo, pero la API no confirmó el borrado de tu cuenta. "
+    + "Inténtalo de nuevo con la API encendida.",
+});
+
+function direccion(base, ruta) {
+  return `${String(base).replace(/\/+$/, "")}${ruta}`;
+}
+
+/** Petición a la API con Bearer, tiempo máximo y sin cookies. */
+function llamarApi(pedir, url, { metodo = "GET", token, cuerpo } = {}) {
+  const cabeceras = { Authorization: `Bearer ${token}` };
+  if (cuerpo !== undefined) cabeceras["Content-Type"] = "application/json";
+  return pedir(url, {
+    method: metodo,
+    headers: cabeceras,
+    body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
+    cache: "no-store",
+    credentials: "omit",
+    signal: AbortSignal.timeout(TIEMPO_API_MS),
+  });
+}
+
+/** ¿La sesión guardada sirve todavía? (forma correcta y vence en más de 1 minuto). */
+export function sesionVigente(sesion, ahora = Date.now()) {
+  if (!sesion || typeof sesion !== "object") return false;
+  const vence = Date.parse(sesion.expira);
+  return typeof sesion.token === "string" && FORMA_SESION.test(sesion.token)
+    && !Number.isNaN(vence) && vence - ahora > MARGEN_VENCIMIENTO_MS;
+}
+
+/** Respuesta de POST /auth/google → {ok: true, sesion: {token, expira}} o {ok: false, mensaje}. */
+export function interpretarAuthApi(estadoHttp, cuerpo) {
+  if (estadoHttp === 200) {
+    const sesion = { token: cuerpo?.token_sesion, expira: cuerpo?.expira };
+    return typeof sesion.token === "string" && FORMA_SESION.test(sesion.token) && !Number.isNaN(Date.parse(sesion.expira))
+      ? { ok: true, sesion }
+      : { ok: false, mensaje: MENSAJES_API.inesperada };
+  }
+  if (estadoHttp === 401) return { ok: false, mensaje: MENSAJES_API.googleRechazo };
+  if (estadoHttp === 503) return { ok: false, mensaje: MENSAJES_API.googleCaido };
+  if (estadoHttp === 429) return { ok: false, mensaje: MENSAJES_API.limite };
+  return { ok: false, mensaje: MENSAJES_API.inesperada };
+}
+
+/**
+ * Abre una sesión con la API: token de Google (sin ventana) → POST /auth/google.
+ * Si la API rechaza el token (401), puede ser que Chrome tuviera uno vencido en caché: se quita
+ * y se intenta UNA vez más. Devuelve {ok, sesion} o {ok: false, mensaje}; nunca el token de Google.
+ */
+export async function abrirSesionApi(identidad, pedir, base) {
+  if (!puedeAutenticar(identidad)) return { ok: false, mensaje: MENSAJES_AUTH.navegador };
+  try {
+    for (let intento = 0; intento < 2; intento += 1) {
+      let tokenGoogle = null;
+      try {
+        tokenGoogle = await pedirToken(identidad, false);
+      } catch {
+        tokenGoogle = null;
+      }
+      if (!tokenGoogle) return { ok: false, mensaje: MENSAJES_API.sinSesionGoogle };
+
+      const respuesta = await llamarApi(pedir, direccion(base, "/auth/google"), { metodo: "POST", token: tokenGoogle });
+      if (respuesta.status === 401 && intento === 0) {
+        await identidad.removeCachedAuthToken({ token: tokenGoogle });
+        continue;
+      }
+      let cuerpo = null;
+      if (respuesta.status === 200) {
+        try {
+          cuerpo = await respuesta.json();
+        } catch {
+          cuerpo = null;
+        }
+      }
+      return interpretarAuthApi(respuesta.status, cuerpo);
+    }
+    return { ok: false, mensaje: MENSAJES_API.googleRechazo };
+  } catch {
+    return { ok: false, mensaje: MENSAJES_API.sinConexion };
+  }
+}
+
+/** POST /consentimiento {version}. Devuelve {ok}. */
+export async function registrarConsentimiento(pedir, base, sesion, version) {
+  try {
+    const r = await llamarApi(pedir, direccion(base, "/consentimiento"), { metodo: "POST", token: sesion.token, cuerpo: { version } });
+    return { ok: r.status === 204 };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** POST /auth/cerrar. Una sesión que ya no existe (401) cuenta como cerrada. */
+export async function cerrarSesionApi(pedir, base, sesion) {
+  try {
+    const r = await llamarApi(pedir, direccion(base, "/auth/cerrar"), { metodo: "POST", token: sesion.token });
+    return { ok: r.status === 204 || r.status === 401 };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** DELETE /cuenta. Devuelve la respuesta (para usar con conSesion). */
+export function borrarCuentaApi(pedir, base, sesion) {
+  return llamarApi(pedir, direccion(base, "/cuenta"), { metodo: "DELETE", token: sesion.token });
+}
+
+/**
+ * Sesión lista para usar. contexto = {identidad, pedir, base, almacen: {leer, guardar, borrar},
+ * version}. Usa la guardada si sigue vigente; si no, abre una nueva, registra el consentimiento
+ * (si hay `version`) y la guarda. Devuelve {ok, sesion} o {ok: false, mensaje}.
+ */
+export async function asegurarSesionApi({ identidad, pedir, base, almacen, version, ahora = Date.now() }) {
+  const guardada = await almacen.leer();
+  if (sesionVigente(guardada, ahora)) return { ok: true, sesion: guardada };
+  const abierta = await abrirSesionApi(identidad, pedir, base);
+  if (!abierta.ok) return abierta;
+  if (version) await registrarConsentimiento(pedir, base, abierta.sesion, version);
+  await almacen.guardar(abierta.sesion);
+  return { ok: true, sesion: abierta.sesion };
+}
+
+/**
+ * Hace `accion(sesion)` (una petición a la API) con una sesión válida. Si la API responde 401
+ * (sesión vencida o cerrada), borra la guardada, abre una nueva y lo intenta UNA vez más.
+ * Devuelve {ok: true, respuesta} o {ok: false, mensaje}.
+ */
+export async function conSesion(contexto, accion) {
+  try {
+    for (let intento = 0; intento < 2; intento += 1) {
+      const lista = await asegurarSesionApi(contexto);
+      if (!lista.ok) return lista;
+      const respuesta = await accion(lista.sesion);
+      if (respuesta.status === 401 && intento === 0) {
+        await contexto.almacen.borrar();
+        continue;
+      }
+      return { ok: true, respuesta };
+    }
+    return { ok: false, mensaje: MENSAJES_API.googleRechazo };
+  } catch {
+    return { ok: false, mensaje: MENSAJES_API.sinConexion };
+  }
+}
+
+/**
+ * "Cerrar sesión" completo: cierra la sesión de la API (si hay), la borra de storage.session y
+ * luego cierra la de Google (caché de Chrome + revocar). Devuelve el resultado de cerrarSesion.
+ */
+export async function cerrarSesionCompleta({ identidad, pedir, base, almacen }) {
+  try {
+    const guardada = await almacen.leer();
+    if (base && guardada?.token) await cerrarSesionApi(pedir, base, guardada); // sin URL válida no se envía
+  } finally {
+    await almacen.borrar();
+  }
+  return cerrarSesion(identidad, pedir);
+}
+
+/**
+ * "Retirar consentimiento": DELETE /cuenta en la API (abre sesión si hace falta) y, pase lo que
+ * pase, borra la sesión y el consentimiento de este equipo. Devuelve {ok, mensaje}.
+ */
+export async function retirarConsentimiento(contexto, borrarConsentimientoLocal) {
+  let borrada = false;
+  try {
+    const r = await conSesion({ ...contexto, version: null }, (sesion) => borrarCuentaApi(contexto.pedir, contexto.base, sesion));
+    borrada = r.ok && r.respuesta.status === 204;
+  } finally {
+    await contexto.almacen.borrar();
+    await borrarConsentimientoLocal();
+  }
+  return borrada ? { ok: true, mensaje: MENSAJES_CUENTA.borrada } : { ok: false, mensaje: MENSAJES_CUENTA.noConfirmada };
 }
 
 // ----- Correo de la sesión (encabezado del panel) -----

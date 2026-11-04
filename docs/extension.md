@@ -1,9 +1,12 @@
 # Extensión de Chrome de SICAE-IA
 
-Pasos 3.1 a 3.4. La extensión tiene:
+Pasos 3.1 a 4.3. La extensión tiene:
 - un **panel lateral**, con el diseño del demo, que **analiza el correo abierto en Gmail**,
   muestra el resultado y prueba la conexión con la API;
-- una página de **Opciones** para la URL de la API y la clave.
+- una página de **Opciones** para la URL de la API y la sesión.
+
+Desde el paso 4.3 **no hay clave de API**: se entra con la cuenta de Google y la API verifica
+la sesión (ver "Sesión con la API").
 
 Necesita **Chrome 116 o más nuevo**.
 
@@ -30,29 +33,32 @@ tarjeta.
    Sale del campo `"key"` del manifest (ver "ID fijo"), así que es el mismo en todos los
    equipos, cargues la carpeta desde donde la cargues. Es el que aparece en la tarjeta de
    `chrome://extensions`.
-2. **Ponlo en el archivo `.env` de la API** (en la raíz del proyecto):
+2. **Ponlo en el archivo `.env` de la API** (en la raíz del proyecto), junto con el client ID
+   de Google (paso 4.3). Los dos están en `.env.example` y **no son secretos**:
 
    ```
    SICAE_CORS_ORIGINS=chrome-extension://kaabamgfaihcpmchpeacpohpchlgildf
+   SICAE_GOOGLE_CLIENT_ID=402160823752-0k9972f1flplq91cul9j9rmhiu4v3osm.apps.googleusercontent.com
    ```
+
+   Sin `SICAE_GOOGLE_CLIENT_ID` la API no arranca. **`SICAE_API_KEY` ya no se usa**: si sigue en
+   tu `.env`, se ignora y puedes borrarla.
 
    Así la API acepta explícitamente a la extensión (CORS). **Nunca uses `*`**: la API no arranca
    con ese valor. Como el ID es el mismo para todos, ya no hace falta una lista de IDs.
 3. **Reinicia la API** (`uvicorn app.main:app --app-dir api --reload`), porque `.env` se lee al
    arrancar.
-4. **Configura la extensión:** clic derecho en el ícono → **Opciones**, o el botón de ajustes
-   (engranaje) del panel. Escribe:
-   - **URL de la API:** `http://127.0.0.1:8000`. Es el valor por defecto y, por ahora, el
-     **único** aceptado (ver "Qué URL acepta");
-   - **Clave de la API:** el valor de `SICAE_API_KEY` de tu `.env`.
-
-   Pulsa **Guardar**.
+4. **Configura la extensión** (solo si cambiaste la URL): clic derecho en el ícono → **Opciones**,
+   o el botón de ajustes (engranaje) del panel. **URL de la API:** `http://127.0.0.1:8000`. Es el
+   valor por defecto y, por ahora, el **único** aceptado (ver "Qué URL acepta"). Ya no hay campo
+   de clave.
 5. **Prueba:** abre el panel (clic en el ícono), despliega **Estado de la conexión** al final y
    pulsa **Probar conexión**. Se hacen dos peticiones:
    1. **`GET /salud`**, que es pública: ¿responde la API? ¿está cargado el modelo?
-   2. **`GET /estadisticas` con la clave en `X-API-Key`**: ¿la clave guardada es correcta? Solo
-      se usa el código de la respuesta (200 o 401); **los conteos no se leen ni se muestran**.
-      Esta segunda petición solo se hace si la primera respondió.
+   2. **`GET /estadisticas` con la sesión** (`Authorization: Bearer`): ¿la API acepta tu sesión?
+      Si no hay una, se abre antes (`POST /auth/google`). Solo se usa el código de la respuesta;
+      **los conteos no se leen ni se muestran**. Esta segunda petición solo se hace si la primera
+      respondió.
 
 **Primera línea: la conexión**
 
@@ -63,20 +69,22 @@ tarjeta.
 | 🟠 "Sin conexión con la API…" | La API está apagada, la URL está mal o tardó más de 5 s |
 | 🟠 "La API respondió de forma inesperada…" | La URL apunta a algo que no es la API de SICAE-IA |
 
-**Segunda línea: la clave**
+**Segunda línea: la sesión con la API** (paso 4.3)
 
 | Resultado | Qué significa |
 |---|---|
-| 🔵 "Clave correcta." | La clave de Opciones es igual a `SICAE_API_KEY` del `.env` |
-| 🟠 "Clave incorrecta. Revísala en Opciones." | La API respondió 401: la clave no coincide |
-| 🟠 "Falta la clave: configúrala en Opciones." | Todavía no guardaste una clave. El panel también muestra el aviso **Falta configurar la clave de la API** con el botón **Abrir opciones** |
+| 🔵 "Sesión correcta." | La API aceptó tu sesión |
+| 🟠 "La API no aceptó la sesión: vuelve a iniciar sesión." | 401 incluso después de renovar la sesión una vez |
+| 🟠 "La API no pudo confirmar tu cuenta con Google…" | `/auth/google` respondió 401: el token de Google no es de esta app, venció o la cuenta no tiene el correo verificado |
+| 🟠 "La API no pudo verificar tu cuenta con Google…" | 503: la API no pudo hablar con Google (sin red en el equipo de la API) |
+| 🟠 "Tu sesión de Google terminó…" | Chrome ya no tiene token de Google: vuelve a iniciar sesión en el panel |
 | 🟠 "Demasiadas pruebas seguidas…" | Se pasó el límite de peticiones por minuto de la API (429): espera un minuto |
-| 🟠 "No se pudo comprobar la clave." | Otro error. Por ejemplo, el registro de la API no está disponible |
+| 🟠 "No se pudo comprobar la sesión." | Otro error. Por ejemplo, el registro de la API no está disponible |
 
 ## Inicio de sesión y consentimiento (paso 4.2)
 
 Sigue el demo: la página 2 es la bienvenida, la 3 los permisos y la 7 el diagrama del flujo.
-**La verificación del token en la API es el paso 4.3:** por ahora la API no lo recibe.
+Desde el paso 4.3 la API **verifica** el inicio de sesión: ver "Sesión con la API".
 
 **Requisitos:**
 - **Google Chrome** con una sesión de Google iniciada en el navegador. En Edge, Brave y otros,
@@ -152,23 +160,85 @@ La extensión usa **una sesión por perfil de Chrome**. Para usar otra cuenta de
 **Por qué:**
 - `chrome.identity.getAuthToken` siempre usa la cuenta con la que **ese perfil** tiene sesión en
   Chrome;
-- la caché de tokens, `chrome.storage` (URL, clave y consentimiento) y las extensiones también
+- la caché de tokens, `chrome.storage` (URL, consentimiento y sesión de la API) y las extensiones también
   son **por perfil**.
 
 Así nunca se mezclan tokens, consentimientos ni claves de cuentas distintas. Elegir otra cuenta
 dentro del mismo perfil necesitaría el permiso `identity.email` y un selector de cuentas que
 Chrome no ofrece de forma estable a las extensiones.
 
-**En Opciones → "Sesión y consentimiento":**
+**En Opciones → "Sesión y consentimiento"** ("Cerrar sesión" también está en el menú de la cuenta):
 - **Cerrar sesión:**
-  1. quita el token de la caché de Chrome (`removeCachedAuthToken`);
-  2. lo revoca en `https://oauth2.googleapis.com/revoke`, con el token en el cuerpo de un
+  1. cierra la sesión de la API (`POST /auth/cerrar`) y la borra de `chrome.storage.session`;
+  2. quita el token de Google de la caché de Chrome (`removeCachedAuthToken`);
+  3. lo revoca en `https://oauth2.googleapis.com/revoke`, con el token en el cuerpo de un
      `POST` y nunca en la URL.
 
   Si Google no confirma, o no hay red, la caché igual queda limpia y el mensaje pide **quitar el
   acceso a mano en myaccount.google.com/permissions**.
-- **Retirar consentimiento:** borra `{aceptado, version, fecha}`. La próxima vez que abras el
-  panel verás la bienvenida.
+- **Retirar consentimiento:** **borra tu cuenta en la API** con `DELETE /cuenta`: tu usuario y
+  todas sus sesiones. En este equipo borra `{aceptado, version, fecha}` y la sesión.
+  - Si la API está apagada, igual se retira en este equipo y el mensaje lo dice.
+  - La próxima vez que abras el panel verás la bienvenida.
+
+## Sesión con la API (paso 4.3)
+
+La API ya no usa una clave compartida (`SICAE_API_KEY` / `X-API-Key`): cada persona entra con su
+cuenta de Google y la API **verifica** ese inicio de sesión.
+
+1. **La extensión** pide el token de Google (sin ventana) y lo manda a `POST /auth/google` en
+   `Authorization: Bearer`.
+2. **La API** se lo pregunta a Google con el endpoint `tokeninfo`. El token va en el cuerpo de un
+   `POST`, nunca en la URL, y la consulta espera 5 s como máximo. **Solo lo acepta si:**
+   - es de nuestra app: `aud` y `azp` iguales a `SICAE_GOOGLE_CLIENT_ID`;
+   - no está vencido;
+   - incluye el alcance de email;
+   - el correo está verificado.
+3. **La API** crea su propia **sesión**: un token aleatorio (`secrets.token_urlsafe(32)`) que
+   **dura 8 h** (`SICAE_DURACION_SESION_HORAS`). Lo devuelve una sola vez, con su vencimiento.
+4. **La extensión**:
+   - registra el consentimiento (`POST /consentimiento`, con la versión del texto);
+   - manda la sesión en `Authorization: Bearer` a `/analizar` y `/estadisticas`.
+5. **Si la API responde 401** (sesión vencida o cerrada), la extensión pide una nueva **una vez**
+   y reintenta. El usuario no tiene que hacer nada, mientras Chrome tenga el token de Google.
+
+`/analizar` exige además el consentimiento registrado; si falta, responde **403**. Así no se
+procesa el correo de alguien que no aceptó (Ley 1581). Ante un 403, la extensión decide con
+`queHacerAnte403()`:
+- **lo registra sola y reintenta una vez** solo si en este equipo hay un consentimiento aceptado
+  de la **misma versión** del texto actual;
+- si no lo hay, o es de otra versión, **no registra nada** y vuelve a mostrar **"Revisa los
+  permisos"**. Un 401 de la API siempre dice lo mismo,
+"No autorizado.", para no revelar si la sesión no existía, venció o se cerró.
+
+**Qué se guarda y dónde**
+
+| Dónde | Qué | Qué **no** |
+|---|---|---|
+| API, tabla `usuarios` (SQLite) | `id`, `google_sub` (el identificador numérico de la cuenta que da Google), `creado`, `ultimo_acceso`, `consentimiento_version` y `consentimiento_fecha` | **El correo**, el nombre ni el token de Google |
+| API, tabla `sesiones` | El **hash SHA-256** del token de sesión, `usuario_id`, `creada` y `expira` | El token en claro: si alguien copiara la base, no podría usar las sesiones |
+| API, tabla `analisis` | Lo de siempre: categoría, puntaje, confianza, prioridad y versión | **No se liga al usuario** |
+| Extensión, `chrome.storage.local` | `urlApi` y `{aceptado, version, fecha}` | Ni tokens ni el correo |
+| Extensión, `chrome.storage.session` | La sesión de la API, `{token, expira}`. Vive en memoria, se borra al cerrar el navegador y los content scripts no la pueden leer | Nunca va a `local` |
+| Ningún lado | El token de **Google** | — |
+
+Ni la API ni la extensión escriben tokens ni correos en los logs o en la consola. Las pruebas lo
+revisan, y también revisan los bytes del archivo `.db`.
+
+**Cuánto dura y cómo termina la sesión**
+- **Dura 8 horas** desde que se crea.
+  - Una sesión vencida da 401 y se borra de la base; la extensión pide otra sola.
+  - Las sesiones vencidas **de todos los usuarios** también se borran cada vez que se crea una
+    nueva, aunque nadie las vuelva a usar. Una prueba lo comprueba.
+- **Cerrar sesión** la invalida en la API (`POST /auth/cerrar`).
+- **Cerrar el navegador** borra la copia de la extensión (`chrome.storage.session`).
+
+**Cómo se borra la cuenta**
+
+**Opciones → Retirar consentimiento** llama a `DELETE /cuenta`:
+- borra tu fila de `usuarios` y, en cascada, **todas** tus sesiones;
+- los análisis no se borran, porque nunca estuvieron ligados a ti;
+- si vuelves a entrar, eres un usuario nuevo y se te piden otra vez los permisos.
 
 ## Analizar un correo de Gmail
 
@@ -187,7 +257,6 @@ arriba hacia abajo:
 | Parte | Qué hace |
 |---|---|
 | **Encabezado** | Escudo en un cuadro oscuro, "SICAE-IA" y el botón de **ajustes** (engranaje), que abre Opciones |
-| Aviso "Falta configurar la clave" | Solo si todavía no hay clave |
 | **Analizar este correo** | Botón azul (acción). El panel no lee el correo solo: espera el clic |
 | **Estado vacío** | Antes de analizar, en el lugar del resultado: escudo gris y "Abre un correo en Gmail y pulsa Analizar este correo." Desaparece al mostrar un resultado, y vuelve si la lectura falla. Nunca se ven los dos a la vez (`vistaResultado()` en `lib/tarjeta.js`) |
 | **CORREO ABIERTO** | Asunto (o "(Sin asunto)") y remitente leídos de Gmail. Se ve aunque la API falle |
@@ -294,7 +363,8 @@ Qué pasa por dentro:
 1. El panel pide el correo a la pestaña activa con `chrome.tabs.sendMessage`.
 2. El content script (`gmail/lector.js`) lo lee de la página y responde.
 3. `lib/correo.js` arma la petición.
-4. Se envía `POST /analizar` con la clave en `X-API-Key`.
+4. Se envía `POST /analizar` con la sesión de la API en `Authorization: Bearer`. La sesión se
+   abre o se renueva sola si hace falta.
 
 | Mensaje | Qué significa |
 |---|---|
@@ -302,7 +372,8 @@ Qué pasa por dentro:
 | 🟠 "Recarga la pestaña de Gmail (F5)…" | La pestaña se abrió antes de instalar o actualizar la extensión: todavía no tiene el content script |
 | 🟠 "No se encontró el remitente / el texto del correo…" | El correo no terminó de cargar, o Gmail cambió su página (ver `gmail/selectores.js`) |
 | 🟠 "El correo es muy largo: se analizó solo el inicio." | El cuerpo se recortó para no pasar los límites de la API: 50.000 caracteres de cuerpo **o** 200.000 bytes de la petición completa, lo que llegue primero |
-| 🟠 "Clave incorrecta…" | 401: la clave no coincide con `SICAE_API_KEY` |
+| 🟠 "La API no aceptó la sesión…" | 401 incluso después de renovar la sesión: vuelve a iniciar sesión |
+| (vuelve "Revisa los permisos") | 403: la API no tiene registrado tu consentimiento. Si en este equipo hay uno aceptado de la versión actual, la extensión lo registra y reintenta una vez; si no, te pide aceptar otra vez |
 | 🟠 "El correo es demasiado grande para la API." | 413: la petición pasó `SICAE_MAX_BYTES` |
 | 🟠 "La API no aceptó los datos del correo." | 422: algún campo pasó los límites del `.env` de la API |
 | 🟠 "Demasiados análisis seguidos…" | 429: espera un minuto |
@@ -369,7 +440,7 @@ equipo. Ese mismo ID es el que se registra en **Google Cloud** para OAuth y la A
 
 **Si ya tenías la extensión cargada con el ID anterior:**
 1. En `chrome://extensions`, **quítala y vuelve a cargarla** con "Cargar descomprimida".
-2. **Guarda otra vez la URL y la clave en Opciones.** `chrome.storage` es por ID, así que la
+2. **Guarda otra vez la URL en Opciones, si la cambiaste.** `chrome.storage` es por ID, así que la
    extensión con el ID nuevo empieza vacía.
 3. **En tu `.env`,** cambia `SICAE_CORS_ORIGINS` al ID nuevo y reinicia la API.
 
@@ -394,7 +465,7 @@ los dos lugares.
 
 | Permiso | Para qué |
 |---|---|
-| `storage` | Guardar la URL de la API, la clave y el consentimiento (`{aceptado, version, fecha}`) en `chrome.storage.local` (solo en este equipo). **Nunca el token de Google** |
+| `storage` | Guardar la URL de la API y el consentimiento (`{aceptado, version, fecha}`) en `chrome.storage.local`, y la sesión de la API en `chrome.storage.session` (memoria). **Nunca el token de Google** |
 | `sidePanel` | Abrir el panel lateral (`sidepanel/panel.html`) al hacer clic en el ícono. No da acceso a ningún sitio |
 | `identity` (paso 4.2) | Iniciar sesión con Google: `chrome.identity.getAuthToken` pide el token con la cuenta con la que Chrome tiene sesión, en la ventana oficial de Google. La extensión **no ve ni guarda contraseñas**, y el token lo guarda Chrome en su propia caché, no la extensión. Sin este permiso no existe `chrome.identity` |
 | `https://mail.google.com/*` | Correr el content script (`content_scripts` del manifest) que lee el correo abierto. Chrome avisa al instalar que la extensión puede leer ese sitio. También deja ver la URL de la pestaña solo si es Gmail |
@@ -422,19 +493,18 @@ diseño, y Google solo lo acepta para el ID fijo `kaabamgfaihcpmchpeacpohpchlgil
 
 ## Seguridad en el código
 
-- **La clave nunca está en el código.**
-  - La escribe el usuario en Opciones y se guarda en `chrome.storage.local`, no en `sync`, para
-    que no se copie a la cuenta de Google.
-  - El campo es de tipo contraseña.
-  - Una vez guardada **no se vuelve a mostrar**: el campo queda vacío y solo dice que hay una
-    clave guardada.
+- **No hay claves en la extensión** (paso 4.3): la sesión de la API la entrega la API después de
+  verificar con Google, y vive solo en `chrome.storage.session`. Una prueba revisa que no quede
+  `X-API-Key` en ningún archivo.
 - **Texto solo con `textContent`,** nunca `innerHTML`. Una prueba revisa que no aparezca
   `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval` ni `new Function`.
 - **`fetch` con tiempo máximo:** cada petición pasa por `pedir()`, con `AbortSignal.timeout(5000)`,
   `cache: "no-store"` y sin cookies (`credentials: "omit"`).
-- **La clave solo viaja donde hace falta:** `/salud` se pide sin clave. La clave va en
-  `X-API-Key` solo en `/estadisticas`, de cuya respuesta solo se usa el código, y en
-  `/analizar`.
+- **Cada token solo viaja donde hace falta:**
+  - `/salud` se pide sin nada;
+  - el token de Google va solo a Google y a `POST /auth/google`;
+  - la sesión de la API va en `Authorization: Bearer` a `/analizar`, `/estadisticas` (de la que
+    solo se usa el código), `/consentimiento`, `/auth/cerrar` y `DELETE /cuenta`.
 - **El resultado se valida:** solo se muestran categorías, prioridades y confianzas conocidas;
   cualquier otro valor da "respuesta inesperada".
 - **Mensajes genéricos:** nunca se muestra el texto crudo de un error ni el campo `detalle` de la
@@ -474,7 +544,7 @@ cambió. Una prueba comprueba estos SHA-256.
 ## Pruebas
 
 La lógica que no depende de Chrome está en dos archivos:
-- `extension/lib/logica.js`: validar la URL y la clave, e interpretar `/salud`;
+- `extension/lib/logica.js`: validar la URL, e interpretar `/salud` y la prueba de la sesión;
 - `extension/lib/correo.js`: armar la petición, recortar, contar enlaces e interpretar
   `/analizar`;
 - `extension/lib/tarjeta.js`: elegir el estilo, los textos y qué secciones muestra la tarjeta;
@@ -488,7 +558,7 @@ node --test "extension/tests/*.test.js"
 ```
 
 - **`tests/logica.test.js`:** casos válidos e inválidos de la URL (incluidos `localhost`, otro
-  puerto y https), de la clave, de las respuestas de `/salud` y de los códigos de `/estadisticas`
+  puerto y https), de las respuestas de `/salud` y de los códigos de `/estadisticas`
   (200, 401, 429 y otros).
 - **`tests/correo.test.js`:** casos de la petición, el recorte, los enlaces y las respuestas de
   `/analizar`. También comprueba que los campos y límites coincidan con `api/app/esquemas.py` y
@@ -511,6 +581,12 @@ node --test "extension/tests/*.test.js"
   - "Ahora no";
   - el cierre de sesión: el token en el cuerpo del `POST` y nunca en la URL, y qué pasa si
     Google falla o no hay red;
+  - la sesión con la API (paso 4.3), con un doble de la API y de `chrome.storage.session`:
+    - `/auth/google` recibe el token de Google en `Bearer` y devuelve solo la sesión de la API;
+    - si la API responde 401, se renueva una sola vez;
+    - si la sesión guardada sigue vigente, no se llama a la API;
+    - `/consentimiento`, `/auth/cerrar` y `DELETE /cuenta`;
+    - cerrar sesión y retirar el consentimiento, también con la API apagada;
   - el correo del encabezado (`obtenerCorreo`):
     - el token va en `Authorization`, nunca en la URL;
     - se devuelve solo el correo;
@@ -540,7 +616,9 @@ node --test "extension/tests/*.test.js"
   - que el content script corra solo en Gmail y solo lea: sin `fetch`, sin `storage`, sin
     `console` y sin cambiar la página;
   - que nada del correo vaya a `chrome.storage`: solo `almacen.js` lo usa, y solo para
-    `urlApi`, `claveApi` y el consentimiento (`{aceptado, version, fecha}`);
+    `urlApi` y el consentimiento (`{aceptado, version, fecha}`) en `local`, y la sesión de la API
+    solo en `chrome.storage.session`;
+  - que `X-API-Key` ya no aparezca y que Opciones no tenga campo de clave;
   - que el token de Google nunca vaya a `chrome.storage` ni a la consola;
   - el bloque `oauth2`: solo los alcances `openid` y email;
   - las 3 pantallas del panel: al cargar solo se ve la bienvenida, que ofrece solo Google;
@@ -554,21 +632,21 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
 
 ## Limitaciones
 
-- **La API todavía no verifica quién eres.** El inicio de sesión del paso 4.2 solo ocurre en la
-  extensión; la verificación del token en FastAPI llega en el paso 4.3. Hasta entonces, la API
-  sigue protegida solo por `X-API-Key`.
+- **La API necesita internet para abrir sesión:** verifica cada inicio de sesión con Google. Si
+  Google no responde, `/auth/google` da 503. Las sesiones ya abiertas siguen sirviendo hasta que
+  vencen.
 - **La pestaña de Gmail puede ser de otra cuenta.** Gmail permite varias cuentas a la vez
   (`/mail/u/0/`, `/mail/u/1/`…). El panel analiza el correo abierto en la pestaña activa aunque
   sea de una cuenta distinta a la de la sesión que muestra el encabezado. Por ahora no se
   comprueba; se resuelve en el **paso 4.4**.
 - **Todavía no hay política de privacidad publicada:** la pantalla de permisos cita la Ley 1581,
   pero no enlaza a una política.
-- **La clave queda guardada sin cifrar en el perfil de Chrome.** Manifest V3 no ofrece un
-  almacén seguro de secretos: quien tenga acceso a tu sesión del sistema operativo podría leerla.
-  Por eso es una clave solo para este prototipo, y se cambia en `.env` si se filtra.
+- **La sesión de la API está en la memoria de Chrome** (`chrome.storage.session`) mientras el
+  navegador está abierto. Quien use tu sesión del sistema operativo podría usarla hasta que venza
+  (8 h). Cerrar sesión la invalida, y cerrar el navegador la borra.
 - **Solo funciona con la API en `http://127.0.0.1:8000`.** Para usar otra dirección hay que
   agregarla en `host_permissions` del manifest **y** en `ORIGENES_PERMITIDOS`. Una API que no
-  esté en tu equipo debería usar https, para que la clave no viaje sin cifrar.
+  esté en tu equipo debería usar https, para que la sesión no viaje sin cifrar.
 - **Desde la página de Gmail no se ven las cabeceras** (`List-Unsubscribe`, `List-Id`,
   `Precedence`, `In-Reply-To`, `Cc`…). Se envía `cabeceras: {}`, y por eso:
   - la **publicidad** solo se reconoce por las señales débiles: frases de baja y remitente

@@ -1,19 +1,20 @@
-// Página de opciones: guarda la URL de la API y la clave en chrome.storage.local.
+// Página de opciones: la URL de la API (chrome.storage.local) y la sesión.
 //
-// - La clave nunca se vuelve a mostrar: si ya hay una guardada, el campo queda vacío y se
-//   avisa que existe. Para cambiarla se escribe una nueva.
-// - Todo el texto se muestra con textContent (nunca innerHTML).
+// Desde el paso 4.3 ya no hay clave de API: el acceso es con la sesión de Google, que la API
+// verifica (lib/sesion.js). Todo el texto se muestra con textContent (nunca innerHTML).
 
-import { borrarClave, borrarConsentimiento, guardarClave, guardarUrl, leerConfiguracion } from "../lib/almacen.js";
-import { validarClave, validarUrlApi } from "../lib/logica.js";
-import { cerrarSesion } from "../lib/sesion.js";
+import {
+  almacenSesionApi,
+  borrarConsentimiento,
+  guardarUrl,
+  leerConfiguracion,
+} from "../lib/almacen.js";
+import { validarUrlApi } from "../lib/logica.js";
+import { cerrarSesionCompleta, retirarConsentimiento } from "../lib/sesion.js";
 
 const elementos = {
   formulario: document.getElementById("formulario"),
   url: document.getElementById("url"),
-  clave: document.getElementById("clave"),
-  estadoClave: document.getElementById("estado-clave"),
-  borrar: document.getElementById("borrar-clave"),
   mensaje: document.getElementById("mensaje"),
 };
 
@@ -22,63 +23,25 @@ function mostrarMensaje(texto, tipo) {
   elementos.mensaje.textContent = texto;
 }
 
-function mostrarEstadoClave(hayClave) {
-  elementos.estadoClave.textContent = hayClave
-    ? "Hay una clave guardada. Escribe una nueva solo si quieres cambiarla."
-    : "Todavía no hay una clave guardada.";
-  elementos.borrar.disabled = !hayClave;
-}
-
 async function cargar() {
-  const { urlApi, claveApi } = await leerConfiguracion();
+  const { urlApi } = await leerConfiguracion();
   elementos.url.value = urlApi;
-  elementos.clave.value = ""; // la clave guardada no se muestra nunca
-  mostrarEstadoClave(Boolean(claveApi));
 }
 
 async function guardar(evento) {
   evento.preventDefault();
-
   const url = validarUrlApi(elementos.url.value);
   if (!url.ok) {
     mostrarMensaje(url.error, "error");
     elementos.url.focus();
     return;
   }
-
-  const textoClave = elementos.clave.value;
-  const { claveApi } = await leerConfiguracion();
-  // Campo vacío y ya hay clave guardada: se conserva la que había.
-  if (!textoClave.trim() && claveApi) {
-    await guardarUrl(url.url);
-    elementos.url.value = url.url;
-    mostrarMensaje("URL guardada. La clave no cambió.", "ok");
-    return;
-  }
-
-  const clave = validarClave(textoClave);
-  if (!clave.ok) {
-    mostrarMensaje(clave.error, "error");
-    elementos.clave.focus();
-    return;
-  }
-
   await guardarUrl(url.url);
-  await guardarClave(clave.clave);
   elementos.url.value = url.url;
-  elementos.clave.value = "";
-  mostrarEstadoClave(true);
-  mostrarMensaje("Opciones guardadas.", "ok");
+  mostrarMensaje("URL guardada.", "ok");
 }
 
-async function borrar() {
-  await borrarClave();
-  elementos.clave.value = "";
-  mostrarEstadoClave(false);
-  mostrarMensaje("Clave borrada.", "ok");
-}
-
-// ----- Sesión y consentimiento (paso 4.2) -----
+// ----- Sesión y consentimiento (pasos 4.2 y 4.3) -----
 
 const sesion = {
   cerrar: document.getElementById("cerrar-sesion"),
@@ -91,24 +54,51 @@ function mostrarMensajeSesion(texto, tipo) {
   sesion.mensaje.textContent = texto;
 }
 
-/** Quita el token de la caché de Chrome y lo revoca en Google (el token nunca se muestra). */
+/** URL de la API ya validada, o null (sin URL válida no se le envía la sesión). */
+async function baseApi() {
+  const { urlApi } = await leerConfiguracion();
+  const url = validarUrlApi(urlApi);
+  return url.ok ? url.url : null;
+}
+
+/**
+ * Cierra la sesión de la API (POST /auth/cerrar), la borra de chrome.storage.session y cierra
+ * la de Google (caché de Chrome + revocar). Ningún token se muestra.
+ */
 async function cerrarLaSesion() {
   sesion.cerrar.disabled = true;
   try {
-    const resultado = await cerrarSesion(chrome.identity, fetch);
+    const resultado = await cerrarSesionCompleta({ identidad: chrome.identity, pedir: fetch, base: await baseApi(),
+                                                   almacen: almacenSesionApi });
     mostrarMensajeSesion(resultado.mensaje, resultado.ok ? "ok" : "error");
   } finally {
     sesion.cerrar.disabled = false;
   }
 }
 
-async function retirarConsentimiento() {
-  await borrarConsentimiento();
-  mostrarMensajeSesion("Consentimiento retirado. El panel lo volverá a pedir.", "ok");
+/**
+ * Retira el consentimiento: DELETE /cuenta en la API (borra tu usuario y sus sesiones) y, pase lo
+ * que pase, borra el consentimiento y la sesión de este equipo. El panel volverá a pedirlo.
+ */
+async function retirarElConsentimiento() {
+  sesion.retirar.disabled = true;
+  try {
+    const base = await baseApi();
+    const resultado = base
+      ? await retirarConsentimiento({ identidad: chrome.identity, pedir: fetch, base, almacen: almacenSesionApi },
+                                    borrarConsentimiento)
+      : await (async () => {
+        await almacenSesionApi.borrar();
+        await borrarConsentimiento();
+        return { ok: false, mensaje: "Consentimiento retirado en este equipo. Revisa la URL de la API para borrar tu cuenta allí." };
+      })();
+    mostrarMensajeSesion(resultado.mensaje, resultado.ok ? "ok" : "error");
+  } finally {
+    sesion.retirar.disabled = false;
+  }
 }
 
 elementos.formulario.addEventListener("submit", guardar);
 sesion.cerrar.addEventListener("click", cerrarLaSesion);
-sesion.retirar.addEventListener("click", retirarConsentimiento);
-elementos.borrar.addEventListener("click", borrar);
+sesion.retirar.addEventListener("click", retirarElConsentimiento);
 cargar();

@@ -1,37 +1,55 @@
 """API de SICAE-IA con FastAPI.
 
 Endpoints:
-  GET  /salud         -> pública: ¿está la API arriba? ¿hay modelo cargado? ¿qué versión?
-  POST /analizar      -> con X-API-Key: categoría, confianza, prioridad y motivos de un correo.
-  GET  /estadisticas  -> con X-API-Key: conteos por categoría y prioridad (solo números).
+  GET    /salud           -> pública: ¿está la API arriba? ¿hay modelo cargado? ¿qué versión?
+  POST   /auth/google     -> con el token de Google (Bearer): crea una sesión de la API (paso 4.3).
+  POST   /consentimiento  -> con sesión: guarda qué versión del texto de permisos aceptó.
+  POST   /auth/cerrar     -> con sesión: cierra esa sesión.
+  DELETE /cuenta          -> con sesión: borra el usuario y todas sus sesiones.
+  POST   /analizar        -> con sesión y consentimiento: categoría, confianza, prioridad y motivos.
+  GET    /estadisticas    -> con sesión: conteos por categoría y prioridad (solo números).
 
-Arrancar (desde la raíz del proyecto, con SICAE_API_KEY en .env):
+Arrancar (desde la raíz del proyecto, con SICAE_GOOGLE_CLIENT_ID en .env):
     uvicorn app.main:app --app-dir api --reload
 Documentación interactiva (solo con SICAE_MODO=desarrollo): http://127.0.0.1:8000/docs
 
 PRIVACIDAD: de cada análisis se guarda una fila con fecha, categoría, puntaje, confianza,
 prioridad y versión del modelo (registro.py). NUNCA el asunto, el cuerpo, las direcciones,
 las URLs ni un hash del contenido; tampoco se escriben en los logs ni se devuelven en errores.
+Los análisis NO se ligan al usuario. De cada usuario se guarda solo google_sub, fechas y la
+versión del consentimiento (usuarios.py): nunca el correo. De cada sesión, solo el hash del token.
 ALCANCE: no borra ni envía correos; solo los clasifica.
 """
 
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, Security
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import registro
+from app import registro, usuarios
 from app.config import obtener_ajustes
-from app.esquemas import Estadisticas, Resultado, Salud, crear_correo_entrada
+from app.esquemas import (
+    ConsentimientoEntrada,
+    Estadisticas,
+    Resultado,
+    Salud,
+    SesionApi,
+    crear_correo_entrada,
+)
+from app.google import GoogleNoDisponible, TokenGoogleInvalido, verificar_token_google
 from app.seguridad import (
+    ESQUEMA_BEARER,
     CabecerasSeguridad,
     LimitePeticiones,
     LimiteTamano,
-    crear_verificador_clave,
+    crear_verificador_sesion,
+    no_autorizado,
+    token_bearer,
     validar_seguridad,
 )
 from sicae_ml.integridad import SHA256_MODELO, ModeloAlterado
@@ -78,25 +96,36 @@ def _cargar(ajustes, sha256_modelo):
         return None, None, f"No se pudo cargar el modelo ({type(error).__name__})"
 
 
-def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO):
+def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_google=None,
+              reloj_sesiones=None):
     """Crea la aplicación. Las pruebas pasan sus propios ajustes (modelo inventado), el
-    SHA-256 de ese modelo y, si hace falta, un reloj falso para el límite de peticiones.
+    SHA-256 de ese modelo y, si hace falta:
+      - reloj: reloj falso para el límite de peticiones;
+      - verificar_google(token) -> IdentidadGoogle: Google simulado, sin red;
+      - reloj_sesiones() -> datetime UTC: para probar el vencimiento de las sesiones.
 
     sha256_modelo NO se lee de .env a propósito: si fuera configurable, se podría cambiar el
     modelo y su hash a la vez. Por defecto es el del modelo v1.0 (sicae_ml.integridad)."""
     ajustes = ajustes or obtener_ajustes()
     CorreoEntrada = crear_correo_entrada(ajustes)
-    verificar_clave = crear_verificador_clave(ajustes)
+    ahora_sesiones = reloj_sesiones or usuarios.ahora_utc
+    verificar_sesion = crear_verificador_sesion(ajustes, ahora_sesiones)
+    if verificar_google is None:
+        def verificar_google(token):
+            return verificar_token_google(token, ajustes.google_client_id.strip(),
+                                          ahora=lambda: ahora_sesiones().timestamp())
 
     @asynccontextmanager
     async def lifespan(app):
-        # 1. Seguridad: sin SICAE_API_KEY (o con CORS "*") la API NO arranca.
+        # 1. Seguridad: sin SICAE_GOOGLE_CLIENT_ID (o con CORS "*") la API NO arranca.
         validar_seguridad(ajustes)
-        # 2. Registro: si la base no se puede crear, la API sigue (solo se pierde el registro).
+        # 2. Registro, usuarios y sesiones: si la base no se puede crear, la API arranca igual;
+        #    las rutas con sesión responderán 503 y el análisis no se registrará.
         try:
             registro.inicializar(ajustes.db_path)
+            usuarios.inicializar(ajustes.db_path)
         except Exception as error:
-            logger.error("No se pudo preparar el registro (%s)", type(error).__name__)
+            logger.error("No se pudo preparar la base de datos (%s)", type(error).__name__)
         # 3. Modelo: se carga UNA sola vez al arrancar, no en cada petición.
         recursos, config, detalle = _cargar(ajustes, sha256_modelo)
         app.state.recursos = recursos
@@ -114,7 +143,7 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO):
         description="Clasifica correos en legítimo, publicidad o phishing y les asigna prioridad. "
                     "Prototipo académico: no guarda el contenido de los correos, no los borra ni "
                     "los envía.",
-        version="0.3.0",
+        version="0.4.0",
         lifespan=lifespan,
         # /docs, /redoc y /openapi.json solo en desarrollo.
         docs_url="/docs" if desarrollo else None,
@@ -130,8 +159,8 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO):
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ajustes.origenes_cors,  # nunca "*" (validar_seguridad lo impide)
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "X-API-Key"],
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type", "Authorization"],
         allow_credentials=False,
     )
     app.add_middleware(CabecerasSeguridad)
@@ -166,16 +195,86 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO):
             detalle=request.app.state.detalle,
         )
 
+    # ---------- Sesiones (paso 4.3) ----------
+
+    def base_no_disponible(error):
+        logger.error("Usuarios o sesiones no disponibles (%s)", type(error).__name__)
+        return HTTPException(status_code=503, detail="Las sesiones no están disponibles.")
+
+    @app.post(
+        "/auth/google",
+        response_model=SesionApi,
+        summary="Crea una sesión de la API con el token de Google",
+        responses={401: {"description": "El token de Google no es válido"},
+                   503: {"description": "No se pudo verificar con Google"}},
+    )
+    def auth_google(autorizacion: HTTPAuthorizationCredentials | None = Security(ESQUEMA_BEARER)):
+        # El token de Google NUNCA se escribe en los logs ni se guarda: solo se verifica.
+        token_google = token_bearer(autorizacion)
+        try:
+            identidad = verificar_google(token_google)
+        except TokenGoogleInvalido:
+            raise no_autorizado() from None
+        except GoogleNoDisponible as error:
+            logger.warning("No se pudo verificar con Google (%s)", type(error).__name__)
+            raise HTTPException(status_code=503, detail="No se pudo verificar con Google. Inténtelo más tarde.") from None
+        try:
+            momento = ahora_sesiones()
+            usuario = usuarios.registrar_acceso(ajustes.db_path, identidad.sub, ahora=momento)
+            token, expira = usuarios.crear_sesion(ajustes.db_path, usuario["id"], ajustes.duracion_sesion_horas,
+                                                  ahora=momento)
+        except Exception as error:
+            raise base_no_disponible(error) from None
+        return SesionApi(token_sesion=token, expira=expira,
+                         consentimiento_version=usuario["consentimiento_version"])
+
+    @app.post("/consentimiento", status_code=204, summary="Guarda la versión del texto de permisos aceptada",
+              responses={401: {"description": "Sin sesión válida"}})
+    def consentimiento(entrada: ConsentimientoEntrada, usuario=Depends(verificar_sesion)):
+        try:
+            usuarios.guardar_consentimiento(ajustes.db_path, usuario["id"], entrada.version, ahora=ahora_sesiones())
+        except Exception as error:
+            raise base_no_disponible(error) from None
+        return Response(status_code=204)
+
+    @app.post("/auth/cerrar", status_code=204, summary="Cierra la sesión actual",
+              responses={401: {"description": "Sin sesión válida"}})
+    def auth_cerrar(usuario=Depends(verificar_sesion)):
+        try:
+            usuarios.cerrar_sesion(ajustes.db_path, usuario["token"])
+        except Exception as error:
+            raise base_no_disponible(error) from None
+        return Response(status_code=204)
+
+    @app.delete("/cuenta", status_code=204, summary="Borra el usuario y todas sus sesiones",
+                responses={401: {"description": "Sin sesión válida"}})
+    def borrar_cuenta(usuario=Depends(verificar_sesion)):
+        # Los análisis no se ligan al usuario, así que no hay análisis "suyos" que borrar.
+        try:
+            usuarios.borrar_usuario(ajustes.db_path, usuario["id"])
+        except Exception as error:
+            raise base_no_disponible(error) from None
+        return Response(status_code=204)
+
+    def exigir_consentimiento(usuario=Depends(verificar_sesion)):
+        """Ley 1581: no se procesa el correo de alguien que no aceptó el tratamiento de datos."""
+        if not usuario["consentimiento_version"]:
+            raise HTTPException(status_code=403, detail="Falta el consentimiento.")
+        return usuario
+
+    # ---------- Análisis ----------
+
     @app.post(
         "/analizar",
         response_model=Resultado,
         summary="Clasifica un correo y le asigna prioridad",
-        responses={401: {"description": "Falta la clave o es incorrecta"},
+        responses={401: {"description": "Sin sesión válida"},
+                   403: {"description": "Falta el consentimiento"},
                    413: {"description": "Petición demasiado grande"},
                    422: {"description": "Entrada inválida"},
                    429: {"description": "Demasiadas peticiones"},
                    503: {"description": "Modelo no cargado"}},
-        dependencies=[Depends(verificar_clave)],
+        dependencies=[Depends(exigir_consentimiento)],
     )
     def analizar(correo: CorreoEntrada, request: Request):
         recursos = request.app.state.recursos
@@ -209,9 +308,9 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO):
         "/estadisticas",
         response_model=Estadisticas,
         summary="Conteos de análisis por categoría y prioridad",
-        responses={401: {"description": "Falta la clave o es incorrecta"},
+        responses={401: {"description": "Sin sesión válida"},
                    503: {"description": "Registro no disponible"}},
-        dependencies=[Depends(verificar_clave)],
+        dependencies=[Depends(verificar_sesion)],
     )
     def ver_estadisticas():
         try:

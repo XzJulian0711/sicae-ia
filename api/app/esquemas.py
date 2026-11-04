@@ -97,6 +97,26 @@ class Estadisticas(BaseModel):
     )
 
 
+class SesionApi(BaseModel):
+    """Respuesta de POST /auth/google (paso 4.3)."""
+
+    token_sesion: str = Field(description="Token de la sesión de la API. Se envía en Authorization: Bearer. "
+                                          "La API solo guarda su hash.")
+    expira: str = Field(description="Fecha y hora (UTC, ISO 8601) en que vence la sesión.")
+    consentimiento_version: str | None = Field(
+        description="Versión del texto de permisos que aceptó el usuario, o None si todavía no aceptó."
+    )
+
+
+class ConsentimientoEntrada(BaseModel):
+    """Cuerpo de POST /consentimiento: qué versión del texto de permisos aceptó."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(min_length=1, max_length=20, pattern=r"^[\w.-]+$",
+                         description='Versión del texto de permisos, por ejemplo "1".')
+
+
 class Salud(BaseModel):
     estado: Literal["ok", "sin_modelo"]
     modelo_cargado: bool

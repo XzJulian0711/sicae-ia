@@ -2,14 +2,13 @@
 
 Cada campo se puede cambiar con una variable SICAE_<NOMBRE EN MAYÚSCULA>, por ejemplo
 SICAE_RUTA_MODELO=ml/models/clasificador.joblib. Ver .env.example.
-La clave de la API (SICAE_API_KEY) se lee de .env: NUNCA se escribe en el código.
+La API no tiene secretos propios: el acceso es con la sesión de Google (paso 4.3).
 """
 
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from sicae_ml.calibrar import RUTA_PROMEDIOS, RUTA_UMBRAL
@@ -41,10 +40,15 @@ class Ajustes(BaseSettings):
     # Base SQLite con una fila por análisis, SIN texto del correo (ver registro.py).
     db_path: Path = RUTA_DB
 
+    # ---------- Inicio de sesión con Google (paso 4.3) ----------
+    # Client ID de OAuth de la extensión (Google Cloud). Es PÚBLICO: no es un secreto. Solo se
+    # aceptan tokens de Google emitidos para este client ID. Sin él la API no arranca.
+    # (Reemplaza a SICAE_API_KEY, que ya no se usa: si sigue en .env, se ignora.)
+    google_client_id: str = ""
+    # Cuánto dura una sesión de la API antes de pedir una nueva (en horas).
+    duracion_sesion_horas: int = 8
+
     # ---------- Seguridad (paso 2.4) ----------
-    # Clave que la extensión manda en el encabezado X-API-Key. Sin ella la API no arranca.
-    # SecretStr: si se imprime el objeto de ajustes, la clave sale como "**********".
-    api_key: SecretStr | None = None
     # Orígenes del navegador permitidos (CORS), separados por comas.
     # Ej.: chrome-extension://abcdefghijklmnop. Nunca "*".
     cors_origins: str = ""
