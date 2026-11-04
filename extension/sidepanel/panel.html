@@ -1,11 +1,14 @@
 <!doctype html>
 <!--
-  Panel lateral de SICAE-IA: se abre al hacer clic en el ícono (ver service-worker.js).
-  - "Analizar este correo": lee el correo abierto en Gmail y muestra la tarjeta de resultado
-    (paso 3.3): estilo según categoría y confianza, prioridad, motivos y consejos.
-  - "Probar conexión": comprueba la API y la clave.
-  Sin scripts en línea ni recursos remotos: la CSP de Manifest V3 los bloquea. El texto
-  dinámico se escribe solo con textContent (panel.js).
+  Panel lateral de SICAE-IA (paso 3.4, diseño del demo). Se abre al hacer clic en el ícono
+  (ver service-worker.js). De arriba hacia abajo:
+  - encabezado con el escudo, el nombre y el botón de ajustes (abre Opciones);
+  - "Analizar este correo" → tarjeta "CORREO ABIERTO" + franja de resultado + motivos;
+  - "Estado de la conexión" (plegable) con "Probar conexión";
+  - barra inferior Bandeja · Analizar · Redactar (solo Analizar funciona por ahora).
+  Sin scripts en línea, sin estilos en línea y sin recursos remotos: la CSP de Manifest V3 los
+  bloquea. Los íconos son SVG en línea, sin scripts. El texto dinámico se escribe solo con
+  textContent (panel.js).
 -->
 <html lang="es">
 <head>
@@ -14,14 +17,25 @@
   <link rel="stylesheet" href="../estilos/sicae.css">
   <script type="module" src="panel.js"></script>
 </head>
-<body>
-  <main class="popup">
-    <header class="encabezado">
-      <h1>SICAE-IA</h1>
-      <button type="button" class="enlace" id="ir-opciones">Opciones</button>
+<body class="pagina-panel">
+  <main class="panel">
+    <header class="panel-encabezado">
+      <div class="marca">
+        <span class="marca-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M12 4.3 18 6.5V12q0 5.3-6 8.2Q6 17.3 6 12V6.5z" fill="#ffffff"/>
+            <path d="m9.1 12.2 2.2 2.2 3.8-4.3" fill="none" stroke="#18181b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <h1>SICAE-IA</h1>
+      </div>
+      <button type="button" class="boton-redondo" id="ir-opciones" aria-label="Ajustes" title="Ajustes">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>
+        </svg>
+      </button>
     </header>
-
-    <p class="suave">Clasifica correos en legítimo, publicidad o phishing.</p>
 
     <div class="aviso" id="aviso-sin-clave" role="alert" hidden>
       <p>Falta configurar la clave de la API.</p>
@@ -34,35 +48,70 @@
       <span id="analisis-texto"></span>
     </div>
 
-    <!-- Tarjeta de resultado (paso 3.3). Los textos los decide lib/tarjeta.js y panel.js los
-         escribe con textContent. role="status" + aria-live: el lector de pantalla la anuncia. -->
-    <section class="tarjeta" id="tarjeta" role="status" aria-live="polite" aria-labelledby="tarjeta-titulo" hidden>
-      <div class="tarjeta-cabeza">
-        <img class="tarjeta-icono" id="tarjeta-icono" src="../iconos/ok.svg" alt="" width="24" height="24">
-        <h2 id="tarjeta-titulo"></h2>
-      </div>
-      <p class="tarjeta-detalle" id="tarjeta-detalle" hidden></p>
-      <ul class="tarjeta-consejos" id="tarjeta-consejos" hidden></ul>
-      <p class="tarjeta-prioridad" id="tarjeta-prioridad" hidden></p>
-      <div class="tarjeta-motivos" id="tarjeta-motivos" hidden>
-        <h3>Por qué</h3>
-        <ul id="lista-motivos"></ul>
-      </div>
-      <p class="aviso" id="aviso-recorte" hidden>El correo es muy largo: se analizó solo el inicio.</p>
-      <p class="tarjeta-nota" id="tarjeta-nota"></p>
-    </section>
+    <!-- Resultado: tarjeta del correo leído + franja + motivos. role="status" y aria-live: el
+         lector de pantalla lo anuncia al aparecer. -->
+    <div class="resultado" id="resultado" role="status" aria-live="polite" hidden>
+      <section class="caja correo-abierto" id="correo-abierto" aria-label="Correo abierto">
+        <p class="rotulo">Correo abierto</p>
+        <p class="correo-asunto" id="correo-asunto"></p>
+        <p class="correo-remitente" id="correo-remitente"></p>
+      </section>
 
-    <hr class="separador">
-
-    <button type="button" class="boton boton-secundario" id="probar">Probar conexión</button>
-
-    <div class="estado" id="estado" role="status" aria-live="polite">
-      <span id="estado-texto">Sin probar todavía.</span>
+      <section class="tarjeta" id="tarjeta" aria-labelledby="tarjeta-titulo" hidden>
+        <div class="franja">
+          <img class="tarjeta-icono" id="tarjeta-icono" src="../iconos/ok.svg" alt="" width="22" height="22">
+          <h2 id="tarjeta-titulo"></h2>
+        </div>
+        <p class="tarjeta-detalle" id="tarjeta-detalle" hidden></p>
+        <ul class="tarjeta-consejos" id="tarjeta-consejos" hidden></ul>
+        <p class="tarjeta-prioridad" id="tarjeta-prioridad" hidden></p>
+        <div class="tarjeta-motivos" id="tarjeta-motivos" hidden>
+          <h3 class="rotulo" id="titulo-motivos">Motivos</h3>
+          <ol class="chips" id="lista-motivos" aria-labelledby="titulo-motivos"></ol>
+        </div>
+        <p class="aviso" id="aviso-recorte" hidden>El correo es muy largo: se analizó solo el inicio.</p>
+        <p class="tarjeta-nota" id="tarjeta-nota"></p>
+      </section>
     </div>
 
-    <div class="estado" id="estado-clave" role="status" aria-live="polite" hidden>
-      <span id="estado-clave-texto"></span>
-    </div>
+    <details class="caja conexion">
+      <summary>Estado de la conexión</summary>
+      <div class="conexion-contenido">
+        <button type="button" class="boton boton-secundario" id="probar">Probar conexión</button>
+        <div class="estado" id="estado" role="status" aria-live="polite">
+          <span id="estado-texto">Sin probar todavía.</span>
+        </div>
+        <div class="estado" id="estado-clave" role="status" aria-live="polite" hidden>
+          <span id="estado-clave-texto"></span>
+        </div>
+      </div>
+    </details>
   </main>
+
+  <nav class="barra-inferior" aria-label="Secciones">
+    <p class="proximamente" id="proximamente" role="status" aria-live="polite"></p>
+    <div class="barra-botones">
+      <button type="button" class="pestana" id="nav-bandeja" aria-disabled="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
+          <path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>
+        </svg>
+        <span>Bandeja</span>
+      </button>
+      <button type="button" class="pestana" id="nav-analizar" aria-current="page">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3 19 5.5V11q0 6-7 9.5Q5 17 5 11V5.5z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+        <span>Analizar</span>
+      </button>
+      <button type="button" class="pestana" id="nav-redactar" aria-disabled="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16.9 3.6a2.1 2.1 0 0 1 3 3L8 18.5 4 19.5l1-4z"/>
+        </svg>
+        <span>Redactar</span>
+      </button>
+    </div>
+  </nav>
 </body>
 </html>

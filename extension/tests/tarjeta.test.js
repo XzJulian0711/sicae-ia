@@ -13,6 +13,7 @@ import {
   MAX_MOTIVOS,
   NOTA,
   armarTarjeta,
+  datosCorreoAbierto,
   extraerMotivos,
 } from "../lib/tarjeta.js";
 
@@ -23,33 +24,33 @@ const motivo = (etiqueta) => ({ codigo: "palabra:x", etiqueta, origen: "modelo" 
 const CASOS = [
   {
     categoria: "phishing", confianza: "alta", prioridad: null,
-    variante: "peligro", icono: "alerta.svg", titulo: "Posible phishing",
-    detalle: null, consejos: CONSEJOS_PHISHING, conPrioridad: false,
+    variante: "peligro", icono: "alerta.svg", titulo: "Posible phishing · riesgo alto",
+    detalle: null, consejos: CONSEJOS_PHISHING, conPrioridad: false, tituloMotivos: "Motivos",
   },
   {
     categoria: "phishing", confianza: "dudosa", prioridad: null,
     variante: "precaucion", icono: "precaucion.svg", titulo: "Revisa con cuidado",
-    detalle: DETALLE_PHISHING_DUDOSO, consejos: [], conPrioridad: false,
+    detalle: DETALLE_PHISHING_DUDOSO, consejos: [], conPrioridad: false, tituloMotivos: "Motivos",
   },
   {
     categoria: "legitimo", confianza: "alta", prioridad: "alta",
     variante: "informativo", icono: "ok.svg", titulo: "No se detectaron señales de phishing",
-    detalle: null, consejos: [], conPrioridad: true,
+    detalle: null, consejos: [], conPrioridad: true, tituloMotivos: "Señales de correo normal",
   },
   {
     categoria: "legitimo", confianza: "dudosa", prioridad: "media",
     variante: "informativo", icono: "ok.svg", titulo: "No se detectaron señales de phishing, pero revisa con cuidado",
-    detalle: null, consejos: [], conPrioridad: true,
+    detalle: null, consejos: [], conPrioridad: true, tituloMotivos: "Señales de correo normal",
   },
   {
     categoria: "publicidad", confianza: "alta", prioridad: "baja",
     variante: "neutro", icono: "sobre.svg", titulo: "Correo masivo o publicidad",
-    detalle: null, consejos: [], conPrioridad: true,
+    detalle: null, consejos: [], conPrioridad: true, tituloMotivos: "Motivos",
   },
   {
     categoria: "publicidad", confianza: "dudosa", prioridad: "baja",
     variante: "neutro", icono: "sobre.svg", titulo: "Correo masivo o publicidad, pero revisa con cuidado",
-    detalle: null, consejos: [], conPrioridad: true,
+    detalle: null, consejos: [], conPrioridad: true, tituloMotivos: "Motivos",
   },
 ];
 
@@ -63,6 +64,7 @@ describe("armarTarjeta: cada combinación de categoría × confianza", () => {
       assert.equal(t.detalle, caso.detalle);
       assert.deepEqual(t.consejos, [...caso.consejos]);
       assert.equal(t.prioridad !== null, caso.conPrioridad);
+      assert.equal(t.tituloMotivos, caso.tituloMotivos);
       assert.equal(t.nota, NOTA);
     });
   }
@@ -125,9 +127,56 @@ describe("motivos", () => {
     assert.deepEqual(extraerMotivos(lista), ["válido", "otro"]);
   });
 
+  test("si una palabra está dentro de una frase ya mostrada, queda solo la frase", () => {
+    const lista = ["Menciona «estimado»", "Menciona «estimado cliente»", "Menciona «paquete»"].map(motivo);
+    assert.deepEqual(extraerMotivos(lista), ["Menciona «estimado cliente»", "Menciona «paquete»"]);
+    // Da igual el orden: la palabra suelta sale aunque venga después de la frase.
+    const alReves = ["Menciona «darse baja»", "Menciona «baja»"].map(motivo);
+    assert.deepEqual(extraerMotivos(alReves), ["Menciona «darse baja»"]);
+  });
+
+  test("solo cuenta palabras completas: «pago» no se quita por «pagos pendientes»", () => {
+    const lista = ["Menciona «pago»", "Menciona «pagos pendientes»"].map(motivo);
+    assert.deepEqual(extraerMotivos(lista), ["Menciona «pago»", "Menciona «pagos pendientes»"]);
+  });
+
+  test("quita los duplicados exactos y los motivos sin «…» se comparan enteros", () => {
+    const lista = ["Trae muchos enlaces", "trae muchos enlaces", "Dirigido solo a ti", "Menciona «ti»"].map(motivo);
+    assert.deepEqual(extraerMotivos(lista), ["Trae muchos enlaces", "Dirigido solo a ti", "Menciona «ti»"]);
+  });
+
+  test("los repetidos se quitan ANTES del límite de 3: se muestran 3 distintos", () => {
+    const lista = ["Menciona «tasa»", "Menciona «tasa envío»", "Menciona «tasa»", "Menciona «paquete»", "Menciona «urgente»"].map(motivo);
+    assert.deepEqual(extraerMotivos(lista), ["Menciona «tasa envío»", "Menciona «paquete»", "Menciona «urgente»"]);
+  });
+
   test("el HTML queda como texto (el panel usa textContent) y se recorta lo enorme", () => {
     assert.deepEqual(extraerMotivos([motivo("<b>Hola</b> «Juan»")]), ["<b>Hola</b> «Juan»"]);
     assert.equal(extraerMotivos([motivo("x".repeat(1000))])[0].length, 200);
+  });
+});
+
+describe("datosCorreoAbierto", () => {
+  test("asunto y remitente leídos, sin espacios de sobra", () => {
+    assert.deepEqual(datosCorreoAbierto({ asunto: "  Su paquete está detenido ", remitente: " avisos@example.net " }),
+                     { asunto: "Su paquete está detenido", remitente: "avisos@example.net" });
+  });
+
+  test("sin asunto muestra (Sin asunto)", () => {
+    for (const asunto of ["", "   ", undefined, null, 42]) {
+      assert.equal(datosCorreoAbierto({ asunto, remitente: "a@example.net" }).asunto, "(Sin asunto)", String(asunto));
+    }
+  });
+
+  test("recorta textos enormes y tolera valores raros", () => {
+    const r = datosCorreoAbierto({ asunto: "a".repeat(5000), remitente: "b".repeat(5000) });
+    assert.equal(r.asunto.length, 300);
+    assert.equal(r.remitente.length, 320);
+    assert.deepEqual(datosCorreoAbierto(null), { asunto: "(Sin asunto)", remitente: "" });
+  });
+
+  test("el HTML queda como texto (el panel usa textContent)", () => {
+    assert.equal(datosCorreoAbierto({ asunto: "<img src=x>", remitente: "a@example.net" }).asunto, "<img src=x>");
   });
 });
 
