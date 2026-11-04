@@ -7,6 +7,7 @@ Endpoints:
   POST   /auth/cerrar     -> con sesión: cierra esa sesión.
   DELETE /cuenta          -> con sesión: borra el usuario y todas sus sesiones.
   POST   /analizar        -> con sesión y consentimiento: categoría, confianza, prioridad y motivos.
+  POST   /analizar/lote   -> lo mismo para hasta 50 correos a la vez (paso 4.4, pestaña Bandeja).
   GET    /estadisticas    -> con sesión: conteos por categoría y prioridad (solo números).
 
 Arrancar (desde la raíz del proyecto, con SICAE_GOOGLE_CLIENT_ID en .env):
@@ -37,9 +38,11 @@ from app.esquemas import (
     ConsentimientoEntrada,
     Estadisticas,
     Resultado,
+    ResultadoLote,
     Salud,
     SesionApi,
     crear_correo_entrada,
+    crear_lote_entrada,
 )
 from app.google import GoogleNoDisponible, TokenGoogleInvalido, verificar_token_google
 from app.seguridad import (
@@ -108,6 +111,7 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
     modelo y su hash a la vez. Por defecto es el del modelo v1.0 (sicae_ml.integridad)."""
     ajustes = ajustes or obtener_ajustes()
     CorreoEntrada = crear_correo_entrada(ajustes)
+    LoteEntrada = crear_lote_entrada(ajustes, CorreoEntrada)
     ahora_sesiones = reloj_sesiones or usuarios.ahora_utc
     verificar_sesion = crear_verificador_sesion(ajustes, ahora_sesiones)
     if verificar_google is None:
@@ -153,7 +157,9 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
 
     # Capas de seguridad. add_middleware pone cada una POR FUERA de la anterior, así que el
     # orden de afuera hacia adentro queda: cabeceras -> CORS -> límite por IP -> tamaño -> app.
-    app.add_middleware(LimiteTamano, max_bytes=ajustes.max_bytes)
+    # /analizar/lote trae hasta 50 correos: tiene su propio tope (SICAE_MAX_BYTES_LOTE).
+    app.add_middleware(LimiteTamano, max_bytes=ajustes.max_bytes,
+                       por_ruta={"/analizar/lote": ajustes.max_bytes_lote})
     app.add_middleware(LimitePeticiones, por_minuto=ajustes.rate_limit,
                        **({"reloj": reloj} if reloj else {}))
     app.add_middleware(
@@ -277,25 +283,57 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
         dependencies=[Depends(exigir_consentimiento)],
     )
     def analizar(correo: CorreoEntrada, request: Request):
+        recursos = recursos_o_503(request)
+        try:
+            return _analizar_uno(correo, request, recursos)
+        except Exception as error:
+            # Solo el tipo de error: el mensaje podría contener texto del correo.
+            logger.error("Error al analizar un correo (%s)", type(error).__name__)
+            raise HTTPException(status_code=500, detail="Error interno al analizar el correo.") from None
+
+    @app.post(
+        "/analizar/lote",
+        response_model=ResultadoLote,
+        summary="Clasifica varios correos a la vez (pestaña Bandeja)",
+        responses={401: {"description": "Sin sesión válida"},
+                   403: {"description": "Falta el consentimiento"},
+                   413: {"description": "Lote demasiado grande"},
+                   422: {"description": "Entrada inválida (por ejemplo, más correos de los permitidos)"},
+                   429: {"description": "Demasiadas peticiones (el lote cuenta como una)"},
+                   503: {"description": "Modelo no cargado"}},
+        dependencies=[Depends(exigir_consentimiento)],
+    )
+    def analizar_lote(lote: LoteEntrada, request: Request):
+        """Mismo análisis que /analizar para cada correo, en el mismo orden. Si uno falla, en su
+        lugar va {"error": ...} y los demás siguen. Registro igual que hoy: una fila por correo."""
+        recursos = recursos_o_503(request)
+        resultados = []
+        for correo in lote.correos:
+            try:
+                resultados.append(_analizar_uno(correo, request, recursos))
+            except Exception as error:
+                logger.error("Error al analizar un correo del lote (%s)", type(error).__name__)
+                resultados.append({"error": "No se pudo analizar este correo."})
+        return {"resultados": resultados}
+
+    def recursos_o_503(request):
         recursos = request.app.state.recursos
         if recursos is None:
             raise HTTPException(
                 status_code=503,
                 detail=f"El modelo no está cargado: {request.app.state.detalle}. Revise GET /salud.",
             )
+        return recursos
+
+    def _analizar_uno(correo, request, recursos):
+        """analizar_correo() + registro de UNA fila (sin texto). Lo usan /analizar y el lote."""
         # From y To salen de los campos explícitos y mandan sobre las cabeceras opcionales.
         cabeceras = {"From": correo.remitente, "To": ", ".join(correo.destinatarios)}
         cabeceras.update({k: v for k, v in correo.cabeceras.items() if k.lower() not in ("from", "to")})
-        try:
-            resultado = analizar_correo(
-                cabeceras, correo.asunto, correo.cuerpo, correo.n_urls, correo.n_adjuntos,
-                request.app.state.config_prioridad, recursos,
-            )
-        except Exception as error:
-            # Solo el tipo de error: el mensaje podría contener texto del correo.
-            logger.error("Error al analizar un correo (%s)", type(error).__name__)
-            raise HTTPException(status_code=500, detail="Error interno al analizar el correo.") from None
-
+        resultado = analizar_correo(
+            cabeceras, correo.asunto, correo.cuerpo, correo.n_urls, correo.n_adjuntos,
+            request.app.state.config_prioridad, recursos,
+        )
         # Registro: solo categoría, puntaje, confianza, prioridad y versión. Si falla, la
         # respuesta se entrega igual y en el log queda solo el tipo de error.
         try:

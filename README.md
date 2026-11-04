@@ -324,6 +324,8 @@ tu `.env`, se ignora y puedes borrarla.
 | `SICAE_CORS_ORIGINS` | Orígenes de la extensión, separados por comas (`chrome-extension://<id>`). Nunca `*` | vacío (ninguno) |
 | `SICAE_RATE_LIMIT` | Peticiones por minuto por IP | 30 |
 | `SICAE_MAX_BYTES` | Tamaño máximo de una petición | 200000 |
+| `SICAE_MAX_LOTE` | Correos por `POST /analizar/lote` (pestaña Bandeja) | 50 |
+| `SICAE_MAX_BYTES_LOTE` | Tamaño máximo de un lote (no puede ser menor que `SICAE_MAX_BYTES`) | 2000000 |
 | `SICAE_DB_PATH` | Archivo SQLite del registro, los usuarios y las sesiones | `api/data/sicae.db` |
 
 ### Arrancar
@@ -348,6 +350,7 @@ uvicorn app.main:app --app-dir api --reload
 | `POST /auth/google` | Con el token de Google en `Bearer`: lo verifica con Google y devuelve `{token_sesion, expira, consentimiento_version}`. La sesión dura 8 h |
 | `POST /consentimiento` | Con sesión y `{"version": "1"}`: guarda qué versión de los permisos aceptó |
 | `POST /analizar` | Con sesión **y consentimiento** |
+| `POST /analizar/lote` | Igual, para hasta 50 correos a la vez: `{"correos": [...]}` → `{"resultados": [...]}` en el mismo orden. Cuenta como **una** petición en el límite por IP (paso 4.4) |
 | `GET /estadisticas` | Con sesión |
 | `POST /auth/cerrar` | Cierra esa sesión |
 | `DELETE /cuenta` | Borra el usuario y todas sus sesiones |
@@ -397,7 +400,7 @@ Campos de `POST /analizar`:
 |---|---|
 | 401 | Sin sesión, o la sesión es inventada, venció o se cerró: siempre el mismo mensaje |
 | 403 | `/analizar` sin consentimiento registrado |
-| 413 | La petición pasa de `SICAE_MAX_BYTES` |
+| 413 | La petición pasa de `SICAE_MAX_BYTES` (o un lote pasa de `SICAE_MAX_BYTES_LOTE`) |
 | 422 | Entrada inválida: dice qué campo falló |
 | 429 | Más de `SICAE_RATE_LIMIT` peticiones por minuto. Espera los segundos de `Retry-After` |
 | 503 | Modelo no cargado (revisa `GET /salud`), o `/auth/google` no pudo hablar con Google |

@@ -145,8 +145,11 @@ describe("panel (paso 3.4)", () => {
     assert.doesNotMatch(bienvenida, /Microsoft|Outlook|Otro proveedor/i);
     assert.equal((bienvenida.match(/<li>/g) || []).length, 3, "3 beneficios");
     const permisos = /id="pantalla-permisos"[\s\S]*?<\/section>/.exec(panel)[0];
-    assert.equal((permisos.match(/class="permiso"/g) || []).length, 1, "solo el permiso que se pide hoy");
+    // Paso 4.4 (consentimiento v2): identificarte + leer tus correos. Nada más.
+    assert.equal((permisos.match(/class="permiso"/g) || []).length, 2, "solo los permisos que se piden hoy");
     assert.match(permisos, /Identificarte con tu correo de Google/);
+    assert.match(permisos, /Leer tus correos para clasificarlos/);
+    assert.match(permisos, /No guardamos su contenido/);
     assert.match(permisos, /Nunca haremos/);
     assert.match(permisos, /Ley 1581 de 2012/);
     assert.match(permisos, /id="ahora-no"[^>]*>Ahora no</);
@@ -164,10 +167,20 @@ describe("panel (paso 3.4)", () => {
     assert.match(panel, /id="ir-opciones"[^>]*aria-label="Ajustes"/);
   });
 
-  test("Bandeja y Redactar están marcadas como no disponibles; Analizar es la actual", () => {
-    assert.match(panel, /id="nav-bandeja"[^>]*aria-disabled="true"/);
+  test("Bandeja ya funciona (4.4); Redactar sigue no disponible; Analizar es la actual al cargar", () => {
+    assert.match(panel, /<button[^>]*id="nav-bandeja"/);
+    assert.doesNotMatch(panel, /id="nav-bandeja"[^>]*aria-disabled/);
     assert.match(panel, /id="nav-redactar"[^>]*aria-disabled="true"/);
     assert.match(panel, /id="nav-analizar"[^>]*aria-current="page"/);
+    assert.match(panel, /id="vista-bandeja"[^>]*hidden/);
+  });
+
+  test("Bandeja: liberar espacio deshabilitado (4.5) y progreso/errores anunciados", () => {
+    assert.match(panel, /id="liberar-espacio"[^>]*aria-disabled="true"/);
+    assert.match(panel, /Próximamente \(4\.5\)/);
+    assert.match(panel, /id="bandeja-progreso"[^>]*role="status"[^>]*aria-live="polite"/);
+    assert.match(panel, /id="bandeja-error"[^>]*role="alert"/);
+    assert.match(panel, /id="ver-motivos"[^>]*aria-expanded="false"[^>]*aria-controls="lista-phishing"/);
   });
 
   test("el generador de íconos está fuera de la extensión (no se empaqueta con ella)", () => {
@@ -197,19 +210,28 @@ describe("manifest.json", () => {
       "http://127.0.0.1:8000/*",
       "https://oauth2.googleapis.com/*",
       "https://openidconnect.googleapis.com/*",
+      // gmail.googleapis.com (paso 4.4): solo para leer la bandeja con la API de Gmail (GET).
+      "https://gmail.googleapis.com/*",
     ]);
   });
 
-  test("oauth2: client_id de Google y solo los alcances openid y email (sin acceso a Gmail)", () => {
+  test("oauth2: client_id de Google y solo openid, email y Gmail de SOLO LECTURA", () => {
     assert.match(manifest.oauth2.client_id, /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/);
-    assert.deepEqual(manifest.oauth2.scopes, ["openid", "https://www.googleapis.com/auth/userinfo.email"]);
+    assert.deepEqual(manifest.oauth2.scopes, [
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/gmail.readonly", // paso 4.4: no permite modificar, borrar ni enviar
+    ]);
+    for (const alcance of manifest.oauth2.scopes) {
+      assert.doesNotMatch(alcance, /gmail\.(modify|send|compose|insert|labels|settings)|mail\.google\.com\/$/, alcance);
+    }
     assert.deepEqual(Object.keys(manifest.oauth2).sort(), ["client_id", "scopes"]);
   });
 
   test("las direcciones de la API en logica.js coinciden con host_permissions", async () => {
     const { ORIGENES_PERMITIDOS } = await import("../lib/logica.js");
     const deLaApi = manifest.host_permissions
-      .filter((permiso) => !/^https:\/\/(mail\.google\.com|oauth2\.googleapis\.com|openidconnect\.googleapis\.com)\//.test(permiso))
+      .filter((permiso) => !/^https:\/\/(mail\.google\.com|oauth2\.googleapis\.com|openidconnect\.googleapis\.com|gmail\.googleapis\.com)\//.test(permiso))
       .map((permiso) => permiso.replace(/\/\*$/, ""));
     assert.deepEqual([...ORIGENES_PERMITIDOS].sort(), deLaApi.sort());
   });
@@ -325,6 +347,32 @@ describe("lectura de Gmail (content script)", () => {
         assert.doesNotMatch(llamada, /token/i, `${nombre} escribe un token en la consola`);
       }
       assert.doesNotMatch(codigo, /\b(localStorage|sessionStorage|indexedDB)\b/, `${nombre} usa otro almacenamiento`);
+    }
+  });
+});
+
+describe("lectura de Gmail (paso 4.4): SOLO LECTURA", () => {
+  const gmail = sinComentarios(readFileSync(join(RAIZ, "lib", "gmail.js"), "utf8"), ".js");
+
+  test("lib/gmail.js solo hace GET: nada de modificar, mover, borrar ni enviar", () => {
+    assert.deepEqual([...new Set(gmail.match(/method:\s*"[A-Z]+"/g))], ['method: "GET"']);
+    assert.doesNotMatch(gmail, /\/(modify|trash|untrash|delete|send|batchModify|batchDelete|import|insert|drafts)\b/i);
+    assert.doesNotMatch(gmail, /\b(modify|trash|batchModify|batchDelete)\s*\(/);
+  });
+
+  test("el token de Gmail va en Authorization y nunca en la URL", () => {
+    assert.match(gmail, /headers:\s*\{\s*Authorization:\s*`Bearer \$\{usado\}`\s*\}/);
+    assert.doesNotMatch(gmail, /access_token|[?&]token=|\$\{URL_GMAIL\}[^`]*\$\{(token|usado)\}/);
+  });
+
+  test("las rutas de Gmail solo usan ids con forma segura", () => {
+    assert.match(gmail, /\/\^\[\\w-\]\+\$\/\.test\(id\)/);
+  });
+
+  test("nada de lo leído se guarda: ni lib/gmail.js ni lib/bandeja.js usan almacenamiento", () => {
+    const bandeja = sinComentarios(readFileSync(join(RAIZ, "lib", "bandeja.js"), "utf8"), ".js");
+    for (const codigo of [gmail, bandeja]) {
+      assert.doesNotMatch(codigo, /chrome\.storage|localStorage|sessionStorage|indexedDB|console\./);
     }
   });
 });

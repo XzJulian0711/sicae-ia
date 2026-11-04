@@ -26,6 +26,7 @@
 | `POST /auth/cerrar` | Sesión | Cierra esa sesión |
 | `DELETE /cuenta` | Sesión | Borra el usuario y todas sus sesiones |
 | `POST /analizar` | Sesión + consentimiento | Clasifica un correo y registra el resultado (sin el texto ni el usuario) |
+| `POST /analizar/lote` | Sesión + consentimiento | Lo mismo para 1 a `SICAE_MAX_LOTE` (50) correos, en el mismo orden (paso 4.4). Reutiliza `analizar_correo()`; si uno falla, en su lugar va `{"error": ...}` y los demás siguen. Una fila de registro por correo, sin texto. Tope propio de `SICAE_MAX_BYTES_LOTE` (2 MB) y cuenta como **una** petición en el límite por IP |
 | `GET /estadisticas` | Sesión | Conteos por categoría y prioridad |
 
 ### 3.1 Seguridad de la API

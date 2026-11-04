@@ -62,6 +62,9 @@ def validar_seguridad(ajustes):
                            "por ejemplo chrome-extension://<id-de-la-extension>.")
     if ajustes.max_bytes < 1 or ajustes.rate_limit < 1:
         raise RuntimeError("SICAE_MAX_BYTES y SICAE_RATE_LIMIT deben ser mayores que 0.")
+    if ajustes.max_lote < 1 or ajustes.max_bytes_lote < ajustes.max_bytes:
+        raise RuntimeError("SICAE_MAX_LOTE debe ser mayor que 0 y SICAE_MAX_BYTES_LOTE no puede ser "
+                           "menor que SICAE_MAX_BYTES.")
 
 
 # ---------------------------------------------------------------------------
@@ -142,22 +145,26 @@ class LimiteTamano:
 
     - Si trae Content-Length y es mayor, responde 413 de inmediato.
     - Si no lo trae (envío por partes), cuenta los bytes que llegan y corta al pasar el límite.
+    - `por_ruta` da un tope distinto a rutas exactas (paso 4.4: /analizar/lote admite más,
+      porque trae hasta 50 correos). Todas las demás rutas usan max_bytes.
     """
 
-    def __init__(self, app, max_bytes):
+    def __init__(self, app, max_bytes, por_ruta=None):
         self.app = app
         self.max_bytes = max_bytes
+        self.por_ruta = dict(por_ruta or {})
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        limite = self.por_ruta.get(scope.get("path", ""), self.max_bytes)
         largo = dict(scope.get("headers", [])).get(b"content-length")
         if largo is not None:
             try:
                 declarado = int(largo)
             except ValueError:
                 return await responder_json(send, 400, "Encabezado Content-Length inválido.")
-            if declarado > self.max_bytes:
+            if declarado > limite:
                 return await responder_json(send, 413, MENSAJE_413)
 
         recibidos = 0
@@ -167,7 +174,7 @@ class LimiteTamano:
             mensaje = await receive()
             if mensaje["type"] == "http.request":
                 recibidos += len(mensaje.get("body", b""))
-                if recibidos > self.max_bytes:
+                if recibidos > limite:
                     raise PeticionDemasiadoGrande()
             return mensaje
 

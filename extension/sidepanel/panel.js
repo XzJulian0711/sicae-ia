@@ -19,15 +19,27 @@
 
 import { almacenSesionApi, guardarConsentimiento, leerConfiguracion, leerConsentimiento } from "../lib/almacen.js";
 import {
+  MENSAJE_OTRA_CUENTA,
+  formatearHora,
+  mismaCuenta,
+  resumenPublicidad,
+  resumirBandeja,
+  textoAvisoPhishing,
+} from "../lib/bandeja.js";
+import {
+  MAX_BYTES_POR_CORREO_LOTE,
   armarPeticion,
   esPestanaGmail,
   interpretarAnalisis,
   interpretarLectura,
+  interpretarLote,
   resultadoAnalisisSinConexion,
   resultadoNoGmail,
   resultadoRecargarGmail,
   urlAnalizar,
+  urlAnalizarLote,
 } from "../lib/correo.js";
+import { datosPromociones, leerBandeja } from "../lib/gmail.js";
 import {
   TIEMPO_ESPERA_MS,
   interpretarSalud,
@@ -85,6 +97,7 @@ const elementos = {
   correoRemitente: document.getElementById("correo-remitente"),
   tituloMotivos: document.getElementById("titulo-motivos"),
   navBandeja: document.getElementById("nav-bandeja"),
+  navAnalizar: document.getElementById("nav-analizar"),
   navRedactar: document.getElementById("nav-redactar"),
   proximamente: document.getElementById("proximamente"),
   tarjeta: document.getElementById("tarjeta"),
@@ -146,6 +159,11 @@ async function leerCorreoDeLaPestana() {
   const [pestana] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!pestana || !esPestanaGmail(pestana.url)) {
     return { ok: false, resultado: resultadoNoGmail() };
+  }
+  // Paso 4.4: la pestaña de Gmail debe ser de la cuenta de la sesión (Gmail la pone en el título;
+  // tab.title llega por el permiso de mail.google.com). Si no se puede saber, se sigue.
+  if (!mismaCuenta(pestana.title, correoSesion)) {
+    return { ok: false, resultado: { tipo: "error", mensaje: MENSAJE_OTRA_CUENTA } };
   }
   let respuesta;
   try {
@@ -354,10 +372,233 @@ function abrirOpciones() {
   chrome.runtime.openOptionsPage();
 }
 
-/** Bandeja y Redactar todavía no existen: solo avisan "Próximamente" y no hacen nada más. */
+/** Redactar todavía no existe: solo avisa "Próximamente" y no hace nada más. */
 function avisarProximamente(evento) {
   const nombre = evento.currentTarget.querySelector("span")?.textContent ?? "";
   elementos.proximamente.textContent = `${nombre}: próximamente.`;
+}
+
+// ----- Pestañas de la vista principal: Analizar y Bandeja -----
+
+const VISTAS = {
+  analizar: { seccion: document.getElementById("vista-analizar"), pestana: "nav-analizar", foco: "analizar" },
+  bandeja: { seccion: document.getElementById("vista-bandeja"), pestana: "nav-bandeja", foco: "titulo-bandeja" },
+};
+
+function mostrarVistaPrincipal(nombre, { enfocar = true } = {}) {
+  for (const [clave, vista] of Object.entries(VISTAS)) {
+    vista.seccion.hidden = clave !== nombre;
+    const pestana = document.getElementById(vista.pestana);
+    if (clave === nombre) pestana.setAttribute("aria-current", "page");
+    else pestana.removeAttribute("aria-current");
+  }
+  elementos.proximamente.textContent = "";
+  if (enfocar) document.getElementById(VISTAS[nombre].foco)?.focus();
+}
+
+// ----- Bandeja (paso 4.4): SOLO LECTURA -----
+// Lee los últimos 50 correos de Recibidos con la API de Gmail (lib/gmail.js), los clasifica en
+// un solo POST /analizar/lote y muestra el resumen (lib/bandeja.js). Todo vive en memoria: ni
+// los correos ni los resultados se guardan en chrome.storage ni en la API (fuera del registro
+// de siempre, sin texto).
+
+const b = {
+  actualizar: document.getElementById("actualizar-bandeja"),
+  ultimo: document.getElementById("bandeja-ultimo"),
+  progreso: document.getElementById("bandeja-progreso"),
+  error: document.getElementById("bandeja-error"),
+  errorTexto: document.getElementById("bandeja-error-texto"),
+  darPermiso: document.getElementById("dar-permiso-gmail"),
+  vacia: document.getElementById("bandeja-vacia"),
+  resumen: document.getElementById("bandeja-resumen"),
+  conteoAlta: document.getElementById("conteo-alta"),
+  conteoMedia: document.getElementById("conteo-media"),
+  conteoBaja: document.getElementById("conteo-baja"),
+  avisoPhishing: document.getElementById("aviso-phishing"),
+  avisoPhishingTexto: document.getElementById("aviso-phishing-texto"),
+  verMotivos: document.getElementById("ver-motivos"),
+  listaPhishing: document.getElementById("lista-phishing"),
+  listaAlta: document.getElementById("lista-alta"),
+  altaVacia: document.getElementById("alta-vacia"),
+  publicidadTexto: document.getElementById("publicidad-texto"),
+  liberar: document.getElementById("liberar-espacio"),
+  sinClasificar: document.getElementById("bandeja-sin-clasificar"),
+};
+
+function mostrarProgresoBandeja(texto) {
+  b.progreso.textContent = texto ?? "";
+  b.progreso.hidden = !texto;
+}
+
+function mostrarErrorBandeja(mensaje, { conPermiso = false } = {}) {
+  b.errorTexto.textContent = mensaje ?? "";
+  b.error.hidden = !mensaje;
+  b.darPermiso.hidden = !conPermiso;
+}
+
+/** Fila de una lista de correos: botón con remitente · hora y asunto (solo textContent). */
+function filaCorreo(item) {
+  const li = document.createElement("li");
+  const boton = document.createElement("button");
+  boton.type = "button";
+  boton.className = "fila-correo";
+  const linea = document.createElement("span");
+  linea.className = "fila-linea";
+  const remitente = document.createElement("strong");
+  remitente.textContent = item.remitenteNombre || item.correo.remitente || "(Sin remitente)";
+  const hora = document.createElement("span");
+  hora.className = "fila-hora";
+  hora.textContent = ` · ${formatearHora(item.fecha)}`;
+  linea.append(remitente, hora);
+  const asunto = document.createElement("span");
+  asunto.className = "fila-asunto";
+  asunto.textContent = item.correo.asunto?.trim() || "(Sin asunto)";
+  boton.append(linea, asunto);
+  boton.addEventListener("click", () => abrirEnAnalizar(item));
+  li.append(boton);
+  return li;
+}
+
+/** "Ver motivos": muestra la tarjeta de ese correo en Analizar, con su resultado del lote. */
+function abrirEnAnalizar(item) {
+  mostrarVistaPrincipal("analizar", { enfocar: false });
+  elementos.analisis.hidden = true;
+  mostrarCorreoAbierto(item.correo);
+  mostrarResultado(item.resultado, false);
+  elementos.tarjeta.querySelector("h2")?.setAttribute("tabindex", "-1");
+  elementos.tarjeta.querySelector("h2")?.focus();
+}
+
+function pintarBandeja(items, publicidad) {
+  const resumen = resumirBandeja(items);
+  b.conteoAlta.textContent = String(resumen.conteos.alta);
+  b.conteoMedia.textContent = String(resumen.conteos.media);
+  b.conteoBaja.textContent = String(resumen.conteos.baja);
+
+  b.avisoPhishing.hidden = resumen.phishing.length === 0;
+  b.avisoPhishingTexto.textContent = textoAvisoPhishing(resumen.phishing.length);
+  b.listaPhishing.replaceChildren(...resumen.phishing.map(filaCorreo));
+  b.listaPhishing.hidden = true;
+  b.verMotivos.setAttribute("aria-expanded", "false");
+
+  b.listaAlta.replaceChildren(...resumen.prioridadAlta.map(filaCorreo));
+  b.altaVacia.hidden = resumen.prioridadAlta.length > 0;
+
+  b.publicidadTexto.textContent = resumenPublicidad(publicidad, resumen.publicidad).texto;
+
+  b.sinClasificar.textContent = resumen.sinClasificar
+    ? `${resumen.sinClasificar} correo(s) no se pudieron clasificar.`
+    : "";
+  b.sinClasificar.hidden = !resumen.sinClasificar;
+
+  b.vacia.hidden = true;
+  b.resumen.hidden = false;
+}
+
+/** POST /analizar/lote con la sesión (se renueva una vez con 401; un 403 sigue la regla del 4.3). */
+async function clasificarLote(base, peticiones) {
+  const contexto = await contextoSesion(base);
+  const enviar = (sesion) => pedir(urlAnalizarLote(base), {
+    metodo: "POST",
+    cabeceras: { "Content-Type": "application/json", Authorization: `Bearer ${sesion.token}` },
+    cuerpo: JSON.stringify({ correos: peticiones }),
+  });
+  let intento = await conSesion(contexto, enviar);
+  if (intento.ok && intento.respuesta.status === 403) {
+    if (queHacerAnte403(await leerConsentimiento()) !== "registrar") return { tipo: "pedir_permisos" };
+    intento = await conSesion(contexto, async (sesion) => {
+      await registrarConsentimiento(fetch, base, sesion, contexto.version);
+      return enviar(sesion);
+    });
+    if (intento.ok && intento.respuesta.status === 403) return { tipo: "pedir_permisos" };
+  }
+  if (!intento.ok) return { tipo: "error", mensaje: intento.mensaje };
+  let cuerpo = null;
+  if (intento.respuesta.status === 200) {
+    try {
+      cuerpo = await intento.respuesta.json();
+    } catch {
+      cuerpo = null;
+    }
+  }
+  return interpretarLote(intento.respuesta.status, cuerpo, peticiones.length);
+}
+
+async function actualizarBandeja() {
+  mostrarErrorBandeja(null);
+  const { urlApi } = await leerConfiguracion();
+  const url = validarUrlApi(urlApi);
+  if (!url.ok) {
+    mostrarErrorBandeja(URL_NO_VALIDA.mensaje);
+    return;
+  }
+
+  b.actualizar.disabled = true;
+  try {
+    mostrarProgresoBandeja("Leyendo correos…");
+    const lectura = await leerBandeja({
+      identidad: chrome.identity,
+      pedir: fetch,
+      alProgresar: (leidos, total) => mostrarProgresoBandeja(`Leyendo correos ${leidos} de ${total}…`),
+    });
+    if (!lectura.ok) {
+      mostrarErrorBandeja(lectura.mensaje, { conPermiso: lectura.codigo === "sin_permiso" });
+      return;
+    }
+
+    // Cada correo se recorta a su parte del lote; los que no se pueden armar quedan sin clasificar.
+    const armados = lectura.mensajes.map((m) => armarPeticion(m.correo, { maxBytes: MAX_BYTES_POR_CORREO_LOTE }));
+    const enviables = armados.map((a, i) => ({ a, i })).filter(({ a }) => a.ok);
+    const items = lectura.mensajes.map((m) => ({ ...m, resultado: null }));
+
+    if (enviables.length > 0) {
+      mostrarProgresoBandeja("Clasificando…");
+      const [lote, promociones] = await Promise.all([
+        clasificarLote(url.url, enviables.map(({ a }) => a.peticion)),
+        datosPromociones(lectura.cliente),
+      ]);
+      if (lote.tipo === "pedir_permisos") {
+        mostrarPantalla("permisos"); // sin consentimiento válido no se registra nada solo
+        return;
+      }
+      if (lote.tipo !== "lote") {
+        mostrarErrorBandeja(lote.mensaje);
+        return;
+      }
+      lote.resultados.forEach((resultado, k) => { items[enviables[k].i].resultado = resultado; });
+      pintarBandeja(items, promociones);
+    } else {
+      pintarBandeja(items, await datosPromociones(lectura.cliente));
+    }
+    b.ultimo.textContent = `Último análisis: ${formatearHora(Date.now())}`;
+  } finally {
+    mostrarProgresoBandeja(null);
+    b.actualizar.disabled = false;
+  }
+}
+
+/** "Dar permiso": abre la ventana de Google para aceptar el alcance de lectura de Gmail. */
+async function darPermisoGmail() {
+  const sesion = await iniciarSesion(chrome.identity, navigator.onLine);
+  if (!sesion.ok) {
+    mostrarErrorBandeja(sesion.mensaje, { conPermiso: true });
+    return;
+  }
+  actualizarBandeja();
+}
+
+function iniciarBandeja() {
+  b.actualizar.addEventListener("click", actualizarBandeja);
+  b.darPermiso.addEventListener("click", darPermisoGmail);
+  b.verMotivos.addEventListener("click", () => {
+    const abrir = b.listaPhishing.hidden;
+    b.listaPhishing.hidden = !abrir;
+    b.verMotivos.setAttribute("aria-expanded", String(abrir));
+  });
+  // "Revisar y liberar espacio" llega en el paso 4.5: por ahora no hace nada.
+  b.liberar.addEventListener("click", () => {
+    elementos.proximamente.textContent = "Revisar y liberar espacio: próximamente (4.5).";
+  });
 }
 
 // ----- Bienvenida, permisos e inicio de sesión (paso 4.2) -----
@@ -382,7 +623,11 @@ function mostrarErrorSesion(mensaje, tipo = "error") {
 // El correo se pide a Google en el momento (lib/sesion.js → obtenerCorreo) y solo vive aquí,
 // en el texto del botón: no se guarda en chrome.storage ni va a la consola.
 
+// Correo de la sesión en memoria (para comparar con la pestaña de Gmail). Nunca se guarda.
+let correoSesion = null;
+
 function ocultarCuenta() {
+  correoSesion = null;
   cerrarMenuCuenta({ devolverFoco: false });
   acceso.cuenta.hidden = true;
   acceso.cuentaCorreo.textContent = "";
@@ -395,6 +640,7 @@ async function mostrarCuenta() {
     ocultarCuenta(); // sin correo, el resto del panel sigue igual
     return;
   }
+  correoSesion = resultado.correo;
   acceso.cuentaCorreo.textContent = resultado.correo;
   acceso.cuenta.title = `Sesión: ${resultado.correo}`;
   acceso.cuenta.hidden = false;
@@ -510,8 +756,10 @@ async function iniciar() {
   elementos.irOpciones.addEventListener("click", abrirOpciones);
   elementos.analizar.addEventListener("click", analizarCorreo);
   elementos.probar.addEventListener("click", probarConexion);
-  elementos.navBandeja.addEventListener("click", avisarProximamente);
+  elementos.navBandeja.addEventListener("click", () => mostrarVistaPrincipal("bandeja"));
+  elementos.navAnalizar.addEventListener("click", () => mostrarVistaPrincipal("analizar"));
   elementos.navRedactar.addEventListener("click", avisarProximamente);
+  iniciarBandeja();
 }
 
 iniciar();

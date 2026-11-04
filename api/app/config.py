@@ -54,6 +54,11 @@ class Ajustes(BaseSettings):
     cors_origins: str = ""
     # Tamaño máximo de una petición en bytes (más grande = 413).
     max_bytes: int = 200_000
+    # ---------- Lote (paso 4.4: pestaña Bandeja) ----------
+    # Cuántos correos puede traer POST /analizar/lote y su tamaño máximo en bytes (50 correos no
+    # caben en max_bytes; la extensión recorta cada cuerpo para no pasar este tope).
+    max_lote: int = 50
+    max_bytes_lote: int = 2_000_000
     # Peticiones por minuto por IP (más = 429).
     rate_limit: int = 30
     # "desarrollo" habilita /docs y /redoc; en "produccion" quedan apagados.
