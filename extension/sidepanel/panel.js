@@ -3,7 +3,9 @@
 // "Analizar este correo":
 //   1. pide a la pestaña activa (Gmail) el correo abierto (gmail/lector.js);
 //   2. arma la petición (lib/correo.js) y la envía a POST /analizar con X-API-Key;
-//   3. muestra la tarjeta de resultado (lib/tarjeta.js decide estilo, textos y secciones).
+//   3. muestra la tarjeta "CORREO ABIERTO" (asunto y remitente) y la franja de resultado con
+//      sus motivos (lib/tarjeta.js decide estilo, textos y secciones).
+// Barra inferior: Bandeja y Redactar solo dicen "Próximamente" (llegan con la API de Gmail).
 // "Probar conexión":
 //   1. GET /salud (pública): ¿responde la API? ¿hay modelo cargado?
 //   2. GET /estadisticas con X-API-Key: ¿la clave es correcta? (solo se usa el código)
@@ -36,7 +38,7 @@ import {
   urlSalud,
   validarUrlApi,
 } from "../lib/logica.js";
-import { armarTarjeta } from "../lib/tarjeta.js";
+import { armarTarjeta, datosCorreoAbierto } from "../lib/tarjeta.js";
 
 const elementos = {
   avisoSinClave: document.getElementById("aviso-sin-clave"),
@@ -45,6 +47,13 @@ const elementos = {
   analizar: document.getElementById("analizar"),
   analisis: document.getElementById("analisis"),
   analisisTexto: document.getElementById("analisis-texto"),
+  resultado: document.getElementById("resultado"),
+  correoAsunto: document.getElementById("correo-asunto"),
+  correoRemitente: document.getElementById("correo-remitente"),
+  tituloMotivos: document.getElementById("titulo-motivos"),
+  navBandeja: document.getElementById("nav-bandeja"),
+  navRedactar: document.getElementById("nav-redactar"),
+  proximamente: document.getElementById("proximamente"),
   tarjeta: document.getElementById("tarjeta"),
   tarjetaIcono: document.getElementById("tarjeta-icono"),
   tarjetaTitulo: document.getElementById("tarjeta-titulo"),
@@ -124,13 +133,25 @@ async function enviarAnalisis(base, claveApi, peticion) {
   }
 }
 
-/** Llena una <ul> con textos, cada uno con textContent (los motivos pueden traer texto del correo). */
+/**
+ * Llena una lista (<ul> u <ol>) con textos, cada uno con textContent: los motivos pueden traer
+ * texto del correo. En los chips de motivos el número lo pone el CSS (contador de la <ol>).
+ */
 function llenarLista(lista, textos) {
   lista.replaceChildren(...textos.map((texto) => {
     const item = document.createElement("li");
     item.textContent = texto;
     return item;
   }));
+}
+
+/** Tarjeta "CORREO ABIERTO": asunto y remitente leídos de Gmail (solo textContent). */
+function mostrarCorreoAbierto(correo) {
+  const datos = datosCorreoAbierto(correo);
+  elementos.correoAsunto.textContent = datos.asunto;
+  elementos.correoRemitente.textContent = datos.remitente;
+  elementos.tarjeta.hidden = true; // la franja aparece cuando responde la API
+  elementos.resultado.hidden = false;
 }
 
 function mostrarResultado(resultado, recortado) {
@@ -151,6 +172,7 @@ function mostrarResultado(resultado, recortado) {
   e.tarjetaPrioridad.dataset.prioridad = t.prioridad?.valor ?? "";
   e.tarjetaPrioridad.hidden = !t.prioridad;
 
+  e.tituloMotivos.textContent = t.tituloMotivos;
   llenarLista(e.listaMotivos, t.motivos);
   e.tarjetaMotivos.hidden = t.motivos.length === 0;
 
@@ -161,6 +183,7 @@ function mostrarResultado(resultado, recortado) {
 
 async function analizarCorreo() {
   elementos.analisis.hidden = true;
+  elementos.resultado.hidden = true;
   elementos.tarjeta.hidden = true;
 
   const { urlApi, claveApi } = await leerConfiguracion();
@@ -182,6 +205,7 @@ async function analizarCorreo() {
       mostrar(elementos.analisis, elementos.analisisTexto, lectura.resultado);
       return;
     }
+    mostrarCorreoAbierto(lectura.correo); // se ve el correo leído aunque la API falle
     const armado = armarPeticion(lectura.correo);
     if (!armado.ok) {
       mostrar(elementos.analisis, elementos.analisisTexto, armado.resultado);
@@ -259,11 +283,19 @@ function abrirOpciones() {
   chrome.runtime.openOptionsPage();
 }
 
+/** Bandeja y Redactar todavía no existen: solo avisan "Próximamente" y no hacen nada más. */
+function avisarProximamente(evento) {
+  const nombre = evento.currentTarget.querySelector("span")?.textContent ?? "";
+  elementos.proximamente.textContent = `${nombre}: próximamente.`;
+}
+
 async function iniciar() {
   elementos.irOpciones.addEventListener("click", abrirOpciones);
   elementos.abrirOpciones.addEventListener("click", abrirOpciones);
   elementos.analizar.addEventListener("click", analizarCorreo);
   elementos.probar.addEventListener("click", probarConexion);
+  elementos.navBandeja.addEventListener("click", avisarProximamente);
+  elementos.navRedactar.addEventListener("click", avisarProximamente);
 
   const { claveApi } = await leerConfiguracion();
   const faltaClave = !claveApi;

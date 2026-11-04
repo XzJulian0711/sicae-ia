@@ -36,23 +36,54 @@ export const DETALLE_PHISHING_DUDOSO =
 
 const PRIORIDADES = { alta: "Prioridad alta", media: "Prioridad media", baja: "Prioridad baja" };
 
-/** Etiquetas de los motivos (máximo 3, en el orden de la API). Ignora lo que no sea texto. */
+/** Término entre «…» de un motivo ("Menciona «estimado cliente»" → "estimado cliente"), o null. */
+function termino(etiqueta) {
+  const m = /«([^»]+)»/.exec(etiqueta);
+  return m ? m[1].trim().toLowerCase().replace(/\s+/g, " ") : null;
+}
+
+/**
+ * Etiquetas de los motivos (máximo 3, en el orden de la API), sin repetidos:
+ * - se quitan los duplicados exactos;
+ * - si el término de un motivo está dentro del de otro (el modelo usa palabras y pares:
+ *   «estimado» y «estimado cliente»), queda solo la frase.
+ * Los repetidos se quitan ANTES de quedarse con 3, para que los 3 sean distintos.
+ * Ignora lo que no sea texto.
+ */
 export function extraerMotivos(lista) {
   if (!Array.isArray(lista)) return [];
-  const motivos = [];
+  const vistas = new Set();
+  const candidatos = [];
   for (const motivo of lista) {
-    const etiqueta = typeof motivo?.etiqueta === "string" ? motivo.etiqueta.trim() : "";
-    if (etiqueta) motivos.push(etiqueta.slice(0, LARGO_MAX_MOTIVO));
-    if (motivos.length === MAX_MOTIVOS) break;
+    const etiqueta = typeof motivo?.etiqueta === "string" ? motivo.etiqueta.trim().slice(0, LARGO_MAX_MOTIVO) : "";
+    if (!etiqueta || vistas.has(etiqueta.toLowerCase())) continue;
+    vistas.add(etiqueta.toLowerCase());
+    candidatos.push({ etiqueta, termino: termino(etiqueta) });
   }
-  return motivos;
+  const contenidoEnOtro = ({ termino: t }) => t !== null && candidatos.some(
+    (otro) => otro.termino !== null && otro.termino !== t && ` ${otro.termino} `.includes(` ${t} `),
+  );
+  return candidatos.filter((c) => !contenidoEnOtro(c)).slice(0, MAX_MOTIVOS).map((c) => c.etiqueta);
+}
+
+const LARGO_MAX_ASUNTO = 300;
+const LARGO_MAX_REMITENTE = 320;
+
+/** Lo que muestra la tarjeta "CORREO ABIERTO": asunto (o "(Sin asunto)") y remitente. */
+export function datosCorreoAbierto(correo) {
+  const asunto = typeof correo?.asunto === "string" ? correo.asunto.trim() : "";
+  const remitente = typeof correo?.remitente === "string" ? correo.remitente.trim() : "";
+  return {
+    asunto: asunto ? asunto.slice(0, LARGO_MAX_ASUNTO) : "(Sin asunto)",
+    remitente: remitente.slice(0, LARGO_MAX_REMITENTE),
+  };
 }
 
 function estilo(categoria, dudosa) {
   if (categoria === "phishing") {
     return dudosa
       ? { variante: "precaucion", titulo: "Revisa con cuidado", detalle: DETALLE_PHISHING_DUDOSO, consejos: [] }
-      : { variante: "peligro", titulo: "Posible phishing", detalle: null, consejos: [...CONSEJOS_PHISHING] };
+      : { variante: "peligro", titulo: "Posible phishing · riesgo alto", detalle: null, consejos: [...CONSEJOS_PHISHING] };
   }
   if (categoria === "publicidad") {
     return { variante: "neutro", titulo: `Correo masivo o publicidad${dudosa ? REVISA : ""}`, detalle: null, consejos: [] };
@@ -62,7 +93,8 @@ function estilo(categoria, dudosa) {
 
 /**
  * Resultado validado de /analizar → lo que muestra la tarjeta:
- * {variante, icono, titulo, detalle, consejos, prioridad: {valor, texto} | null, motivos, nota}.
+ * {variante, icono, titulo, detalle, consejos, prioridad: {valor, texto} | null, motivos,
+ *  tituloMotivos, nota}.
  * La prioridad no se muestra si es phishing (va como alerta).
  */
 export function armarTarjeta({ categoria, confianza, prioridad, motivos }) {
@@ -73,6 +105,8 @@ export function armarTarjeta({ categoria, confianza, prioridad, motivos }) {
     icono: ICONOS[base.variante],
     prioridad: conPrioridad ? { valor: prioridad, texto: PRIORIDADES[prioridad] } : null,
     motivos: extraerMotivos(motivos),
+    // En un legítimo los motivos son señales de correo normal, no "motivos" de alerta.
+    tituloMotivos: categoria === "legitimo" ? "Señales de correo normal" : "Motivos",
     nota: NOTA,
   };
 }

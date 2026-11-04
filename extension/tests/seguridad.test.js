@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, test } from "node:test";
 
@@ -103,6 +103,41 @@ describe("íconos SVG", () => {
       assert.doesNotMatch(svg, /<foreignObject/i, `${nombre} tiene foreignObject`);
       assert.doesNotMatch(svg, /\b(xlink:)?href\s*=/i, `${nombre} enlaza otro recurso`);
       assert.doesNotMatch(svg, /url\(/i, `${nombre} carga un recurso con url()`);
+    }
+  });
+});
+
+describe("panel (paso 3.4)", () => {
+  const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8"), ".html");
+
+  test("los SVG en línea del panel no tienen scripts, foreignObject ni enlaces", () => {
+    const svgs = panel.match(/<svg[\s\S]*?<\/svg>/gi) || [];
+    assert.ok(svgs.length >= 5, "logo, ajustes y los 3 íconos de la barra");
+    for (const svg of svgs) {
+      assert.doesNotMatch(svg, /<script|<foreignObject|\b(xlink:)?href\s*=|url\(/i);
+      assert.match(svg, /aria-hidden="true"/, "los íconos son decorativos");
+    }
+  });
+
+  test("los botones de solo ícono tienen nombre accesible", () => {
+    assert.match(panel, /id="ir-opciones"[^>]*aria-label="Ajustes"/);
+  });
+
+  test("Bandeja y Redactar están marcadas como no disponibles; Analizar es la actual", () => {
+    assert.match(panel, /id="nav-bandeja"[^>]*aria-disabled="true"/);
+    assert.match(panel, /id="nav-redactar"[^>]*aria-disabled="true"/);
+    assert.match(panel, /id="nav-analizar"[^>]*aria-current="page"/);
+  });
+
+  test("el generador de íconos está fuera de la extensión (no se empaqueta con ella)", () => {
+    // Vive en herramientas/ en la raíz del repo, no en extension/.
+    assert.ok(existsSync(join(RAIZ, "..", "herramientas", "iconos.js")), "falta herramientas/iconos.js en la raíz");
+    assert.ok(!existsSync(join(RAIZ, "herramientas")), "extension/herramientas/ no debe existir");
+    // Ningún archivo de la extensión lo menciona ni lo importa.
+    const manifestTexto = readFileSync(join(RAIZ, "manifest.json"), "utf8");
+    assert.doesNotMatch(manifestTexto, /herramientas/);
+    for (const { nombre, codigo } of [...leer(".html"), ...leer(".css"), ...leer(".js")]) {
+      assert.doesNotMatch(codigo, /herramientas/, `${nombre} menciona herramientas/`);
     }
   });
 });

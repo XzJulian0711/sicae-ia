@@ -1,8 +1,8 @@
 # Extensión de Chrome de SICAE-IA
 
-Pasos 3.1 a 3.3. La extensión tiene:
-- un **panel lateral** que **analiza el correo abierto en Gmail**, muestra una tarjeta de
-  resultado y prueba la conexión con la API;
+Pasos 3.1 a 3.4. La extensión tiene:
+- un **panel lateral**, con el diseño del demo, que **analiza el correo abierto en Gmail**,
+  muestra el resultado y prueba la conexión con la API;
 - una página de **Opciones** para la URL de la API y la clave.
 
 Necesita **Chrome 116 o más nuevo**.
@@ -39,14 +39,15 @@ tarjeta.
    con ese valor. Si hay varios integrantes con IDs distintos, sepáralos con comas.
 3. **Reinicia la API** (`uvicorn app.main:app --app-dir api --reload`), porque `.env` se lee al
    arrancar.
-4. **Configura la extensión:** clic derecho en el ícono → **Opciones**, o el enlace "Opciones"
-   del panel. Escribe:
+4. **Configura la extensión:** clic derecho en el ícono → **Opciones**, o el botón de ajustes
+   (engranaje) del panel. Escribe:
    - **URL de la API:** `http://127.0.0.1:8000`. Es el valor por defecto y, por ahora, el
      **único** aceptado (ver "Qué URL acepta");
    - **Clave de la API:** el valor de `SICAE_API_KEY` de tu `.env`.
 
    Pulsa **Guardar**.
-5. **Prueba:** abre el panel (clic en el ícono) y pulsa **Probar conexión**. Se hacen dos peticiones:
+5. **Prueba:** abre el panel (clic en el ícono), despliega **Estado de la conexión** al final y
+   pulsa **Probar conexión**. Se hacen dos peticiones:
    1. **`GET /salud`**, que es pública: ¿responde la API? ¿está cargado el modelo?
    2. **`GET /estadisticas` con la clave en `X-API-Key`**: ¿la clave guardada es correcta? Solo
       se usa el código de la respuesta (200 o 401); **los conteos no se leen ni se muestran**.
@@ -77,9 +78,27 @@ tarjeta.
    instalar o actualizar la extensión, recárgala con F5.
 2. Abre un correo. Tiene que estar abierto, no solo seleccionado en la lista.
 3. Haz clic en el ícono de SICAE-IA y pulsa **Analizar este correo**.
-4. El panel muestra la **tarjeta de resultado** (ver la sección siguiente).
+4. El panel muestra la tarjeta **CORREO ABIERTO** y el **resultado** (ver las secciones
+   siguientes).
 
-### La tarjeta de resultado (paso 3.3)
+### El panel (paso 3.4)
+
+Sigue el demo ("Demo extensión de correo inteligente.pdf", página 5) con el nombre SICAE-IA. De
+arriba hacia abajo:
+
+| Parte | Qué hace |
+|---|---|
+| **Encabezado** | Escudo en un cuadro oscuro, "SICAE-IA" y el botón de **ajustes** (engranaje), que abre Opciones |
+| Aviso "Falta configurar la clave" | Solo si todavía no hay clave |
+| **Analizar este correo** | Botón azul (acción). El panel no lee el correo solo: espera el clic |
+| **CORREO ABIERTO** | Asunto (o "(Sin asunto)") y remitente leídos de Gmail. Se ve aunque la API falle |
+| **Franja de resultado** | Ícono + título en color, con consejos, prioridad, motivos y la nota (ver la tabla siguiente) |
+| **Estado de la conexión** | Sección plegable (`<details>`) con "Probar conexión" y sus dos líneas |
+| **Barra inferior** | Bandeja · **Analizar** · Redactar. Solo Analizar funciona; las otras dicen "Próximamente" y no hacen nada |
+
+Todavía **no hay botones de acción** (mover a cuarentena, reportar): llegan con la API de Gmail.
+
+### La franja de resultado (pasos 3.3 y 3.4)
 
 Depende de la **categoría** y de la **confianza** que devuelve `/analizar`. "Dudosa" significa
 que el puntaje del modelo quedó cerca de 0, donde se equivoca más (ver
@@ -87,7 +106,7 @@ que el puntaje del modelo quedó cerca de 0, donde se equivoca más (ver
 
 | Categoría | Confianza | Color e ícono | Título | Debajo del título | Prioridad |
 |---|---|---|---|---|---|
-| Phishing | alta | 🔴 rojo · triángulo de alerta | "Posible phishing" | 3 consejos: "No hagas clic en los enlaces." · "No envíes datos ni contraseñas." · "Verifica con el remitente por otro medio." | No se muestra |
+| Phishing | alta | 🔴 rojo · triángulo de alerta | "Posible phishing · riesgo alto" | 3 consejos: "No hagas clic en los enlaces." · "No envíes datos ni contraseñas." · "Verifica con el remitente por otro medio." | No se muestra |
 | Phishing | dudosa | 🟠 naranja · signo de pregunta | "Revisa con cuidado" | "Tiene algunas señales de phishing, pero no es un resultado seguro. Antes de abrir enlaces o responder, confirma con el remitente por otro medio." | No se muestra |
 | Legítimo | alta | 🔵 azul · visto ✓ | "No se detectaron señales de phishing" | — | Etiqueta |
 | Legítimo | dudosa | 🔵 azul · visto ✓ | "No se detectaron señales de phishing, pero revisa con cuidado" | — | Etiqueta |
@@ -97,8 +116,15 @@ que el puntaje del modelo quedó cerca de 0, donde se equivoca más (ver
 En todos los casos:
 - **Prioridad:** etiqueta "Prioridad alta / media / baja". Un phishing no la tiene: va como
   alerta.
-- **Por qué:** hasta **3 motivos**, los primeros en el orden en que los da la API (primero los
-  del modelo, luego los de publicidad y prioridad). Si no hay, la sección no aparece.
+- **Motivos como chips numerados (1, 2, 3):**
+  - **Título:** "Señales de correo normal" en un legítimo; "Motivos" en phishing y publicidad.
+  - **Hasta 3 motivos**, en el orden en que los da la API: primero los del modelo, luego los de
+    publicidad y los de prioridad. Si no hay, la sección no aparece.
+  - **Sin repetidos.** El modelo usa palabras sueltas y pares de palabras, así que pueden llegar
+    "Menciona «estimado»" y "Menciona «estimado cliente»". En ese caso queda **solo la frase**.
+    - Solo cuentan palabras completas: «pago» no se quita por «pagos pendientes».
+    - También se quitan los duplicados exactos.
+    - Los repetidos se quitan **antes** de quedarse con 3, para que los 3 sean distintos.
 - **Nota fija:** "Resultado automático: puede equivocarse."
 - **Nunca dice que un correo "es seguro".** El texto más tranquilo es "No se detectaron señales
   de phishing". Una prueba lo revisa.
@@ -111,14 +137,56 @@ En todos los casos:
   - naranja `#c2410c`: 4,9:1;
   - azul `#1d4ed8`: 6,2:1;
   - gris `#334155`: 9,5:1.
-- **La tarjeta tiene `role="status"` y `aria-live="polite"`:** el lector de pantalla la anuncia
-  al aparecer. El ícono es decorativo (`alt=""`), porque el título ya lo dice.
+- **El resultado tiene `role="status"` y `aria-live="polite"`:** la tarjeta del correo y la
+  franja están en ese contenedor, así que el lector de pantalla las anuncia al aparecer. El ícono
+  es decorativo (`alt=""`), porque el título ya lo dice.
+- **En el resto del panel:**
+  - los íconos son decorativos (`aria-hidden`);
+  - el botón de ajustes, que solo tiene ícono, se llama "Ajustes" (`aria-label`);
+  - en la barra inferior, Analizar tiene `aria-current="page"` y Bandeja y Redactar tienen
+    `aria-disabled="true"`. Su "Próximamente" sale en una región `aria-live`.
+- **Más contrastes,** todos ≥ 7:1:
+  - rótulos, remitente y pestañas inactivas, gris `#475569` sobre blanco o sobre el fondo
+    `#f6f6f4`;
+  - la pestaña activa, azul sobre `#eff6ff`: 6,2:1.
+- El borde claro del botón redondo es decorativo: lo que identifica al botón es el engranaje
+  oscuro (16:1).
 
 **Seguridad:**
 - Los motivos pueden traer palabras del correo, así que se escriben **solo con `textContent`**,
   cada uno en un `<li>` creado con `createElement`. Nunca se usa `innerHTML`.
-- Los íconos son SVG locales (`extension/iconos/`), sin scripts ni enlaces. La ruta de cada uno
-  sale de una tabla fija en `lib/tarjeta.js`, nunca de la API.
+- El asunto y el remitente de "CORREO ABIERTO" también se escriben con `textContent`.
+- Los chips son una `<ol>`: el número lo pone el CSS (`counter`), así que el texto del motivo va
+  solo.
+- **Íconos:**
+  - los de la franja son SVG locales (`extension/iconos/`), sin scripts ni enlaces. La ruta de
+    cada uno sale de una tabla fija en `lib/tarjeta.js`, nunca de la API;
+  - los del encabezado y la barra son SVG en línea en `panel.html`, también sin scripts ni
+    enlaces. Una prueba lo revisa.
+
+### Ícono de la extensión
+
+`extension/iconos/sicae-16.png`, `-32`, `-48` y `-128` son el mismo escudo del encabezado:
+cuadro oscuro, escudo blanco y un visto. Chrome necesita PNG para los íconos del manifest, porque
+no acepta SVG. Por eso se generan con un script de Node **sin paquetes**: dibuja con 4×4 muestras
+por píxel para suavizar los bordes y escribe el PNG con `node:zlib`.
+
+El script está en **`herramientas/iconos.js`, en la raíz del repo y fuera de `extension/`**: la
+extensión no lo usa, y así no se empaqueta con ella. Si se cambia el dibujo, desde la raíz del
+proyecto:
+
+```bash
+node herramientas/iconos.js
+```
+
+Deja los 4 PNG en `extension/iconos/`. `extension/tests/iconos.test.js` comprueba:
+- que los PNG guardados tengan **los mismos píxeles** que genera el script;
+- el tamaño de cada uno;
+- que el manifest los use.
+
+Una prueba de `seguridad.test.js` revisa dos cosas:
+- que no exista `extension/herramientas/`;
+- que ningún archivo de la extensión mencione el script.
 
 El rojo y el gris se suman a la paleta de la demo solo para la tarjeta. El azul sigue siendo
 acción y el naranja, alerta.
@@ -277,7 +345,15 @@ node --test "extension/tests/*.test.js"
     prioridad;
   - la etiqueta de prioridad;
   - los motivos: máximo 3, inválidos ignorados, HTML como texto;
-  - que ningún texto diga "es seguro".
+  - que ningún texto diga "es seguro";
+  - el título de los motivos por categoría y los repetidos (palabra dentro de una frase,
+    duplicados exactos, el límite de 3 después de quitarlos);
+  - los datos de "CORREO ABIERTO", también sin asunto.
+- **`tests/iconos.test.js`:** prueba los íconos de la extensión:
+  - el CRC32 propio;
+  - que cada PNG tenga firma, tamaño y tipo RGBA correctos;
+  - que sus píxeles sean los que genera `herramientas/iconos.js` (en la raíz del repo);
+  - que el manifest los use.
 - **`tests/gmail.test.js`:** el content script con **HTML inventado** que imita a Gmail, nunca
   correos reales:
   - correo completo y hilo con varios mensajes;
