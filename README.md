@@ -89,7 +89,8 @@ sicae-ia/
 │   └── tests/                Pruebas con node --test (sin paquetes)
 │
 ├── herramientas/             Scripts que se corren a mano (no se empaquetan con la extensión)
-│   └── iconos.js             Genera los íconos PNG de la extensión sin paquetes
+│   ├── iconos.js             Genera los íconos PNG de la extensión sin paquetes
+│   └── id-extension.js       Muestra el ID fijo de la extensión (campo "key" del manifest)
 │
 ├── docs/
 │   ├── arquitectura.md       Documentación de arquitectura y decisiones
