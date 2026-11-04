@@ -563,17 +563,23 @@ los dos lugares.
 | `https://www.googleapis.com/auth/gmail.readonly` (paso 4.4) | **Leer** tus correos para la pestaña Bandeja. Es el alcance **mínimo** para leer: **no permite** modificar, mover, borrar ni enviar correos. Una prueba revisa que no haya alcances más amplios (`gmail.modify`, `gmail.send`, `mail.google.com/`…) |
 
 **Por qué `gmail.readonly` y no un alcance más reducido:**
-- En la [lista oficial de alcances de Google](https://developers.google.com/workspace/gmail/api/auth/scopes)
-  **no existe `gmail.messages.readonly`**.
-- El único alcance de lectura más reducido es `gmail.metadata`, que solo da etiquetas y
-  cabeceras, **sin el cuerpo**. Con él:
+- **`gmail.messages.readonly`** aparece en la consola de Google Cloud, al agregar permisos a la
+  pantalla de consentimiento, con la descripción "Leer tus correos electrónicos". Pero **no
+  está** en la [lista oficial de alcances de la Gmail API](https://developers.google.com/workspace/gmail/api/auth/scopes)
+  (consultada el 4 nov. 2026).
+  - Por eso no está documentado qué permite: si da el cuerpo del correo ni si acepta la búsqueda
+    `q`.
+  - No lo usamos: nos quedamos con `gmail.readonly`, que sí está documentado.
+  - Si Google lo documenta más adelante, se puede revisar.
+- **`gmail.metadata`**, el otro alcance de lectura reducido (este sí documentado), solo da
+  etiquetas y cabeceras, **sin el cuerpo**. Con él:
   - `messages.get` no acepta los
     [formatos `FULL` ni `RAW`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format);
   - `messages.list` no acepta la
     [búsqueda `q`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list).
-- Sin el cuerpo, el modelo no puede clasificar el correo ni contar sus enlaces y adjuntos.
-- Además, `gmail.metadata` también es "restringido", así que tampoco evita la verificación de
-  Google.
+
+  Sin el cuerpo, el modelo no puede clasificar el correo ni contar sus enlaces y adjuntos.
+  Además, también es "restringido", así que tampoco evita la verificación de Google.
 
 El `client_id` no es secreto: en una extensión es público por diseño, y Google solo lo acepta para
 el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
