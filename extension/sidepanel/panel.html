@@ -110,11 +110,20 @@
           <div>
             <label for="permiso-identidad">Identificarte con tu correo de Google</label>
             <span class="etiqueta-obligatorio">Obligatorio</span>
-            <p class="suave">Para saber quién usa la extensión. Este permiso no lee tus correos.</p>
+            <p class="suave">Para saber quién usa la extensión.</p>
+          </div>
+        </li>
+        <!-- Paso 4.4 (consentimiento versión 2): leer la bandeja con la API de Gmail. -->
+        <li class="permiso">
+          <input type="checkbox" id="permiso-leer-correos" checked disabled>
+          <div>
+            <label for="permiso-leer-correos">Leer tus correos para clasificarlos</label>
+            <span class="etiqueta-obligatorio">Obligatorio</span>
+            <p class="suave">No guardamos su contenido. Solo lectura: no puede mover, borrar ni enviar correos.</p>
           </div>
         </li>
       </ul>
-      <p class="suave nota-pequena">Leer correos, organizar, borradores y recordatorios se pedirán aparte cuando existan.</p>
+      <p class="suave nota-pequena">Organizar, borradores y recordatorios se pedirán aparte cuando existan.</p>
       <div class="nunca-haremos">
         <p class="nunca-titulo">Nunca haremos</p>
         <p>Borrar correos de forma permanente, enviar sin tu aprobación, ni vender o compartir tus datos.</p>
@@ -129,6 +138,8 @@
     <!-- Pantalla 3: la vista principal (análisis). Solo con sesión y consentimiento. -->
     <div class="pantalla principal" id="pantalla-principal" hidden>
 
+    <!-- Vista "Analizar": el correo abierto en la pestaña de Gmail (pasos 3.2 a 3.4). -->
+    <div class="vista" id="vista-analizar">
     <button type="button" class="boton boton-principal" id="analizar">Analizar este correo</button>
 
     <div class="estado" id="analisis" role="status" aria-live="polite" hidden>
@@ -169,6 +180,72 @@
         <p class="tarjeta-nota" id="tarjeta-nota"></p>
       </section>
     </div>
+    </div><!-- fin de #vista-analizar -->
+
+    <!-- Vista "Bandeja" (paso 4.4, demo página 4): SOLO LECTURA. Lee los últimos 50 correos de
+         Recibidos con la API de Gmail y los clasifica en un lote. Nada se guarda. -->
+    <section class="vista vista-bandeja" id="vista-bandeja" aria-labelledby="titulo-bandeja" hidden>
+      <div class="bandeja-encabezado">
+        <h2 class="titulo-grande" id="titulo-bandeja" tabindex="-1">Tu bandeja hoy</h2>
+        <span class="etiqueta-punteada">Últimos 50 correos</span>
+      </div>
+
+      <div class="fila-actualizar">
+        <button type="button" class="boton boton-principal" id="actualizar-bandeja">Actualizar</button>
+        <p class="suave" id="bandeja-ultimo">Todavía no se analizó.</p>
+      </div>
+      <p class="estado" id="bandeja-progreso" role="status" aria-live="polite" hidden></p>
+      <div class="estado" id="bandeja-error" role="alert" data-tipo="error" hidden>
+        <span id="bandeja-error-texto"></span>
+      </div>
+      <button type="button" class="boton boton-secundario" id="dar-permiso-gmail" hidden>Dar permiso</button>
+
+      <div class="vacio" id="bandeja-vacia">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#64748b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
+          <path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>
+        </svg>
+        <p>Pulsa Actualizar para analizar tu bandeja.</p>
+      </div>
+
+      <div class="bandeja-resumen" id="bandeja-resumen" hidden>
+        <ul class="conteos" aria-label="Correos por prioridad">
+          <li class="conteo conteo-alta"><span class="conteo-numero" id="conteo-alta">0</span><span>Alta</span></li>
+          <li class="conteo"><span class="conteo-numero" id="conteo-media">0</span><span>Media</span></li>
+          <li class="conteo"><span class="conteo-numero" id="conteo-baja">0</span><span>Baja</span></li>
+        </ul>
+
+        <div class="aviso-phishing" id="aviso-phishing" hidden>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3 19 5.5V11q0 6-7 9.5Q5 17 5 11V5.5z"/>
+            <path d="M12 8v4M12 15.5h.01"/>
+          </svg>
+          <p id="aviso-phishing-texto"></p>
+          <button type="button" class="boton-texto" id="ver-motivos" aria-expanded="false" aria-controls="lista-phishing">Ver motivos</button>
+        </div>
+        <ul class="caja lista-correos" id="lista-phishing" aria-label="Correos con posible phishing" hidden></ul>
+
+        <section class="caja" aria-labelledby="titulo-alta">
+          <h3 class="rotulo" id="titulo-alta">Prioridad alta</h3>
+          <ul class="lista-correos" id="lista-alta"></ul>
+          <p class="suave" id="alta-vacia" hidden>No hay correos de prioridad alta.</p>
+        </section>
+
+        <section class="caja publicidad" aria-labelledby="titulo-publicidad">
+          <div class="publicidad-cabeza">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M16 3 9 14M5 21l1.5-7h7L15 21z"/>
+            </svg>
+            <h3 id="titulo-publicidad">Sobrecarga de publicidad</h3>
+          </div>
+          <p id="publicidad-texto"></p>
+          <button type="button" class="boton boton-secundario" id="liberar-espacio" aria-disabled="true" aria-describedby="liberar-nota">Revisar y liberar espacio</button>
+          <p class="suave nota-pequena" id="liberar-nota">Próximamente (4.5).</p>
+        </section>
+
+        <p class="suave nota-pequena" id="bandeja-sin-clasificar" hidden></p>
+      </div>
+    </section>
 
     <details class="caja conexion">
       <summary>Estado de la conexión</summary>
@@ -189,7 +266,7 @@
   <nav class="barra-inferior" id="barra-inferior" aria-label="Secciones" hidden>
     <p class="proximamente" id="proximamente" role="status" aria-live="polite"></p>
     <div class="barra-botones">
-      <button type="button" class="pestana" id="nav-bandeja" aria-disabled="true">
+      <button type="button" class="pestana" id="nav-bandeja">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
           <path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>

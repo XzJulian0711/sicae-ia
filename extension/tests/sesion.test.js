@@ -67,6 +67,14 @@ function fetchFalso({ ok = true, lanza = false } = {}) {
 
 const noContieneToken = (valor) => assert.ok(!JSON.stringify(valor).includes(TOKEN), "devolvió el token");
 
+describe("versión del consentimiento (paso 4.4: ahora se leen los correos)", () => {
+  test("la versión es la 2: quien aceptó la 1 vuelve a ver Revisa los permisos", () => {
+    assert.equal(VERSION_CONSENTIMIENTO, "2");
+    assert.equal(consentimientoValido({ ...crearConsentimiento(), version: "1" }), false);
+    assert.equal(consentimientoValido(crearConsentimiento()), true);
+  });
+});
+
 describe("consentimiento", () => {
   test("se guarda solo {aceptado, version, fecha}", () => {
     const c = crearConsentimiento(new Date("2026-11-05T10:00:00Z"));
@@ -93,7 +101,7 @@ describe("queHacerAnte403 (paso 4.3: /analizar sin consentimiento en la API)", (
     const bueno = crearConsentimiento();
     for (const local of [
       { ...bueno, version: "0" },
-      { ...bueno, version: "2" },
+      { ...bueno, version: "1" }, // la del paso 4.2: el texto cambió en el 4.4
       { ...bueno, version: 1 },
       null,
       undefined,

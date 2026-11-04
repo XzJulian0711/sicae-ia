@@ -1,6 +1,6 @@
 # Extensión de Chrome de SICAE-IA
 
-Pasos 3.1 a 4.3. La extensión tiene:
+Pasos 3.1 a 4.4. La extensión tiene:
 - un **panel lateral**, con el diseño del demo, que **analiza el correo abierto en Gmail**,
   muestra el resultado y prueba la conexión con la API;
 - una página de **Opciones** para la URL de la API y la sesión.
@@ -106,12 +106,19 @@ Abrir el panel ─┬─ con sesión y consentimiento ─→ vista principal (an
 - **Bienvenida:** título, 3 beneficios que ya funcionan y **solo** "Continuar con Google". No
   hay Microsoft ni otros proveedores. Lleva la nota "Nunca te pedimos la contraseña de tu
   correo".
-- **Permisos:** muestra **solo lo que se pide hoy**, identificarte con tu correo de Google.
-  - Leer correos, papelera, borradores y recordatorios se pedirán aparte cuando existan.
-  - Incluye "Nunca haremos…" y el texto de la **Ley 1581 de 2012**.
-- **Qué se guarda al aceptar:** solo `{aceptado: true, version: "1", fecha}`, en
-  `chrome.storage.local` (`lib/sesion.js` → `crearConsentimiento`). Si cambia el texto de los
-  permisos, se sube la versión y se vuelve a pedir.
+- **Permisos:** muestra **solo lo que se pide hoy**:
+  - identificarte con tu correo de Google;
+  - desde el paso 4.4, **"Leer tus correos para clasificarlos. No guardamos su contenido."**,
+    que es solo lectura.
+
+  Organizar, borradores y recordatorios se pedirán aparte cuando existan. Incluye "Nunca
+  haremos…" y el texto de la **Ley 1581 de 2012**.
+- **Qué se guarda al aceptar:** solo `{aceptado: true, version: "2", fecha}`, en
+  `chrome.storage.local` (`lib/sesion.js` → `crearConsentimiento`).
+  - Si cambia el texto de los permisos, se sube la versión y se vuelve a pedir.
+  - En el **paso 4.4 pasó de la versión "1" a la "2"**, porque se agregó la lectura de correos.
+    Quien aceptó la 1 vuelve a ver "Revisa los permisos", y al aceptar, Google pide el permiso
+    nuevo de Gmail.
 - **El token nunca:**
   - se guarda en `storage`;
   - se muestra en pantalla ni se escribe en la consola;
@@ -240,6 +247,80 @@ revisan, y también revisan los bytes del archivo `.db`.
 - los análisis no se borran, porque nunca estuvieron ligados a ti;
 - si vuelves a entrar, eres un usuario nuevo y se te piden otra vez los permisos.
 
+## Bandeja: "Tu bandeja hoy" (paso 4.4, SOLO LECTURA)
+
+Sigue el demo (página 4) con SICAE-IA. Se abre con **Bandeja** en la barra inferior.
+
+1. **Actualizar** lee los **últimos 50 correos de Recibidos** con la **API de Gmail**:
+   - `users.messages.list` y luego `messages.get` de cada uno, como máximo 5 a la vez por la
+     cuota de Gmail;
+   - el progreso se ve como "Leyendo correos 12 de 50…".
+2. Los clasifica todos en **un solo** `POST /analizar/lote`, mientras dice "Clasificando…".
+3. Muestra:
+
+| Parte | Qué muestra |
+|---|---|
+| **3 tarjetas** | Cuántos correos hay de prioridad **Alta** (en azul), **Media** y **Baja**. El phishing no cuenta: no tiene prioridad |
+| **Aviso naranja** | Solo si hay phishing: "N correos con posible phishing." + **Ver motivos**, que despliega esos correos. Al pulsar uno se abre **su tarjeta** en la pestaña Analizar, con el resultado del lote, sin volver a leer Gmail |
+| **Prioridad alta** | Hasta 10 correos: remitente · hora ("8:14", "ayer" o "5 nov") y asunto. También se pueden abrir |
+| **Sobrecarga de publicidad** | Cuántos correos de publicidad hay y cuánto ocupan. Más abajo se explica cómo se cuenta |
+| **Revisar y liberar espacio** | Deshabilitado: "Próximamente (4.5)" |
+| **Último análisis** | La hora del último "Actualizar" |
+
+**Cómo se cuenta la publicidad:**
+- **cantidad** = los correos de la categoría **Promociones** de toda la cuenta (`labels.get` da el
+  total exacto y cuesta 1 unidad de cuota), **más** los que el modelo detectó como publicidad
+  entre los 50 y no están ya en Promociones;
+- **tamaño** = la suma de `sizeEstimate` de hasta **100** correos de Promociones, más los
+  detectados. Si Promociones tiene más de 100, el texto dice "**al menos** X MB".
+
+**Qué se lee:**
+- solo **Recibidos**, los últimos 50;
+- el asunto, el remitente, Para y CC, el cuerpo en texto (el HTML se convierte a texto), los
+  enlaces (`href` y `src`) y la cantidad de adjuntos;
+- y **ahora sí las cabeceras** `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id`,
+  `Precedence` e `In-Reply-To`.
+
+**Qué no se lee:**
+- el contenido de los adjuntos;
+- otras carpetas;
+- más de 50 correos;
+- otras cabeceras.
+
+**Qué no se guarda:** nada de lo leído.
+- Los correos y los resultados viven solo en la memoria del panel mientras está abierto: ni
+  `chrome.storage` ni la consola.
+- La API **no guarda texto**: del lote queda la misma fila de registro de siempre por correo
+  (categoría, puntaje, confianza, prioridad y versión).
+- Ni el token de Gmail ni nada de lo leído va a la URL: el token va solo en `Authorization`.
+
+**Ahora sí se ven las cabeceras.** Desde la API de Gmail llegan las cabeceras que la página no
+muestra. Por eso, **en Bandeja**:
+- la publicidad se reconoce también por las señales fuertes (`List-Unsubscribe`, `List-Id`,
+  `Precedence: bulk`);
+- la regla de prioridad "es una respuesta" (`In-Reply-To`) sí funciona.
+
+En **Analizar**, que lee la página, sigue la limitación de siempre.
+
+**Errores:**
+
+| Caso | Mensaje |
+|---|---|
+| Sin el permiso de Gmail (no se aceptó el alcance) | "Falta el permiso para leer tus correos…" + botón **Dar permiso**, que abre la ventana de Google |
+| Token de Google vencido | Se renueva solo una vez; si sigue: "Tu sesión de Google venció…" |
+| La Gmail API no está habilitada en Google Cloud | "La API de Gmail no está habilitada…" |
+| Cuota de Gmail (429) | "Gmail limitó las consultas: espera un minuto…" |
+| Sin internet | "Sin conexión a internet…" |
+| API apagada | "Sin conexión con la API…": los correos se leen, pero no se clasifican |
+| 401, 403 o 503 de la API | Los de siempre: la sesión se renueva una vez y, sin consentimiento válido, vuelve "Revisa los permisos" |
+
+**La pestaña de Gmail de otra cuenta** (la limitación del paso 4.2, ahora resuelta):
+- **Bandeja** usa el token de la sesión, así que siempre lee la cuenta de la sesión.
+- **Analizar** compara la cuenta de la pestaña con la de la sesión, sin permisos nuevos:
+  - Gmail pone la cuenta en el **título** de la pestaña ("Recibidos - x@gmail.com - Gmail");
+  - si no coinciden: "Esta pestaña de Gmail es de otra cuenta…" y no se analiza;
+  - si el título no trae la cuenta, se analiza igual.
+
 ## Analizar un correo de Gmail
 
 1. Abre Gmail en Chrome con una **cuenta de prueba**. Si la pestaña ya estaba abierta antes de
@@ -262,7 +343,7 @@ arriba hacia abajo:
 | **CORREO ABIERTO** | Asunto (o "(Sin asunto)") y remitente leídos de Gmail. Se ve aunque la API falle |
 | **Franja de resultado** | Ícono + título en color, con consejos, prioridad, motivos y la nota (ver la tabla siguiente) |
 | **Estado de la conexión** | Sección plegable (`<details>`) con "Probar conexión" y sus dos líneas |
-| **Barra inferior** | Bandeja · **Analizar** · Redactar. Solo Analizar funciona; las otras dicen "Próximamente" y no hacen nada |
+| **Barra inferior** | **Bandeja** (paso 4.4, ver "Bandeja") · **Analizar** · Redactar. Redactar todavía dice "Próximamente" y no hace nada |
 
 Todavía **no hay botones de acción** (mover a cuarentena, reportar): llegan con la API de Gmail.
 
@@ -472,11 +553,42 @@ los dos lugares.
 | `http://127.0.0.1:8000/*` | Llamar a la API que corre en tu equipo |
 | `https://oauth2.googleapis.com/*` (paso 4.2) | **Solo** para revocar el token al cerrar sesión (`POST /revoke`) y **leer la respuesta**, para confirmar que Google lo revocó. Sin este permiso la petición se podría enviar, pero no se sabría si funcionó. No da acceso a la cuenta ni al correo |
 | `https://openidconnect.googleapis.com/*` (paso 4.2) | **Solo** para leer el correo de la sesión que se muestra en el encabezado: `GET /v1/userinfo`, con el token en la cabecera `Authorization`. Usa el alcance `userinfo.email`, que el usuario ya aceptó en "Revisa los permisos". El correo no se guarda |
+| `https://gmail.googleapis.com/*` (paso 4.4) | **Solo** para leer la bandeja con la API de Gmail (pestaña Bandeja): **solo peticiones `GET`**, con el token en la cabecera `Authorization`. Sin este permiso no se podrían leer las respuestas de Gmail |
 
-**Alcances (scopes) de `oauth2`:** solo `openid` y `https://www.googleapis.com/auth/userinfo.email`,
-para saber quién eres por tu correo. **No hay ningún alcance de Gmail**, así que este inicio de
-sesión no da acceso a tus correos. El `client_id` no es secreto: en una extensión es público por
-diseño, y Google solo lo acepta para el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
+**Alcances (scopes) de `oauth2`:**
+
+| Alcance | Para qué |
+|---|---|
+| `openid` y `https://www.googleapis.com/auth/userinfo.email` | Saber quién eres por tu correo (pasos 4.2 y 4.3) |
+| `https://www.googleapis.com/auth/gmail.readonly` (paso 4.4) | **Leer** tus correos para la pestaña Bandeja. Es el alcance **mínimo** para leer: **no permite** modificar, mover, borrar ni enviar correos. Una prueba revisa que no haya alcances más amplios (`gmail.modify`, `gmail.send`, `mail.google.com/`…) |
+
+**Por qué `gmail.readonly` y no un alcance más reducido:**
+- En la [lista oficial de alcances de Google](https://developers.google.com/workspace/gmail/api/auth/scopes)
+  **no existe `gmail.messages.readonly`**.
+- El único alcance de lectura más reducido es `gmail.metadata`, que solo da etiquetas y
+  cabeceras, **sin el cuerpo**. Con él:
+  - `messages.get` no acepta los
+    [formatos `FULL` ni `RAW`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format);
+  - `messages.list` no acepta la
+    [búsqueda `q`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list).
+- Sin el cuerpo, el modelo no puede clasificar el correo ni contar sus enlaces y adjuntos.
+- Además, `gmail.metadata` también es "restringido", así que tampoco evita la verificación de
+  Google.
+
+El `client_id` no es secreto: en una extensión es público por diseño, y Google solo lo acepta para
+el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
+
+**`gmail.readonly` es un alcance "restringido" para Google:**
+- con la pantalla de consentimiento en **modo de prueba** funciona para los **usuarios de prueba**
+  del proyecto;
+- publicar la extensión para cualquiera exigiría la verificación de Google y una evaluación de
+  seguridad.
+
+**Pasos en Google Cloud** (los hace el equipo, una vez):
+1. **APIs y servicios → Biblioteca → Gmail API → Habilitar.** Si no, Gmail responde 403 y el panel
+   dice "La API de Gmail no está habilitada…".
+2. **Pantalla de consentimiento de OAuth → Permisos (scopes) →** agregar `.../auth/gmail.readonly`.
+3. Probar **solo** con la cuenta de Gmail del proyecto (CLAUDE.md).
 
 **Por qué userinfo y no `chrome.identity.getProfileUserInfo`:**
 - `getProfileUserInfo` necesita otro permiso, `identity.email`, que al instalar avisa "Conocer
@@ -592,6 +704,21 @@ node --test "extension/tests/*.test.js"
     - se devuelve solo el correo;
     - con 401 reintenta una sola vez;
     - con datos inválidos, error o sin red da `{ok: false}`.
+- **`tests/gmail.api.test.js`** (paso 4.4): la lectura con la **API de Gmail simulada**, con
+  mensajes inventados en el formato JSON de Gmail:
+  - cómo se lee cada mensaje: texto plano, `multipart`, solo HTML, adjuntos, Para + CC, las
+    cabeceras y su recorte, base64url con tildes y emoji, y `charset`;
+  - que el cliente solo haga GET, con el token en `Authorization` y nunca en la URL;
+  - que con 401 se renueve una sola vez;
+  - los errores: 403 de alcance, Gmail API apagada, 429, sin red;
+  - que lea como máximo 5 a la vez, con progreso;
+  - Promociones: con tope, sin la categoría y con error.
+- **`tests/bandeja.test.js`** (paso 4.4):
+  - los conteos y las listas de phishing y de prioridad alta;
+  - los formatos de hora y de tamaño;
+  - el texto del aviso;
+  - la publicidad, con "al menos" y sin contar dos veces un correo;
+  - la cuenta del título de la pestaña de Gmail.
 - **`tests/iconos.test.js`:** prueba los íconos de la extensión:
   - el CRC32 propio;
   - que cada PNG tenga firma, tamaño y tipo RGBA correctos;
@@ -635,10 +762,15 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
 - **La API necesita internet para abrir sesión:** verifica cada inicio de sesión con Google. Si
   Google no responde, `/auth/google` da 503. Las sesiones ya abiertas siguen sirviendo hasta que
   vencen.
-- **La pestaña de Gmail puede ser de otra cuenta.** Gmail permite varias cuentas a la vez
-  (`/mail/u/0/`, `/mail/u/1/`…). El panel analiza el correo abierto en la pestaña activa aunque
-  sea de una cuenta distinta a la de la sesión que muestra el encabezado. Por ahora no se
-  comprueba; se resuelve en el **paso 4.4**.
+- **Bandeja lee solo los últimos 50 de Recibidos.** El tamaño de la publicidad se mide en hasta
+  100 correos de Promociones; si hay más, dice "al menos".
+- **"Actualizar" vuelve a registrar los mismos correos** en `/estadisticas`: las estadísticas
+  cuentan análisis, no correos únicos. No se deduplica, porque haría falta guardar un
+  identificador o un hash del correo.
+- **Charset:** el cuerpo se decodifica con el `charset` de cada parte si el navegador lo conoce;
+  si no, como UTF-8, y algún carácter podría verse mal.
+- **La cuenta de la pestaña sale del título de Gmail.** Si Gmail cambia ese formato, Analizar no
+  podrá comprobarla y analizará igual.
 - **Todavía no hay política de privacidad publicada:** la pantalla de permisos cita la Ley 1581,
   pero no enlaza a una política.
 - **La sesión de la API está en la memoria de Chrome** (`chrome.storage.session`) mientras el

@@ -10,6 +10,12 @@ import { describe, test } from "node:test";
 import {
   MAX_ASUNTO,
   MAX_BYTES,
+  MAX_BYTES_LOTE,
+  MAX_BYTES_POR_CORREO_LOTE,
+  MAX_LOTE,
+  CABECERAS_PERMITIDAS,
+  interpretarLote,
+  urlAnalizarLote,
   MAX_CUERPO,
   MAX_DESTINATARIOS,
   armarPeticion,
@@ -49,6 +55,8 @@ describe("coincide con la API (sin tocarla: solo se leen sus archivos)", () => {
     assert.equal(MAX_CUERPO, valor("max_cuerpo"));
     assert.equal(MAX_DESTINATARIOS, valor("max_destinatarios"));
     assert.equal(MAX_BYTES, valor("max_bytes"));
+    assert.equal(MAX_LOTE, valor("max_lote"));
+    assert.equal(MAX_BYTES_LOTE, valor("max_bytes_lote"));
   });
 });
 
@@ -211,6 +219,49 @@ describe("armarPeticion: límite de bytes de la petición (MAX_BYTES)", () => {
     const r = armarPeticion(PESADO);
     assert.equal(r.recortado, false);
     assert.equal(r.peticion.cuerpo, CORREO.cuerpo);
+  });
+});
+
+describe("lote (paso 4.4)", () => {
+  test("cabeceras: solo las permitidas, como texto y recortadas; desde la página llegan vacías", () => {
+    const r = armarPeticion({
+      ...CORREO,
+      cabeceras: { "List-Unsubscribe": " <mailto:baja@example.net> ", "In-Reply-To": "<a@b>", "X-Otra": "no", Precedence: 5,
+                   "List-Id": "x".repeat(3000) },
+    });
+    assert.deepEqual(Object.keys(r.peticion.cabeceras).sort(), ["In-Reply-To", "List-Id", "List-Unsubscribe"]);
+    assert.equal(r.peticion.cabeceras["List-Unsubscribe"], "<mailto:baja@example.net>");
+    assert.equal(r.peticion.cabeceras["List-Id"].length, 2000);
+    assert.deepEqual(armarPeticion(CORREO).peticion.cabeceras, {});
+    assert.deepEqual(CABECERAS_PERMITIDAS, ["List-Unsubscribe", "List-Unsubscribe-Post", "List-Id", "Precedence", "In-Reply-To"]);
+  });
+
+  test("en un lote cada correo se recorta a su parte: 50 correos caben en MAX_BYTES_LOTE", () => {
+    const largo = { ...CORREO, cuerpo: "palabra ".repeat(6_000) }; // 48.000 caracteres: cabe en /analizar, no en su parte del lote
+    const r = armarPeticion(largo, { maxBytes: MAX_BYTES_POR_CORREO_LOTE });
+    assert.equal(r.recortado, true);
+    assert.ok(bytesJson(r.peticion) <= MAX_BYTES_POR_CORREO_LOTE);
+    const lote = { correos: Array(MAX_LOTE).fill(r.peticion) };
+    assert.ok(bytesJson(lote) <= MAX_BYTES_LOTE, `${bytesJson(lote)} bytes`);
+    // Sin tope de lote, el mismo correo cabe entero en /analizar.
+    assert.equal(armarPeticion(largo).recortado, false);
+  });
+
+  test("interpretarLote: un resultado validado por correo, null si ese falló o es raro", () => {
+    const bueno = { categoria: "legitimo", confianza: "alta", prioridad: "media", motivos: [], puntaje: -1, version: "v1.0" };
+    const r = interpretarLote(200, { resultados: [bueno, { error: "No se pudo analizar este correo." }, { categoria: "<x>" }] }, 3);
+    assert.equal(r.tipo, "lote");
+    assert.equal(r.resultados[0].categoria, "legitimo");
+    assert.equal(r.resultados[1], null);
+    assert.equal(r.resultados[2], null);
+  });
+
+  test("interpretarLote: largo distinto o cuerpo raro → inesperada; errores HTTP con su mensaje", () => {
+    assert.match(interpretarLote(200, { resultados: [] }, 2).mensaje, /inesperada/);
+    assert.match(interpretarLote(200, null, 1).mensaje, /inesperada/);
+    assert.match(interpretarLote(401, null, 1).mensaje, /vuelve a iniciar sesión/);
+    assert.match(interpretarLote(413, null, 1).mensaje, /demasiado grande/);
+    assert.equal(urlAnalizarLote("http://127.0.0.1:8000/"), "http://127.0.0.1:8000/analizar/lote");
   });
 });
 

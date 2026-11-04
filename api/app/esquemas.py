@@ -72,6 +72,27 @@ def crear_correo_entrada(ajustes):
     return CorreoEntrada
 
 
+def crear_lote_entrada(ajustes, CorreoEntrada):
+    """Modelo de POST /analizar/lote (paso 4.4): de 1 a SICAE_MAX_LOTE correos, cada uno con los
+    mismos límites que /analizar."""
+
+    class LoteEntrada(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        correos: list[CorreoEntrada] = Field(
+            min_length=1, max_length=ajustes.max_lote,
+            description=f"De 1 a {ajustes.max_lote} correos. La respuesta los devuelve en el mismo orden.",
+        )
+
+    return LoteEntrada
+
+
+class ErrorDeCorreo(BaseModel):
+    """En un lote, el lugar de un correo que no se pudo analizar (los demás siguen)."""
+
+    error: str = Field(description="Mensaje genérico, sin contenido del correo.")
+
+
 class Motivo(BaseModel):
     codigo: str = Field(description='Código estable, por ejemplo "palabra:paquete" o "list_unsubscribe".')
     etiqueta: str = Field(description="Frase en español para mostrar al usuario.")
@@ -87,6 +108,12 @@ class Resultado(BaseModel):
     )
     motivos: list[Motivo]
     version: str = Field(description="Versión del modelo que clasificó el correo.")
+
+
+class ResultadoLote(BaseModel):
+    """Respuesta de POST /analizar/lote: un elemento por correo, en el mismo orden."""
+
+    resultados: list[Resultado | ErrorDeCorreo]
 
 
 class Estadisticas(BaseModel):

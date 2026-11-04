@@ -19,6 +19,12 @@ export const LARGO_MAX_DIRECCION = 320;
 // llegar antes que MAX_CUERPO: un carácter de control ocupa 6 bytes en el JSON (\u0001) y uno
 // chino ocupa 3.
 export const MAX_BYTES = 200_000;
+// Lote (paso 4.4, pestaña Bandeja): POST /analizar/lote admite hasta MAX_LOTE correos y
+// MAX_BYTES_LOTE bytes (max_lote y max_bytes_lote de config.py). Cada correo del lote se
+// recorta a su parte, dejando 1 KB para las llaves y comas del JSON.
+export const MAX_LOTE = 50;
+export const MAX_BYTES_LOTE = 2_000_000;
+export const MAX_BYTES_POR_CORREO_LOTE = Math.floor((MAX_BYTES_LOTE - 1_000) / MAX_LOTE);
 
 const ORIGEN_GMAIL = "https://mail.google.com/";
 
@@ -98,16 +104,16 @@ export function bytesJson(valor) {
  * Si la petición pasa MAX_BYTES, recorta el cuerpo al largo más grande que cabe (búsqueda
  * binaria; recortarCuerpo no parte emojis). Devuelve la petición o null si ni vacía cabe.
  */
-function ajustarABytes(peticion) {
-  if (bytesJson(peticion) <= MAX_BYTES) return peticion;
+function ajustarABytes(peticion, maxBytes) {
+  if (bytesJson(peticion) <= maxBytes) return peticion;
   const original = peticion.cuerpo;
   const conLargo = (largo) => ({ ...peticion, cuerpo: recortarCuerpo(original, largo).texto });
-  if (bytesJson(conLargo(0)) > MAX_BYTES) return null;
+  if (bytesJson(conLargo(0)) > maxBytes) return null;
   let cabe = 0; // este largo cabe
   let noCabe = original.length; // este largo no cabe
   while (noCabe - cabe > 1) {
     const medio = Math.floor((cabe + noCabe) / 2);
-    if (bytesJson(conLargo(medio)) <= MAX_BYTES) cabe = medio;
+    if (bytesJson(conLargo(medio)) <= maxBytes) cabe = medio;
     else noCabe = medio;
   }
   return conLargo(cabe);
@@ -117,11 +123,28 @@ function esDireccion(valor) {
   return typeof valor === "string" && valor.length <= LARGO_MAX_DIRECCION && /^[^\s@]+@[^\s@]+$/.test(valor);
 }
 
+// Cabeceras que se envían a la API cuando el correo viene de la API de Gmail (paso 4.4). Desde
+// la página no se ven, así que en Analizar van vacías. Límites de api/app/config.py.
+export const CABECERAS_PERMITIDAS = ["List-Unsubscribe", "List-Unsubscribe-Post", "List-Id", "Precedence", "In-Reply-To"];
+export const MAX_VALOR_CABECERA = 2_000;
+
+/** Solo las cabeceras permitidas, como texto y recortadas. */
+function limpiarCabeceras(cabeceras) {
+  const limpias = {};
+  if (!cabeceras || typeof cabeceras !== "object") return limpias;
+  for (const nombre of CABECERAS_PERMITIDAS) {
+    const valor = cabeceras[nombre];
+    if (typeof valor === "string" && valor.trim()) limpias[nombre] = valor.trim().slice(0, MAX_VALOR_CABECERA);
+  }
+  return limpias;
+}
+
 /**
  * Datos leídos de Gmail → {ok: true, peticion, recortado} o {ok: false, resultado}.
  * `peticion` tiene exactamente los campos de CorreoEntrada (la API rechaza campos de más).
+ * maxBytes: tope de la petición (por defecto MAX_BYTES; en un lote, la parte de cada correo).
  */
-export function armarPeticion(correo) {
+export function armarPeticion(correo, { maxBytes = MAX_BYTES } = {}) {
   if (!correo || typeof correo !== "object") {
     return { ok: false, resultado: { tipo: "error", mensaje: "No se pudo leer el correo." } };
   }
@@ -149,13 +172,13 @@ export function armarPeticion(correo) {
     cuerpo: cuerpo.texto,
     remitente,
     destinatarios: destinatarios.slice(0, MAX_DESTINATARIOS),
-    cabeceras: {}, // desde la página de Gmail no se ven las cabeceras
+    cabeceras: limpiarCabeceras(correo.cabeceras), // desde la página de Gmail llegan vacías
     n_urls: contarEnlaces(correo.enlaces),
     n_adjuntos: nAdjuntos,
   };
 
   // Segundo límite: los bytes de la petición completa (el primero fue MAX_CUERPO caracteres).
-  const peticion = ajustarABytes(armada);
+  const peticion = ajustarABytes(armada, maxBytes);
   if (peticion === null) {
     return { ok: false, resultado: { tipo: "error", mensaje: "El correo es demasiado grande para la API." } };
   }
@@ -200,6 +223,30 @@ export function interpretarAnalisis(estadoHttp, cuerpo) {
   if (prioridad !== null && !PRIORIDADES.includes(prioridad)) return INESPERADA;
 
   return { tipo: "resultado", categoria, confianza, prioridad, motivos: Array.isArray(motivos) ? motivos : [] };
+}
+
+/** URL completa de POST /analizar/lote (paso 4.4). */
+export function urlAnalizarLote(base) {
+  return `${base.replace(/\/+$/, "")}/analizar/lote`;
+}
+
+/**
+ * Respuesta de /analizar/lote → {tipo: "lote", resultados} o {tipo: "error", mensaje}.
+ * `resultados` tiene un elemento por correo enviado (`cantidad`), en el mismo orden: el
+ * resultado validado por interpretarAnalisis(), o null si ese correo no se pudo analizar o
+ * llegó algo inesperado.
+ */
+export function interpretarLote(estadoHttp, cuerpo, cantidad) {
+  if (estadoHttp !== 200) return interpretarAnalisis(estadoHttp, null);
+  const lista = cuerpo?.resultados;
+  if (!Array.isArray(lista) || lista.length !== cantidad) return INESPERADA;
+  return {
+    tipo: "lote",
+    resultados: lista.map((r) => {
+      const validado = interpretarAnalisis(200, r);
+      return validado.tipo === "resultado" ? validado : null;
+    }),
+  };
 }
 
 /** Resultado para fallos de red o tiempo agotado (sin detalles técnicos). */
