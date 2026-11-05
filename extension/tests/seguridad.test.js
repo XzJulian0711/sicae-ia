@@ -145,11 +145,14 @@ describe("panel (paso 3.4)", () => {
     assert.doesNotMatch(bienvenida, /Microsoft|Outlook|Otro proveedor/i);
     assert.equal((bienvenida.match(/<li>/g) || []).length, 3, "3 beneficios");
     const permisos = /id="pantalla-permisos"[\s\S]*?<\/section>/.exec(panel)[0];
-    // Paso 4.4 (consentimiento v2): identificarte + leer tus correos. Nada más.
-    assert.equal((permisos.match(/class="permiso"/g) || []).length, 2, "solo los permisos que se piden hoy");
+    // Pasos 4.4 y 4.5 (consentimiento v3): identificarte + leer tus correos + papelera/cuarentena.
+    assert.equal((permisos.match(/class="permiso"/g) || []).length, 3, "solo los permisos que se piden hoy");
     assert.match(permisos, /Identificarte con tu correo de Google/);
     assert.match(permisos, /Leer tus correos para clasificarlos/);
     assert.match(permisos, /No guardamos su contenido/);
+    assert.match(permisos, /Mover correos a la papelera o a cuarentena solo cuando lo confirmas\. Se puede deshacer\. Nunca borramos de forma definitiva\./);
+    // Aclaración del paso 4.5 (sin subir la versión del consentimiento).
+    assert.match(permisos, /Google describe este permiso como «leer, redactar y enviar»\. Es el mínimo que existe para mover a la papelera; SICAE-IA nunca envía ni borra correos de forma definitiva\./);
     assert.match(permisos, /Nunca haremos/);
     assert.match(permisos, /Ley 1581 de 2012/);
     assert.match(permisos, /id="ahora-no"[^>]*>Ahora no</);
@@ -175,9 +178,9 @@ describe("panel (paso 3.4)", () => {
     assert.match(panel, /id="vista-bandeja"[^>]*hidden/);
   });
 
-  test("Bandeja: liberar espacio deshabilitado (4.5) y progreso/errores anunciados", () => {
-    assert.match(panel, /id="liberar-espacio"[^>]*aria-disabled="true"/);
-    assert.match(panel, /Próximamente \(4\.5\)/);
+  test("Bandeja: liberar espacio ya funciona (4.5) y progreso/errores anunciados", () => {
+    assert.match(panel, /<button[^>]*id="liberar-espacio"/);
+    assert.doesNotMatch(panel, /id="liberar-espacio"[^>]*aria-disabled/);
     assert.match(panel, /id="bandeja-progreso"[^>]*role="status"[^>]*aria-live="polite"/);
     assert.match(panel, /id="bandeja-error"[^>]*role="alert"/);
     assert.match(panel, /id="ver-motivos"[^>]*aria-expanded="false"[^>]*aria-controls="lista-phishing"/);
@@ -215,15 +218,17 @@ describe("manifest.json", () => {
     ]);
   });
 
-  test("oauth2: client_id de Google y solo openid, email y Gmail de SOLO LECTURA", () => {
+  test("oauth2: openid, email y gmail.modify (sin borrado definitivo); NUNCA mail.google.com/", () => {
     assert.match(manifest.oauth2.client_id, /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/);
     assert.deepEqual(manifest.oauth2.scopes, [
       "openid",
       "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/gmail.readonly", // paso 4.4: no permite modificar, borrar ni enviar
+      // paso 4.5: lectura + papelera/etiquetas. "does not allow immediate, permanent deletion".
+      "https://www.googleapis.com/auth/gmail.modify",
     ]);
     for (const alcance of manifest.oauth2.scopes) {
-      assert.doesNotMatch(alcance, /gmail\.(modify|send|compose|insert|labels|settings)|mail\.google\.com\/$/, alcance);
+      // mail.google.com/ es el único que permite el borrado definitivo: prohibido.
+      assert.doesNotMatch(alcance, /gmail\.(readonly|send|compose|insert|labels|settings)|mail\.google\.com\/?$/, alcance);
     }
     assert.deepEqual(Object.keys(manifest.oauth2).sort(), ["client_id", "scopes"]);
   });
@@ -351,17 +356,38 @@ describe("lectura de Gmail (content script)", () => {
   });
 });
 
-describe("lectura de Gmail (paso 4.4): SOLO LECTURA", () => {
+describe("Gmail (pasos 4.4 y 4.5): leer, papelera y cuarentena; NUNCA borrado definitivo ni envío", () => {
   const gmail = sinComentarios(readFileSync(join(RAIZ, "lib", "gmail.js"), "utf8"), ".js");
 
-  test("lib/gmail.js solo hace GET: nada de modificar, mover, borrar ni enviar", () => {
-    assert.deepEqual([...new Set(gmail.match(/method:\s*"[A-Z]+"/g))], ['method: "GET"']);
-    assert.doesNotMatch(gmail, /\/(modify|trash|untrash|delete|send|batchModify|batchDelete|import|insert|drafts)\b/i);
-    assert.doesNotMatch(gmail, /\b(modify|trash|batchModify|batchDelete)\s*\(/);
+  test("el cliente solo llama con GET o POST, y los POST solo a las 4 rutas permitidas", () => {
+    assert.match(gmail, /get: \(ruta\) => llamar\("GET", ruta\)/);
+    assert.match(gmail, /return llamar\("POST", ruta, cuerpo\)/);
+    assert.match(gmail, /if \(!rutaPostPermitida\(ruta\)\)/);
+    assert.equal((gmail.match(/llamar\("(GET|POST)"/g) || []).length, 2, "solo GET y POST");
+    const rutas = /RUTAS_POST_PERMITIDAS = Object\.freeze\(\[([\s\S]*?)\]\);/.exec(gmail)[1];
+    assert.deepEqual(rutas.match(/\/\^[^,]*\$\//g), [
+      "/^\\/messages\\/[\\w-]+\\/trash$/",
+      "/^\\/messages\\/[\\w-]+\\/untrash$/",
+      "/^\\/messages\\/batchModify$/",
+      "/^\\/labels$/",
+    ]);
+  });
+
+  test("ninguna ruta de Gmail borra de forma definitiva ni envía", () => {
+    assert.doesNotMatch(gmail, /\/(delete|batchDelete|send|drafts|import|insert)\b/i);
+  });
+
+  test("la cuarentena usa batchModify y NUNCA trash", () => {
+    const cuarentena = /export async function ponerEnCuarentena[\s\S]*?\n}\n/.exec(gmail)[0];
+    const devolver = /export async function devolverARecibidos[\s\S]*?\n}\n/.exec(gmail)[0];
+    for (const codigo of [cuarentena, devolver]) {
+      assert.match(codigo, /\/messages\/batchModify/);
+      assert.doesNotMatch(codigo, /trash/);
+    }
   });
 
   test("el token de Gmail va en Authorization y nunca en la URL", () => {
-    assert.match(gmail, /headers:\s*\{\s*Authorization:\s*`Bearer \$\{usado\}`\s*\}/);
+    assert.match(gmail, /const cabeceras = \{ Authorization: `Bearer \$\{usado\}` \};/);
     assert.doesNotMatch(gmail, /access_token|[?&]token=|\$\{URL_GMAIL\}[^`]*\$\{(token|usado)\}/);
   });
 
@@ -369,11 +395,107 @@ describe("lectura de Gmail (paso 4.4): SOLO LECTURA", () => {
     assert.match(gmail, /\/\^\[\\w-\]\+\$\/\.test\(id\)/);
   });
 
-  test("nada de lo leído se guarda: ni lib/gmail.js ni lib/bandeja.js usan almacenamiento", () => {
-    const bandeja = sinComentarios(readFileSync(join(RAIZ, "lib", "bandeja.js"), "utf8"), ".js");
-    for (const codigo of [gmail, bandeja]) {
-      assert.doesNotMatch(codigo, /chrome\.storage|localStorage|sessionStorage|indexedDB|console\./);
+  test("nada de lo leído se guarda: ni gmail.js, ni bandeja.js, ni limpieza.js usan almacenamiento", () => {
+    for (const archivo of ["gmail.js", "bandeja.js", "limpieza.js"]) {
+      const codigo = sinComentarios(readFileSync(join(RAIZ, "lib", archivo), "utf8"), ".js");
+      assert.doesNotMatch(codigo, /chrome\.storage|localStorage|sessionStorage|indexedDB|console\./, archivo);
     }
+  });
+
+  test("los ids de Deshacer y la cuarentena viven solo en memoria del panel", () => {
+    const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    assert.match(panel, /let ultimoMovimiento = null;/);
+    assert.doesNotMatch(panel, /chrome\.storage/);
+  });
+
+  // Cuerpo de una función de panel.js (de su `function` hasta la siguiente función de primer nivel).
+  const cuerpoDe = (codigo, nombre) => {
+    const inicio = codigo.search(new RegExp(`\\n(async )?function ${nombre}\\(`));
+    assert.ok(inicio >= 0, `falta ${nombre}`);
+    const resto = codigo.slice(inicio + 1);
+    const fin = resto.slice(1).search(/\n(async )?function /);
+    return fin < 0 ? resto : resto.slice(0, fin + 1);
+  };
+
+  test("cada búsqueda nueva limpia el resultado anterior, pero conserva Deshacer", () => {
+    const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    const buscar = cuerpoDe(panel, "buscarParaLiberar");
+    const primeras = buscar.split("\n").slice(1, 4).join("\n");
+    assert.match(primeras, /limpiarResultadoPrevio\(\);/, "lo primero que hace la búsqueda");
+    const limpiar = cuerpoDe(panel, "limpiarResultadoPrevio");
+    assert.match(limpiar, /errorLiberar\(null\)/);
+    assert.match(limpiar, /textoMovimiento\(null\)/);
+    assert.match(limpiar, /l\.resultado\.hidden = true/);
+    assert.doesNotMatch(limpiar, /ultimoMovimiento\s*=[^=]/, "no borra lo que se puede deshacer");
+    assert.match(limpiar, /textoBotonDeshacer\(/);
+    for (const nombre of ["moverSeleccionAPapelera", "deshacerMovimiento"]) {
+      assert.match(cuerpoDe(panel, nombre), /errorLiberar\(null\)/, nombre);
+    }
+  });
+
+  test("todos los clientes de Gmail del panel avisan los reintentos", () => {
+    const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    assert.equal((panel.match(/crearClienteGmail\(/g) ?? []).length, 1, "solo dentro de clienteGmail()");
+    assert.match(cuerpoDe(panel, "clienteGmail"), /alReintentar: \(\) => mostrar\(MENSAJES_GMAIL\.reintentando\)/);
+    assert.match(cuerpoDe(panel, "actualizarBandeja"), /alReintentar: \(\) => mostrarProgresoBandeja\(MENSAJES_GMAIL\.reintentando\)/);
+  });
+
+  test("un 403 de permiso muestra «Dar permiso» en Bandeja, Liberar espacio y cuarentena", () => {
+    const html = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+    for (const id of ["dar-permiso-gmail", "liberar-dar-permiso", "cuarentena-dar-permiso"]) {
+      assert.match(html, new RegExp(`id="${id}" hidden>Dar permiso</button>`), id);
+    }
+    const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    const conPermiso = /\{ conPermiso: error\?\.codigo === "sin_permiso" \}/;
+    for (const nombre of ["buscarParaLiberar", "moverSeleccionAPapelera", "deshacerMovimiento", "moverACuarentena", "devolverDeCuarentena"]) {
+      assert.match(cuerpoDe(panel, nombre), conPermiso, nombre);
+    }
+    for (const nombre of ["moverSeleccionAPapelera", "deshacerMovimiento"]) {
+      assert.match(cuerpoDe(panel, nombre), /if \(resultado\.sinPermiso\) errorLiberar\(MENSAJES_GMAIL\.sinPermiso, \{ conPermiso: true \}\)/, nombre);
+    }
+    // Dar permiso en Liberar espacio y en la cuarentena NO repite la acción sola.
+    for (const nombre of ["darPermisoLiberar", "darPermisoCuarentena"]) {
+      assert.doesNotMatch(cuerpoDe(panel, nombre), /moverAPapelera|sacarDePapelera|ponerEnCuarentena|devolverARecibidos|buscarParaLiberar/, nombre);
+    }
+  });
+});
+
+describe("NINGÚN borrado definitivo en TODO el código (paso 4.5)", () => {
+  // Extensión (sin pruebas), API y herramientas: textos que harían un borrado definitivo de Gmail.
+  const REPO = join(RAIZ, "..");
+  const carpetas = [RAIZ, join(REPO, "api", "app"), join(REPO, "herramientas")];
+  const codigo = carpetas.flatMap((carpeta) => archivos(carpeta))
+    .filter((ruta) => /\.(js|py|html|json)$/.test(ruta))
+    .map((ruta) => {
+      const crudo = readFileSync(ruta, "utf8");
+      // Sin comentarios: los comentarios NOMBRAN lo prohibido para explicarlo.
+      const texto = ruta.endsWith(".js") ? sinComentarios(crudo, ".js")
+        : ruta.endsWith(".html") ? sinComentarios(crudo, ".html")
+          : ruta.endsWith(".py") ? crudo.replace(/#.*$/gm, "").replace(/"""[\s\S]*?"""/g, "") : crudo;
+      return { nombre: relative(REPO, ruta), texto };
+    });
+
+  test("no aparecen batchDelete, messages.delete, threads.delete, emptyTrash ni mail.google.com/ como alcance", () => {
+    assert.ok(codigo.length > 20, "se revisaron los archivos");
+    for (const { nombre, texto } of codigo) {
+      assert.doesNotMatch(texto, /batchDelete|messages\.delete|threads\.delete|emptyTrash/i, nombre);
+      // El alcance de acceso total (el único que permite borrar sin pasar por la papelera). La
+      // dirección https://mail.google.com/ sí aparece, pero como página de Gmail (pestaña y
+      // host_permissions), nunca como alcance de OAuth.
+      assert.doesNotMatch(texto, /scopes?["']?\s*[:=][^\n\]]*mail\.google\.com/i, `${nombre}: el alcance de acceso total está prohibido`);
+    }
+  });
+
+  test("la única llamada DELETE es DELETE /cuenta de nuestra API (no Gmail)", () => {
+    const deletes = [];
+    for (const { nombre, texto } of codigo.filter((c) => c.nombre.endsWith(".js"))) {
+      for (const m of texto.matchAll(/\b(method|metodo):\s*["']DELETE["']/gi)) {
+        deletes.push(nombre);
+        assert.ok(nombre.replaceAll("\\", "/").endsWith("lib/sesion.js"), `${nombre} hace un DELETE`);
+        assert.match(texto.slice(Math.max(0, m.index - 120), m.index), /"\/cuenta"/, "el DELETE es DELETE /cuenta");
+      }
+    }
+    assert.equal(deletes.length, 1, "hay exactamente un DELETE (borrar la cuenta en NUESTRA API)");
   });
 });
 

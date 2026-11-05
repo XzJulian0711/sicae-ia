@@ -108,17 +108,23 @@ Abrir el panel ─┬─ con sesión y consentimiento ─→ vista principal (an
   correo".
 - **Permisos:** muestra **solo lo que se pide hoy**:
   - identificarte con tu correo de Google;
-  - desde el paso 4.4, **"Leer tus correos para clasificarlos. No guardamos su contenido."**,
-    que es solo lectura.
+  - desde el paso 4.4, **"Leer tus correos para clasificarlos. No guardamos su contenido."**;
+  - desde el paso 4.5, **"Mover correos a la papelera o a cuarentena solo cuando lo confirmas.
+    Se puede deshacer. Nunca borramos de forma definitiva."**, con la aclaración "Google
+    describe este permiso como «leer, redactar y enviar». Es el mínimo que existe para mover a
+    la papelera; SICAE-IA nunca envía ni borra correos de forma definitiva." La aclaración **no
+    sube la versión** del consentimiento (sigue en "3"), porque no pide nada nuevo.
 
-  Organizar, borradores y recordatorios se pedirán aparte cuando existan. Incluye "Nunca
+  Los tres son obligatorios, porque el permiso de Gmail es uno solo (`gmail.modify`, que
+  incluye leer). Borradores y recordatorios se pedirán aparte cuando existan. Incluye "Nunca
   haremos…" y el texto de la **Ley 1581 de 2012**.
-- **Qué se guarda al aceptar:** solo `{aceptado: true, version: "2", fecha}`, en
+- **Qué se guarda al aceptar:** solo `{aceptado: true, version: "3", fecha}`, en
   `chrome.storage.local` (`lib/sesion.js` → `crearConsentimiento`).
   - Si cambia el texto de los permisos, se sube la versión y se vuelve a pedir.
   - En el **paso 4.4 pasó de la versión "1" a la "2"**, porque se agregó la lectura de correos.
-    Quien aceptó la 1 vuelve a ver "Revisa los permisos", y al aceptar, Google pide el permiso
-    nuevo de Gmail.
+  - En el **paso 4.5 pasó a la "3"**, porque se agregó mover a la papelera y a cuarentena.
+    Quien aceptó una versión anterior vuelve a ver "Revisa los permisos", y al aceptar, Google
+    pide el permiso nuevo de Gmail.
 - **El token nunca:**
   - se guarda en `storage`;
   - se muestra en pantalla ni se escribe en la consola;
@@ -247,13 +253,13 @@ revisan, y también revisan los bytes del archivo `.db`.
 - los análisis no se borran, porque nunca estuvieron ligados a ti;
 - si vuelves a entrar, eres un usuario nuevo y se te piden otra vez los permisos.
 
-## Bandeja: "Tu bandeja hoy" (paso 4.4, SOLO LECTURA)
+## Bandeja: "Tu bandeja hoy" (paso 4.4)
 
 Sigue el demo (página 4) con SICAE-IA. Se abre con **Bandeja** en la barra inferior.
 
 1. **Actualizar** lee los **últimos 50 correos de Recibidos** con la **API de Gmail**:
-   - `users.messages.list` y luego `messages.get` de cada uno, como máximo 5 a la vez por la
-     cuota de Gmail;
+   - `users.messages.list` y luego `messages.get` de cada uno, como máximo 3 a la vez por la
+     cuota de Gmail (ver "Cuota de Gmail y reintentos");
    - el progreso se ve como "Leyendo correos 12 de 50…".
 2. Los clasifica todos en **un solo** `POST /analizar/lote`, mientras dice "Clasificando…".
 3. Muestra:
@@ -264,7 +270,7 @@ Sigue el demo (página 4) con SICAE-IA. Se abre con **Bandeja** en la barra infe
 | **Aviso naranja** | Solo si hay phishing: "N correos con posible phishing." + **Ver motivos**, que despliega esos correos. Al pulsar uno se abre **su tarjeta** en la pestaña Analizar, con el resultado del lote, sin volver a leer Gmail |
 | **Prioridad alta** | Hasta 10 correos: remitente · hora ("8:14", "ayer" o "5 nov") y asunto. También se pueden abrir |
 | **Sobrecarga de publicidad** | Cuántos correos de publicidad hay y cuánto ocupan. Más abajo se explica cómo se cuenta |
-| **Revisar y liberar espacio** | Deshabilitado: "Próximamente (4.5)" |
+| **Revisar y liberar espacio** | Abre "Liberar espacio" (paso 4.5, ver la sección siguiente) |
 | **Último análisis** | La hora del último "Actualizar" |
 
 **Cómo se cuenta la publicidad:**
@@ -306,10 +312,10 @@ En **Analizar**, que lee la página, sigue la limitación de siempre.
 
 | Caso | Mensaje |
 |---|---|
-| Sin el permiso de Gmail (no se aceptó el alcance) | "Falta el permiso para leer tus correos…" + botón **Dar permiso**, que abre la ventana de Google |
+| Sin el permiso de Gmail (no se aceptó el alcance) | "Falta el permiso para leer tus correos…" + botón **Dar permiso**, que abre la ventana de Google. No se reintenta. Desde el paso 4.5 el botón también está en Liberar espacio y en la cuarentena: ahí, al aceptar, **no se repite la acción sola** ("Listo, ya tienes el permiso. Vuelve a intentarlo."); en la Bandeja sí se vuelve a leer |
 | Token de Google vencido | Se renueva solo una vez; si sigue: "Tu sesión de Google venció…" |
 | La Gmail API no está habilitada en Google Cloud | "La API de Gmail no está habilitada…" |
-| Cuota de Gmail (429) | "Gmail limitó las consultas: espera un minuto…" |
+| Cuota de Gmail (429, 5xx o 403 de límite) | Primero se reintenta solo, hasta 5 veces, y el progreso dice "Gmail pidió esperar, reintentando…". Solo si sigue fallando: "Gmail limitó las consultas: espera un minuto…" |
 | Sin internet | "Sin conexión a internet…" |
 | API apagada | "Sin conexión con la API…": los correos se leen, pero no se clasifican |
 | 401, 403 o 503 de la API | Los de siempre: la sesión se renueva una vez y, sin consentimiento válido, vuelve "Revisa los permisos" |
@@ -320,6 +326,148 @@ En **Analizar**, que lee la página, sigue la limitación de siempre.
   - Gmail pone la cuenta en el **título** de la pestaña ("Recibidos - x@gmail.com - Gmail");
   - si no coinciden: "Esta pestaña de Gmail es de otra cuenta…" y no se analiza;
   - si el título no trae la cuenta, se analiza igual.
+
+## Liberar espacio y cuarentena (paso 4.5)
+
+**La regla (CLAUDE.md, aprobada por el equipo):** nunca se borra de forma definitiva ni se envía
+un correo. Solo se **mueve a la papelera**, con confirmación y con **Deshacer**, o a
+**cuarentena**, que es solo una etiqueta. Las pruebas de estas acciones se hacen **solo** en
+la cuenta de pruebas `sicae.pruebas.2026@gmail.com`, en el **perfil de Chrome "SICAE pruebas"**
+(CLAUDE.md; ver la bitácora).
+
+### Cómo se deshace cada acción
+
+| Acción | Qué hace en Gmail | Cómo se deshace |
+|---|---|---|
+| **Mover a la papelera** (Liberar espacio) | `users.messages.trash`, uno por correo | **Deshacer** en el panel (`untrash` de esos mismos correos), o desde la **Papelera de Gmail** durante 30 días. Después Gmail la vacía solo |
+| **Mover a cuarentena** (tarjeta de phishing) | Pone la etiqueta **"SICAE/Cuarentena"** y quita **Recibidos** (`batchModify`). **Nunca** va a la papelera | **Devolver a Recibidos** en el panel, o en Gmail: abrir la etiqueta SICAE/Cuarentena, y quitarle la etiqueta y moverlo a Recibidos |
+
+### Qué correos se buscan
+
+Se abre con **Revisar y liberar espacio** en la Bandeja.
+
+- **Orígenes (se suman, O).** Hay que marcar **al menos uno**; si no, dice "Marca al menos un
+  origen para buscar." y no busca:
+  - **Publicidad detectada:** la del último análisis de la Bandeja;
+  - **Promociones de Gmail** (`CATEGORY_PROMOTIONS`);
+  - **Spam** (`SPAM`, con `includeSpamTrash=true`, porque Gmail deja fuera el spam si no);
+  - **Todo el correo:** **no** viene marcado. Al elegirlo aparece el aviso "Incluye correos
+    personales y de trabajo: revisa la lista con cuidado." Como ya incluye a los demás, se hace
+    una sola búsqueda sin etiqueta.
+- **Condiciones (filtran, Y), opcionales:**
+  - "más antiguos que N meses" (1 a 120) → búsqueda `older_than:Nm`;
+  - "más grandes que N MB" (1 a 50) → búsqueda `larger:NM`.
+
+  En Promociones, Spam y Todo el correo las condiciones van en la búsqueda `q` de Gmail. En la
+  publicidad detectada se aplican en el panel, con la fecha y el tamaño que ya se conocen.
+- **Cuántos revisar:** 10, 25, 50, 100 u "Otro" (de 1 a 500). Es el **máximo** de correos que se
+  revisan, los más recientes primero.
+- **Lo que la Bandeja ya leyó no se vuelve a pedir a Gmail:** si un correo encontrado está entre
+  los del último "Actualizar", se usa esa copia en memoria, con su resultado. Así se gasta menos
+  cuota.
+
+Ejemplo: Promociones + Spam, más antiguos que 6 meses → (Promociones **o** Spam) **y** más de 6
+meses.
+
+### Exclusiones (siempre)
+
+Nunca se ofrecen para la papelera:
+1. los **destacados** (`STARRED`) y los **importantes** (`IMPORTANT`), por sus etiquetas;
+2. los de **posible phishing** y los de **prioridad alta**. Para saberlo, **se clasifican todos**
+   los encontrados en lotes de 50 con `/analizar/lote`, con progreso ("Clasificando 100 de
+   300…") y un botón **Cancelar**. Cancelar para antes del siguiente lote o pedido, y no mueve
+   nada;
+3. los que **no se pudieron clasificar**: sin saber si es phishing, no se ofrece.
+
+Los excluidos no se muestran; se dice cuántos y por qué: "Se excluyeron 7: 3 destacados,
+2 importantes, 1 de prioridad alta y 1 de posible phishing."
+
+**Estos análisis no cuentan en `/estadisticas`:** el lote se envía con `registrar: false`, para no
+inflar los conteos con una limpieza. Los de la Bandeja y Analizar se siguen registrando.
+
+### Elegir, confirmar y mover
+
+1. La lista sale **agrupada por remitente**, del que más pesa al que menos. Cada grupo tiene una
+   casilla ("Tienda — 12 correos · 3,4 MB") y **Ver correos**, que despliega cada correo con su
+   propia casilla. Arriba están **Seleccionar todo** y el total elegido.
+2. **Mover a la papelera…** abre una confirmación (`<dialog>`, se cierra con Escape):
+   "Vas a mover 40 correos (12 MB) a la papelera. Se puede deshacer. La papelera sigue ocupando
+   espacio hasta que Gmail la vacía sola a los 30 días."
+3. Se mueven 3 a la vez, con progreso. Si Gmail pide esperar, cada correo se reintenta solo
+   (hasta 5 veces). **Si alguno sigue fallando, se pasa a los demás** y al final dice "Se
+   movieron 38 de 40 a la papelera. 2 no se pudieron mover: inténtalo de nuevo más tarde."
+4. Aparece **Deshacer**, que saca de la papelera **esos mismos** correos. Los identificadores
+   están **solo en la memoria del panel**: no van a `chrome.storage` ni a la API, y se pierden al
+   cerrarlo (entonces se deshace desde la Papelera de Gmail).
+5. **Cada búsqueda nueva limpia lo anterior:** el error, los excluidos, la lista y el texto del
+   último movimiento. Así nunca se ven a la vez un error nuevo y un resultado viejo. Si todavía
+   se puede deshacer, queda solo el botón "Deshacer el último movimiento (40 correos)". Si un
+   movimiento nuevo no logra mover ninguno, se conserva el Deshacer anterior.
+
+### Cuota de Gmail y reintentos
+
+Según la [documentación de Gmail](https://developers.google.com/workspace/gmail/api/reference/quota)
+(consultada el 4 nov. 2026), cada usuario tiene **6.000 unidades por minuto**:
+
+| Pedido | Costo |
+|---|---|
+| `messages.get` completo (`format=full`) | 60 |
+| `messages.get` mínimo | 20 |
+| `messages.trash` | 20 |
+| `messages.untrash` | 5 |
+| `messages.batchModify` | 50 |
+| `messages.list` | 5 |
+
+Una "Actualizar" de la Bandeja gasta unas 5.000 unidades (50 lecturas completas y 100 mínimas de
+Promociones). Si justo después se buscan 73 correos para limpiar, se pasa el límite del minuto y
+Gmail responde **429**. Por eso:
+- se hacen **3 pedidos a la vez** (antes 5); el límite de pedidos simultáneos es de toda la cuenta;
+- ante **429, 500, 502, 503, 504** o un **403 que traiga `rateLimitExceeded` o
+  `userRateLimitExceeded`** (y ninguna otra razón), se **reintenta hasta 5 veces** con espera exponencial y aleatoria:
+  1 s, 2 s, 4 s, 8 s y 16 s, más hasta 1 s al azar, con un tope de 32 s. Así lo recomienda Google
+  ("Handle errors"), empezando en al menos 1 s. El azar evita que los 3 pedidos que fallaron
+  juntos reintenten en el mismo instante;
+- si Gmail manda la cabecera **`Retry-After`**, se espera lo que pide, entre 1 s y 60 s como
+  máximo;
+- mientras tanto, el progreso dice "Gmail pidió esperar, reintentando…";
+- **solo al agotar los reintentos** se muestra el error;
+- **no se reintenta** ante 400, 404, ningún otro 403 ni "sin red", porque repetir daría lo
+  mismo. El 401 tiene su propia renovación (una vez);
+- **el 403 de permiso insuficiente** (`insufficientPermissions`,
+  `ACCESS_TOKEN_SCOPE_INSUFFICIENT`), por ejemplo si se aceptó la versión 2 y todavía falta
+  `gmail.modify`, sale **enseguida**, sin esperas, y muestra **Dar permiso** en la Bandeja, en
+  Liberar espacio y en la cuarentena. Al mover a la papelera dice "falta el permiso de Gmail" en
+  lugar de "inténtalo más tarde";
+- **crear la etiqueta de cuarentena** solo se reintenta con 429 o 403 de límite. Con un 5xx la
+  etiqueta pudo haberse creado, y repetir el pedido daría un duplicado.
+
+**¿Y mover a la papelera con `batchModify` (etiqueta `TRASH`)?** Gastaría mucho menos (50
+unidades por hasta 1.000 correos), pero **no se usa**:
+- la [guía de etiquetas](https://developers.google.com/workspace/gmail/api/guides/labels) dice que
+  `TRASH` "se puede aplicar a mano";
+- pero la referencia de `batchModify` solo dice que "modifica las etiquetas" y no menciona la
+  papelera;
+- la única operación documentada como "mueve el mensaje a la papelera" es `messages.trash`;
+- no está documentado que sean equivalentes (por ejemplo, el vaciado a los 30 días). Se queda
+  `trash` uno por uno, con reintentos.
+
+### Cuarentena de phishing
+
+- Sale el botón **Mover a cuarentena** en la tarjeta de **phishing**, en Analizar y en la que se
+  abre desde la Bandeja.
+- Busca la etiqueta "SICAE/Cuarentena" (`labels.list`); si no existe, la crea
+  (`labels.create`). Después aparece **Devolver a Recibidos**.
+- **El identificador del correo:** desde la Bandeja ya se tiene. Desde Analizar, el content
+  script lo lee de `data-legacy-message-id` (`gmail/selectores.js`), solo si tiene forma de
+  identificador de Gmail. Si no lo encuentra: "Ábrelo desde la Bandeja para moverlo a
+  cuarentena."
+
+### Qué se registra en la API
+
+`POST /acciones` (con sesión y consentimiento) guarda **solo** `fecha, accion, cantidad, mb`, con
+`accion` = `papelera`, `deshacer_papelera`, `cuarentena` o `devolver_cuarentena`. **Sin
+identificadores de correo, sin remitentes y sin usuario.** Si el registro falla, la acción en
+Gmail ya se hizo, y el panel solo avisa.
 
 ## Analizar un correo de Gmail
 
@@ -392,8 +540,8 @@ En todos los casos:
 - **En el resto del panel:**
   - los íconos son decorativos (`aria-hidden`);
   - el botón de ajustes, que solo tiene ícono, se llama "Ajustes" (`aria-label`);
-  - en la barra inferior, Analizar tiene `aria-current="page"` y Bandeja y Redactar tienen
-    `aria-disabled="true"`. Su "Próximamente" sale en una región `aria-live`.
+  - en la barra inferior, la pestaña abierta (Analizar o Bandeja) tiene `aria-current="page"` y
+    Redactar tiene `aria-disabled="true"`. Su "Próximamente" sale en una región `aria-live`.
 - **Más contrastes,** todos ≥ 7:1:
   - rótulos, remitente y pestañas inactivas, gris `#475569` sobre blanco o sobre el fondo
     `#f6f6f4`;
@@ -553,16 +701,35 @@ los dos lugares.
 | `http://127.0.0.1:8000/*` | Llamar a la API que corre en tu equipo |
 | `https://oauth2.googleapis.com/*` (paso 4.2) | **Solo** para revocar el token al cerrar sesión (`POST /revoke`) y **leer la respuesta**, para confirmar que Google lo revocó. Sin este permiso la petición se podría enviar, pero no se sabría si funcionó. No da acceso a la cuenta ni al correo |
 | `https://openidconnect.googleapis.com/*` (paso 4.2) | **Solo** para leer el correo de la sesión que se muestra en el encabezado: `GET /v1/userinfo`, con el token en la cabecera `Authorization`. Usa el alcance `userinfo.email`, que el usuario ya aceptó en "Revisa los permisos". El correo no se guarda |
-| `https://gmail.googleapis.com/*` (paso 4.4) | **Solo** para leer la bandeja con la API de Gmail (pestaña Bandeja): **solo peticiones `GET`**, con el token en la cabecera `Authorization`. Sin este permiso no se podrían leer las respuestas de Gmail |
+| `https://gmail.googleapis.com/*` (pasos 4.4 y 4.5) | La API de Gmail, con el token en la cabecera `Authorization`: **leer** (`GET`) la bandeja y los correos a revisar, y **solo cuatro `POST`** (paso 4.5): `/messages/{id}/trash`, `/messages/{id}/untrash`, `/messages/batchModify` (cuarentena) y `/labels` (crear "SICAE/Cuarentena"). Cualquier otra ruta se rechaza **antes** de llamar a Gmail. Sin este permiso no se podrían leer las respuestas de Gmail |
 
 **Alcances (scopes) de `oauth2`:**
 
 | Alcance | Para qué |
 |---|---|
 | `openid` y `https://www.googleapis.com/auth/userinfo.email` | Saber quién eres por tu correo (pasos 4.2 y 4.3) |
-| `https://www.googleapis.com/auth/gmail.readonly` (paso 4.4) | **Leer** tus correos para la pestaña Bandeja. Es el alcance **mínimo** para leer: **no permite** modificar, mover, borrar ni enviar correos. Una prueba revisa que no haya alcances más amplios (`gmail.modify`, `gmail.send`, `mail.google.com/`…) |
+| `https://www.googleapis.com/auth/gmail.modify` (paso 4.5; en el 4.4 era `gmail.readonly`) | **Leer** tus correos (Bandeja y Liberar espacio), **moverlos a la papelera** y sacarlos, y **poner o quitar etiquetas** (cuarentena). Una prueba revisa que sean exactamente estos tres alcances, sin `mail.google.com/` ni otros de Gmail (`gmail.send`, `gmail.compose`…) |
 
-**Por qué `gmail.readonly` y no un alcance más reducido:**
+**Por qué `gmail.modify` y no `https://mail.google.com/`** (según la
+[lista oficial de alcances](https://developers.google.com/workspace/gmail/api/auth/scopes),
+consultada el 4 nov. 2026):
+- `https://mail.google.com/` es el acceso **completo**, el único que permite **borrar de forma
+  definitiva** (`messages.delete`, `batchDelete`). La regla del proyecto lo prohíbe.
+- `gmail.modify` permite leer, escribir y enviar, pero "**no permite el borrado inmediato y
+  definitivo** de hilos y mensajes, saltándose la papelera". Es el alcance más pequeño que deja
+  usar `messages.trash` y `untrash`.
+- **Pero `gmail.modify` sí permite enviar.** Por eso el cliente de `lib/gmail.js` solo acepta las
+  cuatro rutas `POST` de la tabla anterior (`RUTAS_POST_PERMITIDAS`). Las pruebas revisan:
+  - que en **todo el código** (extensión, API y `herramientas`) no aparezcan `batchDelete`,
+    `messages.delete`, `threads.delete`, `emptyTrash` ni el alcance `mail.google.com/`;
+  - que `lib/gmail.js` no tenga rutas con `/delete`, `/send`, `/drafts` ni `/import`, y que
+    `post()` rechace esas rutas sin llamar a Gmail.
+- La papelera usa `messages.trash` y **no** `batchModify`: la documentación de `batchModify` solo
+  habla de agregar y quitar etiquetas, mientras que `trash` está documentado para mover a la
+  papelera. `batchModify` se usa solo para la cuarentena.
+
+**Por qué en el paso 4.4 se usó `gmail.readonly` y no un alcance más reducido** (historia; desde
+el 4.5 se usa `gmail.modify`):
 - **`gmail.messages.readonly`** aparece en la consola de Google Cloud, al agregar permisos a la
   pantalla de consentimiento, con la descripción "Leer tus correos electrónicos". Pero **no
   está** en la [lista oficial de alcances de la Gmail API](https://developers.google.com/workspace/gmail/api/auth/scopes)
@@ -584,7 +751,7 @@ los dos lugares.
 El `client_id` no es secreto: en una extensión es público por diseño, y Google solo lo acepta para
 el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
 
-**`gmail.readonly` es un alcance "restringido" para Google:**
+**`gmail.modify` es un alcance "restringido" para Google** (igual que `gmail.readonly`):
 - con la pantalla de consentimiento en **modo de prueba** funciona para los **usuarios de prueba**
   del proyecto;
 - publicar la extensión para cualquiera exigiría la verificación de Google y una evaluación de
@@ -593,8 +760,13 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
 **Pasos en Google Cloud** (los hace el equipo, una vez):
 1. **APIs y servicios → Biblioteca → Gmail API → Habilitar.** Si no, Gmail responde 403 y el panel
    dice "La API de Gmail no está habilitada…".
-2. **Pantalla de consentimiento de OAuth → Permisos (scopes) →** agregar `.../auth/gmail.readonly`.
-3. Probar **solo** con la cuenta de Gmail del proyecto (CLAUDE.md).
+2. **Pantalla de consentimiento de OAuth → Permisos (scopes) →** agregar `.../auth/gmail.modify`
+   (paso 4.5). `.../auth/gmail.readonly` ya no se pide y se puede quitar. **No** agregar
+   `https://mail.google.com/`.
+3. Probar **solo** con la cuenta de Gmail del proyecto (CLAUDE.md). Las acciones (papelera,
+   cuarentena), **solo** en `sicae.pruebas.2026@gmail.com`, en el perfil de Chrome "SICAE
+   pruebas". Esa cuenta tiene que estar en la lista de **usuarios de prueba** de la pantalla de
+   consentimiento.
 
 **Por qué userinfo y no `chrome.identity.getProfileUserInfo`:**
 - `getProfileUserInfo` necesita otro permiso, `identity.email`, que al instalar avisa "Conocer
@@ -621,8 +793,14 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
 - **Cada token solo viaja donde hace falta:**
   - `/salud` se pide sin nada;
   - el token de Google va solo a Google y a `POST /auth/google`;
-  - la sesión de la API va en `Authorization: Bearer` a `/analizar`, `/estadisticas` (de la que
-    solo se usa el código), `/consentimiento`, `/auth/cerrar` y `DELETE /cuenta`.
+  - la sesión de la API va en `Authorization: Bearer` a `/analizar`, `/analizar/lote`,
+    `/acciones`, `/estadisticas` (de la que solo se usa el código), `/consentimiento`,
+    `/auth/cerrar` y `DELETE /cuenta`.
+- **Ningún borrado definitivo** (paso 4.5): la única llamada `DELETE` de todo el código es
+  `DELETE /cuenta` de nuestra API. A Gmail solo se le hacen `GET` y los cuatro `POST` permitidos
+  (ver "Permisos").
+- **Lo que se mueve no se guarda:** los identificadores para Deshacer viven en una variable del
+  panel (`ultimoMovimiento`), nunca en `chrome.storage` ni en la API.
 - **El resultado se valida:** solo se muestran categorías, prioridades y confianzas conocidas;
   cualquier otro valor da "respuesta inesperada".
 - **Mensajes genéricos:** nunca se muestra el texto crudo de un error ni el campo `detalle` de la
@@ -642,6 +820,13 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
   acciones** y **naranja `#c2410c` para las alertas**.
 - Los dos colores tienen contraste AA sobre fondo blanco.
 - Los botones y campos muestran el foco con un borde azul, para quien navega con el teclado.
+- **Paso 4.5:** mover a la papelera y a cuarentena son acciones de **alerta**, así que su botón
+  es naranja (`.boton-alerta`). Contrastes calculados:
+  - blanco sobre `#c2410c`: 5,18:1; sobre `#9a3412` (al pasar el mouse): 7,31:1;
+  - deshabilitado, `#475569` sobre `#f1f5f9`: 6,92:1 (sin opacidad);
+  - el total elegido, azul sobre `#eff6ff`: 6,16:1;
+  - el borde de los campos numéricos, `#64748b` sobre blanco: 4,76:1 (mínimo 3:1 para
+    controles).
 
 ### Fuentes (licencia SIL Open Font License 1.1)
 
@@ -667,7 +852,11 @@ La lógica que no depende de Chrome está en dos archivos:
   `/analizar`;
 - `extension/lib/tarjeta.js`: elegir el estilo, los textos y qué secciones muestra la tarjeta;
 - `extension/lib/sesion.js`: inicio y cierre de sesión con Google, consentimiento y qué
-  pantalla se ve. Recibe `chrome.identity` y `fetch` como parámetros, así se prueba con dobles.
+  pantalla se ve. Recibe `chrome.identity` y `fetch` como parámetros, así se prueba con dobles;
+- `extension/lib/gmail.js` y `extension/lib/bandeja.js` (paso 4.4): la API de Gmail y los
+  conteos de la Bandeja;
+- `extension/lib/limpieza.js` (paso 4.5): orígenes, condiciones, exclusiones, agrupado y textos
+  de "Liberar espacio".
 
 Se prueba con el ejecutor que trae Node, **sin npm ni paquetes**:
 
@@ -717,8 +906,40 @@ node --test "extension/tests/*.test.js"
   - que el cliente solo haga GET, con el token en `Authorization` y nunca en la URL;
   - que con 401 se renueve una sola vez;
   - los errores: 403 de alcance, Gmail API apagada, 429, sin red;
-  - que lea como máximo 5 a la vez, con progreso;
-  - Promociones: con tope, sin la categoría y con error.
+  - que lea como máximo 3 a la vez, con progreso;
+  - los **reintentos** (sin esperar de verdad: la espera se inyecta):
+    - un 429 que se recupera, y un 429 permanente: 1 + 5 intentos, esperas crecientes y recién
+      ahí el error de cuota;
+    - `Retry-After` en segundos, como fecha HTTP, exagerado (queda en 60 s) o inválido (se usa
+      el backoff);
+    - el 503 y el 403 de límite se reintentan; 400, 404, el 403 de permiso y "sin red" no;
+    - **el 403 se reintenta solo con `rateLimitExceeded` o `userRateLimitExceeded`**: con el
+      cuerpo real de "permiso insuficiente" hay 1 solo pedido, ninguna espera y el código
+      `sin_permiso` (el de Dar permiso), también en la Bandeja, la papelera (`sinPermiso: true`),
+      Deshacer y la cuarentena; un 403 con `RESOURCE_EXHAUSTED` tampoco se reintenta;
+    - crear la etiqueta no se repite ante un 500; el 401 no gasta reintentos;
+    - en `trash`, un correo con 429 permanente queda en "no se pudieron mover" y los demás se
+      mueven;
+  - Promociones: con tope, sin la categoría y con error;
+  - paso 4.5:
+    - `post()` acepta solo las cuatro rutas y rechaza las demás (`/delete`, `/send`,
+      `batchDelete`…) **sin llamar a Gmail**;
+    - la búsqueda: etiquetas, `q` e `includeSpamTrash`; páginas hasta el tope; cancelar;
+    - la papelera con **fallos parciales** (sigue con los demás) y **Deshacer** con los mismos
+      identificadores;
+    - la cuarentena: crea la etiqueta si falta, la reusa si existe, quita `INBOX`, **nunca llama
+      a `trash`**, y "Devolver a Recibidos".
+- **`tests/seguridad.test.js`** también revisa que cada búsqueda empiece con
+  `limpiarResultadoPrevio()`, que esa función no borre lo que se puede deshacer, y que todos los
+  clientes de Gmail del panel avisen los reintentos.
+- **`tests/limpieza.test.js`** (paso 4.5):
+  - nada marcado por defecto (tampoco "Todo el correo"), su aviso, y que sin origen no se busque;
+  - los límites: cantidad 1–500, meses 1–120, MB 1–50;
+  - las combinaciones O e Y y las búsquedas de Gmail que salen de ellas;
+  - las exclusiones (destacados, importantes, phishing, prioridad alta, sin clasificar) y su
+    texto;
+  - el agrupado por remitente, los totales y los lotes de 50;
+  - los textos de confirmación (MB y los 30 días) y de resultado.
 - **`tests/bandeja.test.js`** (paso 4.4):
   - los conteos y las listas de phishing y de prioridad alta;
   - los formatos de hora y de tamaño;
@@ -753,7 +974,11 @@ node --test "extension/tests/*.test.js"
     solo en `chrome.storage.session`;
   - que `X-API-Key` ya no aparezca y que Opciones no tenga campo de clave;
   - que el token de Google nunca vaya a `chrome.storage` ni a la consola;
-  - el bloque `oauth2`: solo los alcances `openid` y email;
+  - el bloque `oauth2`: exactamente `openid`, email y `gmail.modify`, sin `mail.google.com/`;
+  - **ningún borrado definitivo en todo el código** (paso 4.5): ni `batchDelete`,
+    `messages.delete`, `threads.delete` ni `emptyTrash`, y un solo `DELETE` (`/cuenta`);
+  - que la cuarentena use `batchModify` y nunca `trash`, y que los identificadores de Deshacer
+    no vayan a `chrome.storage`;
   - las 3 pantallas del panel: al cargar solo se ve la bienvenida, que ofrece solo Google;
   - que los permisos incluyan "Nunca haremos" y la Ley 1581;
   - que no haya claves escritas en el código;
@@ -773,6 +998,27 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
 - **"Actualizar" vuelve a registrar los mismos correos** en `/estadisticas`: las estadísticas
   cuentan análisis, no correos únicos. No se deduplica, porque haría falta guardar un
   identificador o un hash del correo.
+- **El permiso de Google es más amplio de lo que usamos** (paso 4.5). Google describe
+  `gmail.modify` como «leer, redactar y enviar». Es el mínimo que existe para mover a la
+  papelera: `messages.trash` solo acepta `gmail.modify` o `https://mail.google.com/`, y este
+  último también permite borrar de forma definitiva. Que SICAE-IA nunca envíe ni borre de forma
+  definitiva lo garantiza **el código** (solo cuatro rutas `POST` permitidas, revisadas por las
+  pruebas), no el permiso. La pantalla "Revisa los permisos" lo aclara.
+- **Deshacer se pierde al cerrar el panel** (paso 4.5): los identificadores movidos están solo en
+  memoria. Después de cerrarlo, se recuperan desde la Papelera de Gmail (30 días).
+- **La papelera sigue ocupando espacio** hasta que Gmail la vacía sola a los 30 días. SICAE-IA
+  nunca la vacía.
+- **Cuarentena desde Analizar** depende de `data-legacy-message-id` en la página de Gmail. Si Gmail
+  lo cambia, el botón pide abrir el correo desde la Bandeja.
+- **Cuota de Gmail:** mover 500 correos son 500 pedidos (`trash` es de uno en uno), o sea 10.000
+  unidades: más que la cuota de un minuto. Los reintentos esperan a que Gmail deje seguir. Si un
+  correo falla después de 5 reintentos, queda como "no se pudo mover" y se puede volver a
+  intentar.
+- **Clasificar para limpiar lleva tiempo:** con 500 correos son 500 lecturas (30.000 unidades,
+  unos 5 minutos de cuota) y 10 lotes.
+- **Cancelar no corta una espera en curso:** se detiene antes del siguiente pedido, pero si un
+  pedido está esperando para reintentar, primero termina esa espera (como máximo 32 s, o 60 s
+  con `Retry-After`).
 - **Charset:** el cuerpo se decodifica con el `charset` de cada parte si el navegador lo conoce;
   si no, como UTF-8, y algún carácter podría verse mal.
 - **La cuenta de la pestaña sale del título de Gmail.** Si Gmail cambia ese formato, Analizar no

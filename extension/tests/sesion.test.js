@@ -67,10 +67,11 @@ function fetchFalso({ ok = true, lanza = false } = {}) {
 
 const noContieneToken = (valor) => assert.ok(!JSON.stringify(valor).includes(TOKEN), "devolvió el token");
 
-describe("versión del consentimiento (paso 4.4: ahora se leen los correos)", () => {
-  test("la versión es la 2: quien aceptó la 1 vuelve a ver Revisa los permisos", () => {
-    assert.equal(VERSION_CONSENTIMIENTO, "2");
+describe("versión del consentimiento (4.4: leer correos; 4.5: papelera y cuarentena)", () => {
+  test("la versión es la 3: quien aceptó la 1 o la 2 vuelve a ver Revisa los permisos", () => {
+    assert.equal(VERSION_CONSENTIMIENTO, "3");
     assert.equal(consentimientoValido({ ...crearConsentimiento(), version: "1" }), false);
+    assert.equal(consentimientoValido({ ...crearConsentimiento(), version: "2" }), false);
     assert.equal(consentimientoValido(crearConsentimiento()), true);
   });
 });
@@ -102,6 +103,7 @@ describe("queHacerAnte403 (paso 4.3: /analizar sin consentimiento en la API)", (
     for (const local of [
       { ...bueno, version: "0" },
       { ...bueno, version: "1" }, // la del paso 4.2: el texto cambió en el 4.4
+      { ...bueno, version: "2" }, // la del paso 4.4: el texto cambió en el 4.5
       { ...bueno, version: 1 },
       null,
       undefined,

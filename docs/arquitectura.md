@@ -26,7 +26,8 @@
 | `POST /auth/cerrar` | Sesión | Cierra esa sesión |
 | `DELETE /cuenta` | Sesión | Borra el usuario y todas sus sesiones |
 | `POST /analizar` | Sesión + consentimiento | Clasifica un correo y registra el resultado (sin el texto ni el usuario) |
-| `POST /analizar/lote` | Sesión + consentimiento | Lo mismo para 1 a `SICAE_MAX_LOTE` (50) correos, en el mismo orden (paso 4.4). Reutiliza `analizar_correo()`; si uno falla, en su lugar va `{"error": ...}` y los demás siguen. Una fila de registro por correo, sin texto. Tope propio de `SICAE_MAX_BYTES_LOTE` (2 MB) y cuenta como **una** petición en el límite por IP |
+| `POST /analizar/lote` | Sesión + consentimiento | Lo mismo para 1 a `SICAE_MAX_LOTE` (50) correos, en el mismo orden (paso 4.4). Reutiliza `analizar_correo()`; si uno falla, en su lugar va `{"error": ...}` y los demás siguen. Una fila de registro por correo, sin texto. Tope propio de `SICAE_MAX_BYTES_LOTE` (2 MB) y cuenta como **una** petición en el límite por IP. Con `"registrar": false` (paso 4.5, la clasificación para "Liberar espacio") **no** escribe filas, así no cuenta en `/estadisticas`; por defecto es `true` y solo acepta `true`/`false` |
+| `POST /acciones` | Sesión + consentimiento | Registra una acción hecha en Gmail desde la extensión (paso 4.5): `{accion, cantidad, mb}`. Responde **204**. Ver "Registro de acciones" |
 | `GET /estadisticas` | Sesión | Conteos por categoría y prioridad |
 
 ### 3.1 Seguridad de la API
@@ -108,6 +109,22 @@ Una prueba envía un correo con un texto único en todos sus campos y comprueba 
 **Si el registro falla** (disco lleno, archivo bloqueado), la respuesta igual se entrega. En el
 log queda solo el tipo de error, sin contenido. `GET /estadisticas` lee esta tabla y devuelve
 solo conteos.
+
+**Registro de acciones (paso 4.5)**, en la misma base y en `registro.py`. La extensión mueve los
+correos en Gmail; la API **solo anota** que pasó, con `POST /acciones`:
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `id` | entero | Número de la fila, automático |
+| `fecha` | texto | Momento en UTC, ISO 8601 |
+| `accion` | texto | `papelera`, `deshacer_papelera`, `cuarentena` o `devolver_cuarentena` (`CHECK`) |
+| `cantidad` | entero | Cuántos correos, de 0 a 500 (`CHECK`) |
+| `mb` | real | Cuánto ocupaban, en MB, mayor o igual a 0 (`CHECK`) |
+
+- **No se guarda** el identificador de ningún correo, el remitente ni el usuario. El cuerpo se
+  valida con `extra="forbid"`: si llega cualquier otro campo (por ejemplo `ids`), es **422**.
+- La API **no habla con Gmail**: no puede mover ni borrar correos.
+- Si el registro falla: **503**. La acción en Gmail ya se hizo, y la extensión solo avisa.
 
 **Usuarios y sesiones (paso 4.3)**, en la misma base. El código está en
 [`api/app/usuarios.py`](../api/app/usuarios.py):

@@ -9,6 +9,9 @@ Proyecto de grado, Ingeniería de Sistemas, Fundación Universitaria Los Liberta
 - Publicidad/spam: regla por cabecera List-Unsubscribe y señales de envío masivo (ml/sicae_ml/publicidad.py).
 - Categoría final al usuario: legitimo, publicidad, phishing. Prioridad: alta, media, baja.
 
+- Las pruebas de acciones (papelera, cuarentena) se hacen SOLO en
+  sicae.pruebas.2026@gmail.com, en el perfil de Chrome "SICAE pruebas".
+
 ## Stack
 - ml/: Python 3.13, scikit-learn, pandas
 - api/: FastAPI, Pydantic, SQLAlchemy, SQLite
