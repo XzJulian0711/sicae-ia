@@ -157,12 +157,34 @@ export const MENSAJES_API = Object.freeze({
   inesperada: "La API respondió de forma inesperada.",
 });
 
+// "Retirar consentimiento" (paso 4.6): el mensaje tiene una parte de la cuenta en la API y otra
+// de Google (ver mensajeRetiro).
 export const MENSAJES_CUENTA = Object.freeze({
   borrada: "Consentimiento retirado y cuenta borrada en la API.",
   noConfirmada:
-    "Consentimiento retirado en este equipo, pero la API no confirmó el borrado de tu cuenta. "
-    + "Inténtalo de nuevo con la API encendida.",
+    "Consentimiento retirado en este equipo, pero la API no confirmó el borrado de tu cuenta: "
+    + "enciende la API, inicia sesión y retíralo otra vez.",
+  sinUrl: "Consentimiento retirado en este equipo. Revisa la URL de la API para borrar tu cuenta allí.",
 });
+
+export const MENSAJES_RETIRO_GOOGLE = Object.freeze({
+  revocado: "Google revocó el acceso de SICAE-IA.",
+  sinSesion: "No había una sesión de Google abierta en este navegador.",
+  noConfirmado: "Google no confirmó que revocó el acceso: quítalo a mano en myaccount.google.com/permissions.",
+});
+
+/**
+ * Mensaje de "Retirar consentimiento" (lógica pura).
+ * cuenta: "borrada" | "no_confirmada" | "sin_url"; google: "revocado" | "sin_sesion" | "no_confirmado".
+ * ok solo si la cuenta se borró y Google no quedó sin confirmar.
+ */
+export function mensajeRetiro({ cuenta, google }) {
+  const parteCuenta = { borrada: MENSAJES_CUENTA.borrada, sin_url: MENSAJES_CUENTA.sinUrl }[cuenta] ?? MENSAJES_CUENTA.noConfirmada;
+  const parteGoogle = { revocado: MENSAJES_RETIRO_GOOGLE.revocado, sin_sesion: MENSAJES_RETIRO_GOOGLE.sinSesion }[google]
+    ?? MENSAJES_RETIRO_GOOGLE.noConfirmado;
+  const ok = cuenta === "borrada" && (google === "revocado" || google === "sin_sesion");
+  return { ok, mensaje: `${parteCuenta} ${parteGoogle}` };
+}
 
 function direccion(base, ruta) {
   return `${String(base).replace(/\/+$/, "")}${ruta}`;
@@ -320,19 +342,31 @@ export async function cerrarSesionCompleta({ identidad, pedir, base, almacen }) 
 }
 
 /**
- * "Retirar consentimiento": DELETE /cuenta en la API (abre sesión si hace falta) y, pase lo que
- * pase, borra la sesión y el consentimiento de este equipo. Devuelve {ok, mensaje}.
+ * "Retirar consentimiento", en este orden:
+ * 1. DELETE /cuenta en la API (abre sesión si hace falta; sin `base` se salta). Va PRIMERO porque
+ *    abrir la sesión de la API necesita el token de Google;
+ * 2. pase lo que pase, borra la sesión y el consentimiento de este equipo;
+ * 3. SIEMPRE cierra la sesión de Google, como "Cerrar sesión": quita el token de la caché y lo
+ *    revoca (cerrarSesion). Si Google no lo confirma, el mensaje nombra
+ *    myaccount.google.com/permissions.
+ * Devuelve {ok, mensaje} (mensajeRetiro).
  */
 export async function retirarConsentimiento(contexto, borrarConsentimientoLocal) {
-  let borrada = false;
+  let cuenta = contexto.base ? "no_confirmada" : "sin_url";
   try {
-    const r = await conSesion({ ...contexto, version: null }, (sesion) => borrarCuentaApi(contexto.pedir, contexto.base, sesion));
-    borrada = r.ok && r.respuesta.status === 204;
+    if (contexto.base) {
+      const r = await conSesion({ ...contexto, version: null }, (sesion) => borrarCuentaApi(contexto.pedir, contexto.base, sesion));
+      if (r.ok && r.respuesta.status === 204) cuenta = "borrada";
+    }
+  } catch {
+    // La API falló de una forma inesperada: queda "no_confirmada" y se sigue igual.
   } finally {
     await contexto.almacen.borrar();
     await borrarConsentimientoLocal();
   }
-  return borrada ? { ok: true, mensaje: MENSAJES_CUENTA.borrada } : { ok: false, mensaje: MENSAJES_CUENTA.noConfirmada };
+  const cierre = await cerrarSesion(contexto.identidad, contexto.pedir);
+  const google = cierre.mensaje === MENSAJES_CIERRE.sinSesion ? "sin_sesion" : cierre.ok ? "revocado" : "no_confirmado";
+  return mensajeRetiro({ cuenta, google });
 }
 
 // ----- Correo de la sesión (encabezado del panel) -----

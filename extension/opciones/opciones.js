@@ -77,21 +77,16 @@ async function cerrarLaSesion() {
 }
 
 /**
- * Retira el consentimiento: DELETE /cuenta en la API (borra tu usuario y sus sesiones) y, pase lo
- * que pase, borra el consentimiento y la sesión de este equipo. El panel volverá a pedirlo.
+ * Retira el consentimiento (lib/sesion.js): DELETE /cuenta en la API (borra tu usuario y sus
+ * sesiones), borra el consentimiento y la sesión de este equipo y revoca el acceso de Google.
+ * Sin una URL válida de la API (base = null) igual hace lo local y revoca. El panel volverá a pedirlo.
  */
 async function retirarElConsentimiento() {
   sesion.retirar.disabled = true;
   try {
     const base = await baseApi();
-    const resultado = base
-      ? await retirarConsentimiento({ identidad: chrome.identity, pedir: fetch, base, almacen: almacenSesionApi },
-                                    borrarConsentimiento)
-      : await (async () => {
-        await almacenSesionApi.borrar();
-        await borrarConsentimiento();
-        return { ok: false, mensaje: "Consentimiento retirado en este equipo. Revisa la URL de la API para borrar tu cuenta allí." };
-      })();
+    const resultado = await retirarConsentimiento({ identidad: chrome.identity, pedir: fetch, base, almacen: almacenSesionApi },
+                                                  borrarConsentimiento);
     mostrarMensajeSesion(resultado.mensaje, resultado.ok ? "ok" : "error");
   } finally {
     sesion.retirar.disabled = false;
