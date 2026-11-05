@@ -117,7 +117,15 @@ Abrir el panel ─┬─ con sesión y consentimiento ─→ vista principal (an
 
   Los tres son obligatorios, porque el permiso de Gmail es uno solo (`gmail.modify`, que
   incluye leer). Borradores y recordatorios se pedirán aparte cuando existan. Incluye "Nunca
-  haremos…" y el texto de la **Ley 1581 de 2012**.
+  haremos…" y el texto de la **Ley 1581 de 2012**, con el enlace **"Política de privacidad"**
+  (paso 4.6), que abre [docs/privacidad.md](privacidad.md) en GitHub, en una pestaña nueva:
+  - es un `<a>` normal con `target="_blank"` y `rel="noopener noreferrer"`: no carga nada
+    remoto, y `noreferrer` evita mandar la dirección de la extensión;
+  - **no necesita ningún permiso**: los `host_permissions` solo cuentan para `fetch` y para los
+    content scripts, y la CSP limita lo que la página carga, no a dónde se navega;
+  - apunta a la rama `main`, así que funciona después de unir el PR;
+  - **la versión de la política es la del consentimiento ("3")**, y una prueba lo revisa. El
+    enlace no sube la versión, porque no pide nada nuevo.
 - **Qué se guarda al aceptar:** solo `{aceptado: true, version: "3", fecha}`, en
   `chrome.storage.local` (`lib/sesion.js` → `crearConsentimiento`).
   - Si cambia el texto de los permisos, se sube la versión y se vuelve a pedir.
@@ -189,9 +197,17 @@ Chrome no ofrece de forma estable a las extensiones.
 
   Si Google no confirma, o no hay red, la caché igual queda limpia y el mensaje pide **quitar el
   acceso a mano en myaccount.google.com/permissions**.
-- **Retirar consentimiento:** **borra tu cuenta en la API** con `DELETE /cuenta`: tu usuario y
-  todas sus sesiones. En este equipo borra `{aceptado, version, fecha}` y la sesión.
-  - Si la API está apagada, igual se retira en este equipo y el mensaje lo dice.
+- **Retirar consentimiento** (`retirarConsentimiento` en `lib/sesion.js`), en este orden:
+  1. **borra tu cuenta en la API** con `DELETE /cuenta`: tu usuario y todas sus sesiones. Va
+     primero porque, si hace falta abrir sesión en la API, se necesita el token de Google;
+  2. en este equipo borra `{aceptado, version, fecha}` y la sesión;
+  3. **desde el paso 4.6, también revoca el acceso de Google**, igual que "Cerrar sesión"
+     (`cerrarSesion`): quita el token de la caché y lo revoca, con el token en el cuerpo del
+     `POST`.
+  - Los pasos 2 y 3 se hacen **siempre**: también con la API apagada o sin una URL válida de la
+    API. El mensaje (`mensajeRetiro`) tiene una parte de la API y otra de Google.
+  - Si Google no confirma la revocación, el mensaje pide quitar el acceso a mano en
+    **myaccount.google.com/permissions**.
   - La próxima vez que abras el panel verás la bienvenida.
 
 ## Sesión con la API (paso 4.3)
@@ -251,6 +267,7 @@ revisan, y también revisan los bytes del archivo `.db`.
 **Opciones → Retirar consentimiento** llama a `DELETE /cuenta`:
 - borra tu fila de `usuarios` y, en cascada, **todas** tus sesiones;
 - los análisis no se borran, porque nunca estuvieron ligados a ti;
+- después la extensión revoca el acceso de Google (paso 4.6);
 - si vuelves a entrar, eres un usuario nuevo y se te piden otra vez los permisos.
 
 ## Bandeja: "Tu bandeja hoy" (paso 4.4)
@@ -894,6 +911,10 @@ node --test "extension/tests/*.test.js"
     - si la sesión guardada sigue vigente, no se llama a la API;
     - `/consentimiento`, `/auth/cerrar` y `DELETE /cuenta`;
     - cerrar sesión y retirar el consentimiento, también con la API apagada;
+    - retirar el consentimiento (paso 4.6), con un registro del orden: `DELETE /cuenta` → borra
+      lo local → quita el token de la caché → lo revoca (token en el cuerpo). También: Google no
+      confirma (400 o sin red, con el mensaje de myaccount), API apagada, sin URL de la API, sin
+      sesión de Google, y las 9 combinaciones de `mensajeRetiro`;
   - el correo del encabezado (`obtenerCorreo`):
     - el token va en `Authorization`, nunca en la URL;
     - se devuelve solo el correo;
@@ -981,6 +1002,12 @@ node --test "extension/tests/*.test.js"
     no vayan a `chrome.storage`;
   - las 3 pantallas del panel: al cargar solo se ve la bienvenida, que ofrece solo Google;
   - que los permisos incluyan "Nunca haremos" y la Ley 1581;
+  - el enlace a la política (paso 4.6): uno solo, en "Revisa los permisos", en pestaña nueva y
+    sin referrer. Es la **única** excepción a "no carga nada de internet", y no agrega permisos;
+  - `docs/privacidad.md`: su versión es `VERSION_CONSENTIMIENTO`; tiene lo que pide el art. 13
+    del Decreto 1377 (Responsable con correo, domicilio aunque sea "Pendiente…", quién atiende,
+    finalidad, derechos y cómo ejercerlos, fecha de vigencia y conservación); y dice lo que hace
+    el sistema (las horas de sesión se comparan con `config.py`);
   - que no haya claves escritas en el código;
   - que los íconos SVG no tengan scripts, eventos ni enlaces;
   - el SHA-256 de las fuentes.
@@ -1023,8 +1050,6 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
   si no, como UTF-8, y algún carácter podría verse mal.
 - **La cuenta de la pestaña sale del título de Gmail.** Si Gmail cambia ese formato, Analizar no
   podrá comprobarla y analizará igual.
-- **Todavía no hay política de privacidad publicada:** la pantalla de permisos cita la Ley 1581,
-  pero no enlaza a una política.
 - **La sesión de la API está en la memoria de Chrome** (`chrome.storage.session`) mientras el
   navegador está abierto. Quien use tu sesión del sistema operativo podría usarla hasta que venza
   (8 h). Cerrar sesión la invalida, y cerrar el navegador la borra.

@@ -12,7 +12,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, test } from "node:test";
 
+import { VERSION_CONSENTIMIENTO } from "../lib/sesion.js";
+
 const RAIZ = join(import.meta.dirname, "..");
+
+// Paso 4.6: el ÚNICO enlace a internet del HTML. Es navegación (abre una pestaña), no carga nada.
+const URL_POLITICA = "https://github.com/XzJulian0711/sicae-ia/blob/main/docs/privacidad.md";
+const ENLACE_POLITICA = `<a class="enlace" href="${URL_POLITICA}" target="_blank" rel="noopener noreferrer">Política de privacidad</a>`;
 
 // SHA-256 de las fuentes descargadas de github.com/google/fonts (ver docs/extension.md).
 const FUENTES = {
@@ -84,11 +90,74 @@ describe("HTML y CSS", () => {
   });
 
   test("no carga nada de internet (fuentes, estilos, scripts, imágenes)", () => {
-    for (const { nombre, codigo } of [...leer(".html"), ...leer(".css")]) {
+    for (const { nombre, codigo: original } of [...leer(".html"), ...leer(".css")]) {
+      // La única excepción es el enlace exacto a la política de privacidad (ver la prueba siguiente).
+      const codigo = original.split(ENLACE_POLITICA).join("");
       assert.doesNotMatch(codigo, /\b(src|href)\s*=\s*["']?(https?:)?\/\//i, `${nombre} carga un recurso remoto`);
       assert.doesNotMatch(codigo, /url\(\s*["']?(https?:)?\/\//i, `${nombre} carga un recurso remoto`);
       assert.doesNotMatch(codigo, /@import/i, `${nombre} usa @import`);
     }
+  });
+
+  test("el enlace a la política: uno solo, en «Revisa los permisos», en pestaña nueva y sin referrer", () => {
+    const todo = leer(".html").map(({ codigo }) => codigo).join("\n");
+    assert.equal(todo.split(ENLACE_POLITICA).length - 1, 1, "exactamente un enlace a la política");
+    const panel = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+    const permisos = /id="pantalla-permisos"[\s\S]*?<\/section>/.exec(panel)[0];
+    assert.ok(permisos.includes(ENLACE_POLITICA), "está en la pantalla de permisos");
+    // Es un <a> normal: no hace falta ningún permiso nuevo (la lista exacta del manifest se revisa aparte).
+    const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
+    assert.ok(!(manifest.host_permissions ?? []).some((p) => p.includes("github.com")));
+    assert.ok(!(manifest.permissions ?? []).includes("tabs"));
+  });
+});
+
+describe("política de privacidad (paso 4.6, docs/privacidad.md)", () => {
+  const politica = readFileSync(join(RAIZ, "..", "docs", "privacidad.md"), "utf8");
+
+  test("su versión es la del consentimiento", () => {
+    const version = /^- \*\*Versión:\*\* (\S+)/m.exec(politica)?.[1];
+    assert.equal(version, VERSION_CONSENTIMIENTO);
+    assert.match(politica, new RegExp(`Esta es la \\*\\*versión ${VERSION_CONSENTIMIENTO}\\*\\*`));
+  });
+
+  test("tiene lo que pide el art. 13 del Decreto 1377 de 2013", () => {
+    assert.match(politica, /^- \*\*Vigente desde:\*\* \d{1,2} de [a-z]+ de \d{4}$/m, "fecha de entrada en vigencia");
+    assert.match(politica, /^## 1\. Responsable$/m);
+    assert.match(politica, /\*\*Correo de contacto:\*\* \S+@\S+/);
+    // Puede decir "Pendiente…", pero no quedar vacío.
+    assert.match(politica, /^- \*\*Domicilio, dirección y teléfono:\*\* \S.+$/m);
+    assert.match(politica, /\*\*Quién atiende peticiones, consultas y reclamos:\*\* \S/);
+    assert.match(politica, /^## 2\. Qué datos se tratan y para qué$/m);
+    assert.match(politica, /^## 7\. Tus derechos y cómo ejercerlos$/m);
+    assert.match(politica, /^## 8\. Conservación \(período de vigencia de la base de datos\)$/m);
+    for (const palabra of ["Retirar consentimiento", "DELETE /cuenta", "myaccount.google.com/permissions",
+                           "10 días hábiles", "15 días hábiles", "Superintendencia de Industria y Comercio"]) {
+      assert.ok(politica.includes(palabra), palabra);
+    }
+  });
+
+  test("«Retirar consentimiento» también revoca el acceso de Google (política, Opciones y código)", () => {
+    assert.match(politica, /\*\*revoca el acceso de SICAE-IA a tu cuenta de Google\*\*/);
+    assert.doesNotMatch(politica, /\*\*no\*\* revoca el acceso de Google/, "ya no dice que no revoca");
+    const opcionesHtml = readFileSync(join(RAIZ, "opciones", "opciones.html"), "utf8");
+    assert.match(opcionesHtml, /Retirar el consentimiento borra tu cuenta en la API \(y sus sesiones\),\s+revoca el acceso de SICAE-IA/);
+    const opciones = sinComentarios(readFileSync(join(RAIZ, "opciones", "opciones.js"), "utf8"), ".js");
+    // Un solo camino, también sin URL de la API (antes ese caso no revocaba).
+    assert.match(opciones, /const resultado = await retirarConsentimiento\(\{ identidad: chrome\.identity, pedir: fetch, base,/);
+    assert.doesNotMatch(opciones, /Revisa la URL de la API para borrar tu cuenta/);
+    const sesion = sinComentarios(readFileSync(join(RAIZ, "lib", "sesion.js"), "utf8"), ".js");
+    const retirar = /export async function retirarConsentimiento[\s\S]*?\r?\n}\r?\n/.exec(sesion)[0];
+    assert.ok(retirar.indexOf("borrarCuentaApi") < retirar.indexOf("cerrarSesion("), "DELETE /cuenta antes de revocar");
+  });
+
+  test("dice lo que hace el sistema: sesiones de 8 h, sin IA externa, nunca borrado definitivo", () => {
+    const config = readFileSync(join(RAIZ, "..", "api", "app", "config.py"), "utf8");
+    const horas = /duracion_sesion_horas: int = (\d+)/.exec(config)[1];
+    assert.match(politica, new RegExp(`\\*\\*Sesiones\\*\\* \\| ${horas} horas`));
+    assert.match(politica, /No se envía nada a servicios de inteligencia artificial externos/);
+    assert.match(politica, /Nunca\*\* hay borrado definitivo ni envío/);
+    assert.match(politica, /compromiso del equipo, no algo automático del código/);
   });
 });
 
@@ -378,8 +447,9 @@ describe("Gmail (pasos 4.4 y 4.5): leer, papelera y cuarentena; NUNCA borrado de
   });
 
   test("la cuarentena usa batchModify y NUNCA trash", () => {
-    const cuarentena = /export async function ponerEnCuarentena[\s\S]*?\n}\n/.exec(gmail)[0];
-    const devolver = /export async function devolverARecibidos[\s\S]*?\n}\n/.exec(gmail)[0];
+    // \r?\n: con core.autocrlf=true (Windows) Git saca los archivos con CRLF.
+    const cuarentena = /export async function ponerEnCuarentena[\s\S]*?\r?\n}\r?\n/.exec(gmail)[0];
+    const devolver = /export async function devolverARecibidos[\s\S]*?\r?\n}\r?\n/.exec(gmail)[0];
     for (const codigo of [cuarentena, devolver]) {
       assert.match(codigo, /\/messages\/batchModify/);
       assert.doesNotMatch(codigo, /trash/);

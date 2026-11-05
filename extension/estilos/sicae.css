@@ -845,3 +845,18 @@ input[type="password"] {
   outline: 3px solid var(--azul);
   outline-offset: 2px;
 }
+
+/* ----- Enlace a la política de privacidad (paso 4.6) ----- */
+
+/* Azul de acción sobre blanco: 6,70:1. Subrayado para que no dependa solo del color. */
+.enlace {
+  color: var(--azul);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.enlace:hover { color: var(--azul-oscuro); }
+.enlace:focus-visible {
+  outline: 3px solid var(--azul);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

@@ -47,6 +47,12 @@ Definido por el equipo. No se modifica sin aprobación conjunta.
 - Stephanie Murillo Urrego
 - Mateo Enrique Bermejo Ramírez
 
+## Privacidad
+
+Qué datos trata SICAE-IA, para qué, cuánto tiempo y cómo ejercer tus derechos (Ley 1581 de 2012 y
+Decreto 1377 de 2013): [docs/privacidad.md](docs/privacidad.md). La extensión la enlaza desde la
+pantalla "Revisa los permisos".
+
 ## Estructura del repositorio
 
 ```
@@ -95,7 +101,8 @@ sicae-ia/
 ├── docs/
 │   ├── arquitectura.md       Documentación de arquitectura y decisiones
 │   ├── extension.md          Cómo cargar y configurar la extensión
-│   └── metricas.md           Dataset usado y métricas del modelo
+│   ├── metricas.md           Dataset usado y métricas del modelo
+│   └── privacidad.md         Política de privacidad (Ley 1581 de 2012)
 │
 ├── .github/workflows/
 │   └── ci.yml                Integración continua (pruebas en cada push)
@@ -406,9 +413,11 @@ Campos de `POST /analizar`:
 | 429 | Más de `SICAE_RATE_LIMIT` peticiones por minuto. Espera los segundos de `Retry-After` |
 | 503 | Modelo no cargado (revisa `GET /salud`), o `/auth/google` no pudo hablar con Google |
 
-**Privacidad.** La API nunca escribe en los logs el asunto, el cuerpo ni las direcciones. Los
-logs de uvicorn solo muestran el método y la ruta (`POST /analizar`). Las capas de seguridad
-están explicadas en [docs/arquitectura.md](docs/arquitectura.md), "Seguridad de la API".
+**Privacidad.** La API nunca escribe en los logs el asunto, el cuerpo ni las direcciones de
+correo. Los logs de uvicorn muestran la dirección del cliente (en este prototipo, la local,
+`127.0.0.1`), el método y la ruta (`POST /analizar`), solo en la consola. Las capas de seguridad
+están explicadas en [docs/arquitectura.md](docs/arquitectura.md), "Seguridad de la API", y los
+datos que se tratan, en la [política de privacidad](docs/privacidad.md).
 
 ### Pruebas
 

@@ -10,6 +10,7 @@ import {
   MENSAJES_AUTH,
   MENSAJES_CIERRE,
   MENSAJES_CUENTA,
+  MENSAJES_RETIRO_GOOGLE,
   URL_REVOCAR,
   URL_USERINFO,
   VERSION_CONSENTIMIENTO,
@@ -27,6 +28,7 @@ import {
   interpretarAuthApi,
   interpretarErrorAuth,
   interpretarUserinfo,
+  mensajeRetiro,
   obtenerCorreo,
   olvidarToken,
   pantallaInicial,
@@ -537,26 +539,97 @@ describe("cerrarSesionCompleta y retirarConsentimiento", () => {
     assert.equal(almacen.valor, null);
   });
 
-  test("retirar: DELETE /cuenta y borra la sesión y el consentimiento local", async () => {
-    const api = apiFalsa({ "DELETE /cuenta": [{ estado: 204 }] });
+});
+
+describe("retirarConsentimiento (paso 4.6): borra la cuenta y TAMBIÉN revoca el acceso de Google", () => {
+  /**
+   * Arma un retiro con dobles que anotan TODO en un solo registro, en orden:
+   * "DELETE /cuenta", "borrar sesión", "borrar consentimiento", "quitar de la caché", "revocar".
+   */
+  function escenario({ cuenta = [{ estado: 204 }], revocar = { ok: true }, base = BASE, token = { token: TOKEN } } = {}) {
+    const orden = [];
+    const api = apiFalsa({ "DELETE /cuenta": cuenta });
+    const revocaciones = [];
+    const pedir = async (url, opciones) => {
+      if (url === URL_REVOCAR) {
+        orden.push("revocar");
+        revocaciones.push({ url, opciones });
+        if (revocar === "sin-red") throw new TypeError("Failed to fetch");
+        return { ok: revocar.ok, status: revocar.ok ? 200 : 400 };
+      }
+      orden.push(`${opciones.method} ${new URL(url).pathname}`);
+      return api.pedir(url, opciones);
+    };
+    const identidad = identidadFalsa(token);
+    const quitar = identidad.removeCachedAuthToken;
+    identidad.removeCachedAuthToken = async (detalles) => { orden.push("quitar de la caché"); return quitar(detalles); };
     const almacen = almacenFalso(SESION);
-    let localBorrado = false;
-    const r = await retirarConsentimiento({ identidad: identidadFalsa(), pedir: api.pedir, base: BASE, almacen, ahora: AHORA_MS },
-                                          async () => { localBorrado = true; });
-    assert.deepEqual(r, { ok: true, mensaje: MENSAJES_CUENTA.borrada });
-    assert.deepEqual(api.llamadas.map((l) => l.clave), ["DELETE /cuenta"]);
-    assert.equal(almacen.valor, null);
-    assert.equal(localBorrado, true);
+    const borrarSesion = almacen.borrar;
+    almacen.borrar = async () => { orden.push("borrar sesión"); return borrarSesion(); };
+    const retirar = () => retirarConsentimiento({ identidad, pedir, base, almacen, ahora: AHORA_MS },
+                                                async () => { orden.push("borrar consentimiento"); });
+    return { retirar, orden, revocaciones, identidad, almacen };
+  }
+
+  test("todo bien: DELETE /cuenta → borra lo local → quita el token de la caché → lo revoca", async () => {
+    const e = escenario();
+    const r = await e.retirar();
+    assert.deepEqual(r, { ok: true, mensaje: `${MENSAJES_CUENTA.borrada} ${MENSAJES_RETIRO_GOOGLE.revocado}` });
+    assert.deepEqual(e.orden, ["DELETE /cuenta", "borrar sesión", "borrar consentimiento", "quitar de la caché", "revocar"]);
+    assert.deepEqual(e.identidad.llamadas.removeCachedAuthToken, [{ token: TOKEN }]);
+    assert.equal(e.almacen.valor, null);
+    // Como en "Cerrar sesión": el token va en el CUERPO del POST, nunca en la URL.
+    const [{ url, opciones }] = e.revocaciones;
+    assert.equal(url, URL_REVOCAR);
+    assert.ok(!url.includes(TOKEN));
+    assert.equal(opciones.method, "POST");
+    assert.equal(opciones.body, new URLSearchParams({ token: TOKEN }).toString());
+    noContieneToken(r);
   });
 
-  test("retirar con la API apagada: igual se retira en este equipo y lo avisa", async () => {
-    const almacen = almacenFalso(SESION);
-    let localBorrado = false;
-    const sinRed = apiFalsa({ "DELETE /cuenta": ["sin-red"] });
-    const r = await retirarConsentimiento({ identidad: identidadFalsa(), pedir: sinRed.pedir, base: BASE, almacen, ahora: AHORA_MS },
-                                          async () => { localBorrado = true; });
-    assert.deepEqual(r, { ok: false, mensaje: MENSAJES_CUENTA.noConfirmada });
-    assert.equal(almacen.valor, null);
-    assert.equal(localBorrado, true);
+  test("si Google no confirma la revocación (400 o sin red): lo dice y nombra myaccount.google.com/permissions", async () => {
+    for (const revocar of [{ ok: false }, "sin-red"]) {
+      const e = escenario({ revocar });
+      const r = await e.retirar();
+      assert.equal(r.ok, false, String(revocar));
+      assert.equal(r.mensaje, `${MENSAJES_CUENTA.borrada} ${MENSAJES_RETIRO_GOOGLE.noConfirmado}`);
+      assert.match(r.mensaje, /myaccount\.google\.com\/permissions/);
+      assert.deepEqual(e.identidad.llamadas.removeCachedAuthToken, [{ token: TOKEN }], "la caché igual queda limpia");
+    }
+  });
+
+  test("con la API apagada: igual borra lo local y revoca; el mensaje tiene las dos partes", async () => {
+    const e = escenario({ cuenta: ["sin-red"] });
+    const r = await e.retirar();
+    assert.deepEqual(r, { ok: false, mensaje: `${MENSAJES_CUENTA.noConfirmada} ${MENSAJES_RETIRO_GOOGLE.revocado}` });
+    assert.deepEqual(e.orden.slice(-4), ["borrar sesión", "borrar consentimiento", "quitar de la caché", "revocar"]);
+  });
+
+  test("sin URL de la API: no llama a la API, pero borra lo local y revoca", async () => {
+    const e = escenario({ base: null });
+    const r = await e.retirar();
+    assert.deepEqual(r, { ok: false, mensaje: `${MENSAJES_CUENTA.sinUrl} ${MENSAJES_RETIRO_GOOGLE.revocado}` });
+    assert.deepEqual(e.orden, ["borrar sesión", "borrar consentimiento", "quitar de la caché", "revocar"]);
+  });
+
+  test("sin sesión de Google en el navegador: no hay nada que revocar, y lo dice", async () => {
+    const e = escenario({ base: null, token: {} });
+    const r = await e.retirar();
+    assert.equal(r.mensaje, `${MENSAJES_CUENTA.sinUrl} ${MENSAJES_RETIRO_GOOGLE.sinSesion}`);
+    assert.equal(e.revocaciones.length, 0);
+  });
+
+  test("mensajeRetiro: las 9 combinaciones; myaccount solo cuando Google no confirma", () => {
+    const partesCuenta = { borrada: MENSAJES_CUENTA.borrada, no_confirmada: MENSAJES_CUENTA.noConfirmada, sin_url: MENSAJES_CUENTA.sinUrl };
+    const partesGoogle = { revocado: MENSAJES_RETIRO_GOOGLE.revocado, sin_sesion: MENSAJES_RETIRO_GOOGLE.sinSesion,
+                           no_confirmado: MENSAJES_RETIRO_GOOGLE.noConfirmado };
+    for (const [cuenta, textoCuenta] of Object.entries(partesCuenta)) {
+      for (const [google, textoGoogle] of Object.entries(partesGoogle)) {
+        const r = mensajeRetiro({ cuenta, google });
+        assert.equal(r.mensaje, `${textoCuenta} ${textoGoogle}`, `${cuenta}/${google}`);
+        assert.equal(r.ok, cuenta === "borrada" && google !== "no_confirmado", `${cuenta}/${google}`);
+        assert.equal(/myaccount\.google\.com\/permissions/.test(r.mensaje), google === "no_confirmado", `${cuenta}/${google}`);
+      }
+    }
   });
 });
