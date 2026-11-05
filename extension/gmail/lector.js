@@ -45,6 +45,11 @@
     ];
     const destinatarios = [...mensaje.querySelectorAll(S.destinatarios)].map((d) => d.getAttribute("email"));
 
+    // Id del mensaje en la API de Gmail (paso 4.5). Solo si tiene forma de id (hexadecimal).
+    const atributoId = S.idMensaje.slice(1, -1); // "[data-legacy-message-id]" → "data-legacy-message-id"
+    const idCrudo = mensaje.getAttribute(atributoId) || mensaje.querySelector(S.idMensaje)?.getAttribute(atributoId) || "";
+    const idGmail = /^[0-9a-f]{8,32}$/i.test(idCrudo) ? idCrudo : null;
+
     return {
       ok: true,
       correo: {
@@ -54,6 +59,7 @@
         cuerpo: texto(cuerpo),
         enlaces,
         nAdjuntos: mensaje.querySelectorAll(S.adjuntos).length,
+        idGmail,
       },
     };
   }

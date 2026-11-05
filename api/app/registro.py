@@ -31,6 +31,20 @@ CREATE TABLE IF NOT EXISTS analisis (
 """
 
 
+# Acciones sobre el correo (paso 4.5): SOLO fecha, acción, cantidad y MB. Nunca ids de correo,
+# remitentes ni el usuario.
+ACCIONES = ("papelera", "deshacer_papelera", "cuarentena", "devolver_cuarentena")
+ESQUEMA_ACCIONES = """
+CREATE TABLE IF NOT EXISTS acciones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha TEXT NOT NULL,
+    accion TEXT NOT NULL CHECK (accion IN ('papelera', 'deshacer_papelera', 'cuarentena', 'devolver_cuarentena')),
+    cantidad INTEGER NOT NULL CHECK (cantidad BETWEEN 0 AND 500),
+    mb REAL NOT NULL CHECK (mb >= 0)
+)
+"""
+
+
 def _conectar(ruta):
     return closing(sqlite3.connect(ruta))
 
@@ -41,6 +55,7 @@ def inicializar(ruta):
     ruta.parent.mkdir(parents=True, exist_ok=True)
     with _conectar(ruta) as conexion, conexion:
         conexion.execute(ESQUEMA)
+        conexion.execute(ESQUEMA_ACCIONES)
 
 
 def registrar(ruta, resultado):
@@ -62,6 +77,18 @@ def registrar(ruta, resultado):
             "INSERT INTO analisis (fecha, categoria, puntaje, confianza, prioridad, version_modelo) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             fila,
+        )
+        return cursor.lastrowid
+
+
+def registrar_accion(ruta, accion, cantidad, mb):
+    """Guarda UNA fila de una acción del paso 4.5 (papelera, deshacer, cuarentena, devolver).
+    Solo fecha, acción, cantidad y MB: nada que identifique correos, remitentes ni usuarios."""
+    inicializar(ruta)
+    with _conectar(ruta) as conexion, conexion:
+        cursor = conexion.execute(
+            "INSERT INTO acciones (fecha, accion, cantidad, mb) VALUES (?, ?, ?, ?)",
+            (datetime.now(UTC).isoformat(timespec="seconds"), accion, int(cantidad), round(float(mb), 3)),
         )
         return cursor.lastrowid
 

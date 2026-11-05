@@ -15,6 +15,11 @@ globalThis.SICAE_SELECTORES = Object.freeze({
   // el último desplegado, que es el que el usuario está leyendo.
   mensaje: "div.adn.ads",
 
+  // Id del mensaje en la API de Gmail (paso 4.5, para "Mover a cuarentena" desde Analizar).
+  // Gmail lo pone en el atributo data-legacy-message-id del mensaje (o de un elemento dentro).
+  // Solo se lee. Si Gmail lo cambia, el botón de cuarentena queda deshabilitado en Analizar.
+  idMensaje: "[data-legacy-message-id]",
+
   // Asunto de la conversación abierta (uno por página, fuera de los mensajes).
   asunto: "h2.hP",
 

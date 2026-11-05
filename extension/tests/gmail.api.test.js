@@ -1,4 +1,4 @@
-// Pruebas de extension/lib/gmail.js (paso 4.4): lectura con la API de Gmail SIMULADA.
+// Pruebas de extension/lib/gmail.js (pasos 4.4 y 4.5): lectura, papelera y cuarentena con la API de Gmail SIMULADA.
 // Los mensajes son INVENTADOS, con la forma JSON que devuelve users.messages.get (format=full).
 // Nunca se habla con Google. Correr desde la raíz:  node --test "extension/tests/*.test.js"
 
@@ -7,8 +7,14 @@ import { describe, test } from "node:test";
 
 import {
   CONCURRENCIA,
+  ESPERA_BASE_MS,
+  ESPERA_MAX_MS,
   MAX_CORREOS,
   MENSAJES_GMAIL,
+  NOMBRE_CUARENTENA,
+  REINTENTOS_MAX,
+  RAZONES_403_REINTENTABLES,
+  RETRY_AFTER_MAX_MS,
   TOPE_PUBLICIDAD,
   URL_GMAIL,
   cabecera,
@@ -19,15 +25,26 @@ import {
   enParalelo,
   enlacesDeHtml,
   enlacesDeTexto,
+  esReintentable,
+  esperaReintento,
+  esperaRetryAfter,
   htmlATexto,
   interpretarErrorGmail,
   interpretarMensaje,
+  devolverARecibidos,
   leerBandeja,
+  leerMensajes,
+  listarIds,
+  moverAPapelera,
+  ponerEnCuarentena,
   remitenteDe,
+  rutaPostPermitida,
+  sacarDePapelera,
 } from "../lib/gmail.js";
 
 const TOKEN = "ya29.token-de-gmail-inventado";
 const b64 = (texto) => Buffer.from(texto, "utf8").toString("base64url");
+const sinEspera = async () => {}; // en las pruebas los reintentos no esperan de verdad
 
 /** Doble de chrome.identity. */
 function identidadFalsa(token = TOKEN) {
@@ -271,7 +288,8 @@ describe("cliente de Gmail", () => {
 });
 
 describe("leerBandeja", () => {
-  test("lista los últimos 50 de Recibidos y lee cada uno, como máximo 5 a la vez", async () => {
+  test("lista los últimos 50 de Recibidos y lee cada uno, como máximo 3 a la vez", async () => {
+    assert.equal(CONCURRENCIA, 3);
     const mensajes = Array.from({ length: 12 }, (_, i) => mensaje(`m${i}`));
     const gmail = gmailFalso({ mensajes });
     const progreso = [];
@@ -296,7 +314,7 @@ describe("leerBandeja", () => {
     assert.ok(gmail.llamadas.every((l) => !l.url.includes("..")));
   });
 
-  test("errores: sin permiso (403 de alcance), cuota (429) y sin red", async () => {
+  test("errores: sin permiso (403 de alcance), cuota (429, después de reintentar) y sin red", async () => {
     const lista = `/messages?labelIds=INBOX&maxResults=${MAX_CORREOS}`;
     const casos = [
       [{ estado: 403, cuerpo: { error: { details: [{ reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] } } }, "sin_permiso"],
@@ -304,7 +322,7 @@ describe("leerBandeja", () => {
       ["sin-red", "sin_red"],
     ];
     for (const [respuesta, codigo] of casos) {
-      const r = await leerBandeja({ identidad: identidadFalsa(), pedir: gmailFalso({ respuestas: { [lista]: respuesta } }).pedir });
+      const r = await leerBandeja({ identidad: identidadFalsa(), pedir: gmailFalso({ respuestas: { [lista]: respuesta } }).pedir, esperar: sinEspera });
       assert.equal(r.ok, false);
       assert.equal(r.codigo, codigo);
       assert.ok(!JSON.stringify(r).includes(TOKEN));
@@ -327,7 +345,460 @@ describe("datosPromociones (Sobrecarga de publicidad)", () => {
   test("sin categoría Promociones (404) → 0; error de Gmail → null", async () => {
     const sin = crearClienteGmail({ identidad: identidadFalsa(), pedir: gmailFalso().pedir });
     assert.deepEqual(await datosPromociones(sin), { total: 0, tamanos: [], ids: [] });
-    const falla = crearClienteGmail({ identidad: identidadFalsa(), pedir: gmailFalso({ respuestas: { "/labels/CATEGORY_PROMOTIONS": { estado: 429 } } }).pedir });
+    const falla = crearClienteGmail({ identidad: identidadFalsa(), pedir: gmailFalso({ respuestas: { "/labels/CATEGORY_PROMOTIONS": { estado: 429 } } }).pedir, esperar: sinEspera });
     assert.equal(await datosPromociones(falla), null);
+  });
+});
+
+// ===================== Paso 4.5: buscar, papelera y cuarentena =====================
+
+/**
+ * Doble mínimo de la API: `manejar(metodo, ruta, cuerpo)` → {estado, cuerpo, cabeceras} o
+ * "sin-red". `cabeceras` (p. ej. {"Retry-After": "7"}) se leen con headers.get, como en fetch.
+ */
+function apiFalsa(manejar) {
+  const llamadas = [];
+  const pedir = async (url, opciones) => {
+    const ruta = url.slice(URL_GMAIL.length);
+    const cuerpo = opciones.body === undefined ? undefined : JSON.parse(opciones.body);
+    llamadas.push({ metodo: opciones.method, ruta, cuerpo, headers: opciones.headers });
+    await new Promise((r) => setTimeout(r, 1));
+    const r = manejar(opciones.method, ruta, cuerpo) ?? { estado: 404 };
+    if (r === "sin-red") throw new TypeError("Failed to fetch");
+    const cabeceras = new Map(Object.entries(r.cabeceras ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+    return {
+      status: r.estado,
+      headers: { get: (nombre) => cabeceras.get(nombre.toLowerCase()) ?? null },
+      json: async () => (r.estado === 204 ? Promise.reject(new SyntaxError("vacío")) : (r.cuerpo ?? {})),
+    };
+  };
+  return { pedir, llamadas };
+}
+
+const clienteCon = (api, opciones = {}) => crearClienteGmail({ identidad: identidadFalsa(), pedir: api.pedir, esperar: sinEspera, ...opciones });
+const parametros = (ruta) => new URL(`https://x.example${ruta}`).searchParams;
+
+describe("post(): solo las rutas permitidas", () => {
+  test("acepta trash, untrash, batchModify y labels; nada más", () => {
+    for (const ruta of ["/messages/abc123/trash", "/messages/abc123/untrash", "/messages/batchModify", "/labels"]) {
+      assert.equal(rutaPostPermitida(ruta), true, ruta);
+    }
+    for (const ruta of ["/messages/abc123/delete", "/messages/batchDelete", "/messages/send", "/drafts", "/drafts/send",
+                        "/messages/import", "/messages", "/threads/abc/trash", "/messages/a/b/trash", "/messages/abc/trash?x=1",
+                        "/settings/filters", null, undefined, 42]) {
+      assert.equal(rutaPostPermitida(ruta), false, String(ruta));
+    }
+  });
+
+  test("una ruta no permitida se rechaza SIN llamar a Gmail", async () => {
+    const api = apiFalsa(() => ({ estado: 200 }));
+    const cliente = clienteCon(api);
+    for (const ruta of ["/messages/abc/delete", "/messages/send", "/messages/batchDelete"]) {
+      await assert.rejects(cliente.post(ruta, {}), (e) => e.codigo === "ruta_no_permitida");
+    }
+    assert.equal(api.llamadas.length, 0);
+  });
+
+  test("el POST lleva el token en la cabecera, JSON y nada en la URL", async () => {
+    const api = apiFalsa(() => ({ estado: 200, cuerpo: { id: "abc" } }));
+    await clienteCon(api).post("/messages/abc/trash");
+    const [llamada] = api.llamadas;
+    assert.equal(llamada.metodo, "POST");
+    assert.equal(llamada.headers.Authorization, `Bearer ${TOKEN}`);
+    assert.equal(llamada.headers["Content-Type"], "application/json");
+    assert.ok(!llamada.ruta.includes(TOKEN));
+  });
+});
+
+describe("listarIds (buscar candidatos)", () => {
+  test("lleva etiquetas, q e includeSpamTrash", async () => {
+    const api = apiFalsa(() => ({ estado: 200, cuerpo: { messages: [{ id: "s1" }, { id: "s2" }] } }));
+    const ids = await listarIds(clienteCon(api), { labelIds: ["SPAM"], q: "older_than:6m larger:5M", includeSpamTrash: true, max: 10 });
+    assert.deepEqual(ids, ["s1", "s2"]);
+    const p = parametros(api.llamadas[0].ruta);
+    assert.deepEqual(p.getAll("labelIds"), ["SPAM"]);
+    assert.equal(p.get("q"), "older_than:6m larger:5M");
+    assert.equal(p.get("includeSpamTrash"), "true");
+    assert.equal(p.get("maxResults"), "10");
+  });
+
+  test("«Todo el correo»: sin etiqueta ni includeSpamTrash", async () => {
+    const api = apiFalsa(() => ({ estado: 200, cuerpo: { messages: [] } }));
+    await listarIds(clienteCon(api), { labelIds: [], q: "larger:5M", max: 25 });
+    const p = parametros(api.llamadas[0].ruta);
+    assert.equal(p.has("labelIds"), false);
+    assert.equal(p.has("includeSpamTrash"), false);
+  });
+
+  test("sigue las páginas hasta el tope y descarta ids raros o repetidos", async () => {
+    const paginas = {
+      "": { messages: [{ id: "a1" }, { id: "a2" }, { id: "../x" }], nextPageToken: "p2" },
+      p2: { messages: [{ id: "a2" }, { id: "a3" }, { id: "a4" }], nextPageToken: "p3" },
+      p3: { messages: [{ id: "a5" }] },
+    };
+    const api = apiFalsa((_m, ruta) => ({ estado: 200, cuerpo: paginas[parametros(ruta).get("pageToken") ?? ""] }));
+    assert.deepEqual(await listarIds(clienteCon(api), { labelIds: ["CATEGORY_PROMOTIONS"], max: 4 }), ["a1", "a2", "a3", "a4"]);
+    assert.equal(api.llamadas.length, 2, "con 4 ya no pide la tercera página");
+    assert.equal(parametros(api.llamadas[1].ruta).get("maxResults"), "2", "pide solo lo que falta");
+  });
+
+  test("cancelar para antes de la siguiente página", async () => {
+    let paginasPedidas = 0;
+    const api = apiFalsa(() => { paginasPedidas += 1; return { estado: 200, cuerpo: { messages: [{ id: `m${paginasPedidas}` }], nextPageToken: "otra" } }; });
+    const ids = await listarIds(clienteCon(api), { max: 100 }, () => paginasPedidas >= 2);
+    assert.deepEqual(ids, ["m1", "m2"]);
+    assert.equal(api.llamadas.length, 2);
+  });
+});
+
+describe("leerMensajes", () => {
+  const api = () => apiFalsa((_m, ruta) => {
+    const id = /^\/messages\/([\w-]+)\?format=full$/.exec(ruta)?.[1];
+    return id ? { estado: 200, cuerpo: mensaje(id) } : { estado: 404 };
+  });
+
+  test("lee e interpreta cada uno, con progreso", async () => {
+    const progreso = [];
+    const leidos = await leerMensajes(clienteCon(api()), ["x1", "x2", "x3"], { alProgresar: (n, total) => progreso.push([n, total]) });
+    assert.deepEqual(leidos.map((m) => m.id), ["x1", "x2", "x3"]);
+    assert.equal(leidos[0].correo.asunto, "Asunto x1");
+    assert.deepEqual(progreso.at(-1), [3, 3]);
+  });
+
+  test("cancelado no pide nada más", async () => {
+    const a = api();
+    assert.deepEqual(await leerMensajes(clienteCon(a), ["x1", "x2"], { cancelado: () => true }), []);
+    assert.equal(a.llamadas.length, 0);
+  });
+});
+
+describe("papelera y Deshacer", () => {
+  test("mueve con messages.trash, uno por id; si alguno falla, sigue con los demás", async () => {
+    const api = apiFalsa((metodo, ruta) => {
+      if (ruta === "/messages/m2/trash") return { estado: 500 };
+      if (ruta === "/messages/m4/trash") return "sin-red";
+      return metodo === "POST" ? { estado: 200, cuerpo: { id: "ok" } } : { estado: 404 };
+    });
+    const progreso = [];
+    const r = await moverAPapelera(clienteCon(api), ["m1", "m2", "m3", "m4", "m5"], (n, total) => progreso.push([n, total]));
+    assert.deepEqual(r, { hechos: ["m1", "m3", "m5"], fallidos: ["m2", "m4"], sinPermiso: false });
+    assert.deepEqual([...new Set(api.llamadas.map((l) => l.ruta))].sort(), ["m1", "m2", "m3", "m4", "m5"].map((id) => `/messages/${id}/trash`));
+    // m2 (500 permanente) se intentó 1 + 5 veces; m4 (sin red) no se reintenta.
+    assert.equal(api.llamadas.filter((l) => l.ruta === "/messages/m2/trash").length, 1 + REINTENTOS_MAX);
+    assert.equal(api.llamadas.filter((l) => l.ruta === "/messages/m4/trash").length, 1);
+    assert.ok(api.llamadas.every((l) => l.metodo === "POST"));
+    assert.deepEqual(progreso.at(-1), [5, 5]);
+  });
+
+  test("un 429 permanente en un correo: queda en fallidos y los demás se mueven", async () => {
+    const api = apiFalsa((_m, ruta) => (ruta === "/messages/q2/trash" ? { estado: 429 } : { estado: 200, cuerpo: {} }));
+    const r = await moverAPapelera(clienteCon(api), ["q1", "q2", "q3"]);
+    assert.deepEqual(r, { hechos: ["q1", "q3"], fallidos: ["q2"], sinPermiso: false });
+  });
+
+  test("un 429 pasajero en trash se recupera solo", async () => {
+    let veces = 0;
+    const api = apiFalsa(() => (++veces <= 2 ? { estado: 429 } : { estado: 200, cuerpo: {} }));
+    assert.deepEqual(await moverAPapelera(clienteCon(api), ["r1"]), { hechos: ["r1"], fallidos: [], sinPermiso: false });
+  });
+
+  test("un id raro no llega a Gmail: cuenta como fallido", async () => {
+    const api = apiFalsa(() => ({ estado: 200 }));
+    const r = await moverAPapelera(clienteCon(api), ["bueno1", "../../labels"]);
+    assert.deepEqual(r, { hechos: ["bueno1"], fallidos: ["../../labels"], sinPermiso: false });
+    assert.equal(api.llamadas.length, 1);
+  });
+
+  test("Deshacer hace untrash de ESOS MISMOS ids", async () => {
+    const api = apiFalsa(() => ({ estado: 200 }));
+    const cliente = clienteCon(api);
+    const movidos = await moverAPapelera(cliente, ["d1", "d2"]);
+    const deshecho = await sacarDePapelera(cliente, movidos.hechos);
+    assert.deepEqual(deshecho, { hechos: ["d1", "d2"], fallidos: [], sinPermiso: false });
+    assert.deepEqual(api.llamadas.slice(2).map((l) => l.ruta).sort(), ["/messages/d1/untrash", "/messages/d2/untrash"]);
+  });
+});
+
+describe("cuarentena (nunca a la papelera)", () => {
+  function apiCuarentena({ existe }) {
+    return apiFalsa((metodo, ruta) => {
+      if (metodo === "GET" && ruta === "/labels") {
+        return { estado: 200, cuerpo: { labels: [{ id: "INBOX", name: "INBOX" }, ...(existe ? [{ id: "Label_9", name: NOMBRE_CUARENTENA }] : [])] } };
+      }
+      if (metodo === "POST" && ruta === "/labels") return { estado: 200, cuerpo: { id: "Label_nueva", name: NOMBRE_CUARENTENA } };
+      if (metodo === "POST" && ruta === "/messages/batchModify") return { estado: 204 };
+      return { estado: 404 };
+    });
+  }
+
+  test("crea la etiqueta si falta, la pone y quita INBOX", async () => {
+    const api = apiCuarentena({ existe: false });
+    const r = await ponerEnCuarentena(clienteCon(api), ["f1"]);
+    assert.deepEqual(r, { etiqueta: "Label_nueva", ids: ["f1"] });
+    const creada = api.llamadas.find((l) => l.metodo === "POST" && l.ruta === "/labels");
+    assert.equal(creada.cuerpo.name, "SICAE/Cuarentena");
+    const cambio = api.llamadas.find((l) => l.ruta === "/messages/batchModify");
+    assert.deepEqual(cambio.cuerpo, { ids: ["f1"], addLabelIds: ["Label_nueva"], removeLabelIds: ["INBOX"] });
+  });
+
+  test("si la etiqueta ya existe, la reusa (no crea otra)", async () => {
+    const api = apiCuarentena({ existe: true });
+    const r = await ponerEnCuarentena(clienteCon(api), ["f1"]);
+    assert.equal(r.etiqueta, "Label_9");
+    assert.equal(api.llamadas.filter((l) => l.metodo === "POST" && l.ruta === "/labels").length, 0);
+  });
+
+  test("ni la cuarentena ni Devolver llaman a trash", async () => {
+    const api = apiCuarentena({ existe: true });
+    const cliente = clienteCon(api);
+    await ponerEnCuarentena(cliente, ["f1"]);
+    await devolverARecibidos(cliente, ["f1"]);
+    assert.ok(api.llamadas.every((l) => !/trash/i.test(l.ruta)));
+  });
+
+  test("Devolver a Recibidos: agrega INBOX y quita la etiqueta", async () => {
+    const api = apiCuarentena({ existe: true });
+    await devolverARecibidos(clienteCon(api), ["f1", "../x"]);
+    const cambio = api.llamadas.find((l) => l.ruta === "/messages/batchModify");
+    assert.deepEqual(cambio.cuerpo, { ids: ["f1"], addLabelIds: ["INBOX"], removeLabelIds: ["Label_9"] });
+  });
+});
+
+
+// ===================== Reintentos ante 429 / 5xx (corrección del 4.5) =====================
+
+/** Cliente que anota cada espera y cada aviso, sin esperar de verdad; azar fijo en 0,5. */
+function clienteQueAnota(api) {
+  const esperas = [];
+  const avisos = [];
+  const cliente = crearClienteGmail({
+    identidad: identidadFalsa(),
+    pedir: api.pedir,
+    esperar: async (ms) => { esperas.push(ms); },
+    azar: () => 0.5,
+    alReintentar: (intento, ms) => avisos.push([intento, ms]),
+  });
+  return { cliente, esperas, avisos };
+}
+
+describe("reintentos: funciones puras", () => {
+  test("qué se reintenta y qué no", () => {
+    for (const estado of [429, 500, 502, 503, 504]) assert.equal(esReintentable(estado, null), true, String(estado));
+    assert.equal(esReintentable(403, { error: { errors: [{ reason: "userRateLimitExceeded" }] } }), true);
+    assert.equal(esReintentable(403, { error: { errors: [{ reason: "rateLimitExceeded" }] } }), true);
+    assert.equal(esReintentable(403, { error: { details: [{ reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] } }), false);
+    assert.equal(esReintentable(403, { error: { errors: [{ reason: "accessNotConfigured" }] } }), false);
+    for (const estado of [400, 401, 404, 409]) assert.equal(esReintentable(estado, null), false, String(estado));
+    // soloLimite (crear la etiqueta): 429 sí, 5xx no.
+    assert.equal(esReintentable(429, null, { soloLimite: true }), true);
+    assert.equal(esReintentable(500, null, { soloLimite: true }), false);
+  });
+
+  test("espera exponencial con jitter y tope", () => {
+    assert.equal(esperaReintento(0, { azar: () => 0 }), ESPERA_BASE_MS);
+    assert.deepEqual([0, 1, 2, 3, 4].map((n) => esperaReintento(n, { azar: () => 0.5 })), [1500, 2500, 4500, 8500, 16500]);
+    assert.equal(esperaReintento(10, { azar: () => 0.5 }), ESPERA_MAX_MS, "nunca más de 32 s");
+    assert.ok(esperaReintento(2, { azar: () => 0.999 }) < 5000, "el jitter suma menos de 1 s");
+    assert.equal(esperaReintento(0, { azar: () => "raro" }), ESPERA_BASE_MS);
+    assert.equal(esperaReintento(3, { retryAfterMs: 7000 }), 7000, "Retry-After manda");
+  });
+
+  test("Retry-After en segundos o como fecha HTTP, entre 1 s y 60 s", () => {
+    assert.equal(esperaRetryAfter("7"), 7000);
+    assert.equal(esperaRetryAfter("0"), ESPERA_BASE_MS, "al menos 1 s");
+    assert.equal(esperaRetryAfter("3600"), RETRY_AFTER_MAX_MS, "como máximo 60 s");
+    const ahora = Date.parse("Wed, 04 Nov 2026 15:00:00 GMT");
+    assert.equal(esperaRetryAfter("Wed, 04 Nov 2026 15:00:12 GMT", ahora), 12_000);
+    assert.equal(esperaRetryAfter("Wed, 04 Nov 2026 14:00:00 GMT", ahora), ESPERA_BASE_MS, "fecha pasada → 1 s");
+    for (const raro of [null, undefined, "", "7.5", "-3", "mañana", "7 segundos"]) {
+      assert.equal(esperaRetryAfter(raro), null, String(raro));
+    }
+  });
+});
+
+describe("reintentos con Gmail simulado", () => {
+  test("429 que se recupera: dos 429 y luego 200", async () => {
+    let veces = 0;
+    const api = apiFalsa(() => (++veces <= 2 ? { estado: 429 } : { estado: 200, cuerpo: { messages: [{ id: "a1" }] } }));
+    const { cliente, esperas, avisos } = clienteQueAnota(api);
+    assert.deepEqual(await listarIds(cliente, { max: 5 }), ["a1"]);
+    assert.equal(api.llamadas.length, 3);
+    assert.deepEqual(esperas, [1500, 2500]);
+    assert.deepEqual(avisos, [[1, 1500], [2, 2500]]);
+  });
+
+  test("429 permanente: 1 + 5 intentos, esperas crecientes, y recién ahí el error de cuota", async () => {
+    const api = apiFalsa(() => ({ estado: 429 }));
+    const { cliente, esperas } = clienteQueAnota(api);
+    await assert.rejects(cliente.get("/messages/x1?format=full"), (e) => e.codigo === "cuota" && e.message === MENSAJES_GMAIL.cuota);
+    assert.equal(api.llamadas.length, 1 + REINTENTOS_MAX);
+    assert.deepEqual(esperas, [1500, 2500, 4500, 8500, 16500]);
+  });
+
+  test("respeta Retry-After si viene", async () => {
+    let veces = 0;
+    const api = apiFalsa(() => (++veces === 1 ? { estado: 429, cabeceras: { "Retry-After": "7" } } : { estado: 200, cuerpo: { ok: 1 } }));
+    const { cliente, esperas } = clienteQueAnota(api);
+    assert.deepEqual(await cliente.get("/labels"), { ok: 1 });
+    assert.deepEqual(esperas, [7000]);
+  });
+
+  test("Retry-After inválido o exagerado", async () => {
+    let veces = 0;
+    const api = apiFalsa(() => {
+      veces += 1;
+      if (veces === 1) return { estado: 503, cabeceras: { "Retry-After": "pronto" } };
+      if (veces === 2) return { estado: 503, cabeceras: { "Retry-After": "86400" } };
+      return { estado: 200, cuerpo: {} };
+    });
+    const { cliente, esperas } = clienteQueAnota(api);
+    await cliente.get("/labels");
+    assert.deepEqual(esperas, [1500, RETRY_AFTER_MAX_MS], "inválido → backoff; un día → 60 s");
+  });
+
+  test("503 y 403 de límite se reintentan; 400, 404, 403 de permiso y sin red no", async () => {
+    for (const primero of [{ estado: 503 }, { estado: 403, cuerpo: { error: { errors: [{ reason: "userRateLimitExceeded" }] } } }]) {
+      let veces = 0;
+      const api = apiFalsa(() => (++veces === 1 ? primero : { estado: 200, cuerpo: { ok: 1 } }));
+      assert.deepEqual(await clienteQueAnota(api).cliente.get("/labels"), { ok: 1 });
+    }
+    const casos = [
+      [{ estado: 400 }, "inesperada"],
+      [{ estado: 403, cuerpo: { error: { details: [{ reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] } } }, "sin_permiso"],
+      ["sin-red", "sin_red"],
+    ];
+    for (const [respuesta, codigo] of casos) {
+      const api = apiFalsa(() => respuesta);
+      const { cliente, esperas } = clienteQueAnota(api);
+      await assert.rejects(cliente.post("/messages/z1/trash"), (e) => e.codigo === codigo);
+      assert.equal(api.llamadas.length, 1, codigo);
+      assert.deepEqual(esperas, []);
+    }
+    const api404 = apiFalsa(() => ({ estado: 404 }));
+    assert.equal(await clienteQueAnota(api404).cliente.get("/messages/z1?format=full"), null);
+    assert.equal(api404.llamadas.length, 1);
+  });
+
+  test("crear la etiqueta (POST /labels) no se repite ante un 500, pero sí ante un 429", async () => {
+    const con500 = apiFalsa((metodo) => (metodo === "GET" ? { estado: 200, cuerpo: { labels: [] } } : { estado: 500 }));
+    await assert.rejects(ponerEnCuarentena(clienteQueAnota(con500).cliente, ["f1"]));
+    assert.equal(con500.llamadas.filter((l) => l.metodo === "POST").length, 1);
+
+    let veces = 0;
+    const con429 = apiFalsa((metodo, ruta) => {
+      if (metodo === "GET") return { estado: 200, cuerpo: { labels: [] } };
+      if (ruta === "/labels") return ++veces === 1 ? { estado: 429 } : { estado: 200, cuerpo: { id: "Label_1" } };
+      return { estado: 204 };
+    });
+    assert.equal((await ponerEnCuarentena(clienteQueAnota(con429).cliente, ["f1"])).etiqueta, "Label_1");
+  });
+
+  test("el 401 se renueva aparte y no gasta reintentos", async () => {
+    let veces = 0;
+    const api = apiFalsa(() => {
+      veces += 1;
+      if (veces === 1) return { estado: 429 };
+      if (veces === 2) return { estado: 401 };
+      return { estado: 200, cuerpo: { ok: 1 } };
+    });
+    const { cliente, esperas } = clienteQueAnota(api);
+    assert.deepEqual(await cliente.get("/labels"), { ok: 1 });
+    assert.deepEqual(esperas, [1500]);
+    assert.equal(api.llamadas.at(-1).headers.Authorization, `Bearer ${TOKEN}-nuevo`);
+  });
+
+  test("leerBandeja avisa los reintentos y se recupera", async () => {
+    const lista = `/messages?labelIds=INBOX&maxResults=${MAX_CORREOS}`;
+    let veces = 0;
+    const gmail = gmailFalso({
+      mensajes: [mensaje("b1")],
+      respuestas: { [lista]: () => (++veces === 1 ? { estado: 429 } : { estado: 200, cuerpo: { messages: [{ id: "b1" }] } }) },
+    });
+    const avisos = [];
+    const r = await leerBandeja({ identidad: identidadFalsa(), pedir: gmail.pedir, esperar: sinEspera, alReintentar: (n) => avisos.push(n) });
+    assert.equal(r.ok, true);
+    assert.equal(r.mensajes.length, 1);
+    assert.deepEqual(avisos, [1]);
+    assert.equal(MENSAJES_GMAIL.reintentando, "Gmail pidió esperar, reintentando…");
+  });
+});
+
+// ===================== El 403 se reintenta SOLO por límite de uso =====================
+
+// Cuerpo real de Gmail cuando el token no tiene el alcance (p. ej. faltaba gmail.modify).
+const CUERPO_SIN_PERMISO = {
+  error: {
+    code: 403,
+    message: "Request had insufficient authentication scopes.",
+    errors: [{ message: "Insufficient Permission", domain: "global", reason: "insufficientPermissions" }],
+    status: "PERMISSION_DENIED",
+    details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }],
+  },
+};
+const cuerpoLimite = (reason) => ({ error: { code: 403, errors: [{ domain: "usageLimits", reason }] } });
+
+describe("403: reintentar solo con rateLimitExceeded / userRateLimitExceeded", () => {
+  test("esReintentable: sí con las dos razones de límite; no con ningún otro 403", () => {
+    assert.deepEqual([...RAZONES_403_REINTENTABLES], ["ratelimitexceeded", "userratelimitexceeded"]);
+    assert.equal(esReintentable(403, cuerpoLimite("rateLimitExceeded")), true);
+    assert.equal(esReintentable(403, cuerpoLimite("userRateLimitExceeded")), true);
+    assert.equal(esReintentable(403, CUERPO_SIN_PERMISO), false, "permiso insuficiente");
+    assert.equal(esReintentable(403, { error: { status: "RESOURCE_EXHAUSTED" } }), false, "solo las dos razones pedidas");
+    assert.equal(esReintentable(403, cuerpoLimite("dailyLimitExceeded")), false);
+    assert.equal(esReintentable(403, null), false, "403 sin cuerpo");
+  });
+
+  test("403 de permiso insuficiente: 1 solo pedido, sin esperas ni avisos, y el mensaje de «Dar permiso»", async () => {
+    const api = apiFalsa(() => ({ estado: 403, cuerpo: CUERPO_SIN_PERMISO }));
+    const { cliente, esperas, avisos } = clienteQueAnota(api);
+    await assert.rejects(cliente.get("/messages?maxResults=10"),
+                         (e) => e.codigo === "sin_permiso" && e.message === MENSAJES_GMAIL.sinPermiso);
+    assert.equal(api.llamadas.length, 1);
+    assert.deepEqual(esperas, []);
+    assert.deepEqual(avisos, []);
+    assert.match(MENSAJES_GMAIL.sinPermiso, /Dar permiso/);
+  });
+
+  test("403 rateLimitExceeded: se reintenta y se recupera", async () => {
+    let veces = 0;
+    const api = apiFalsa(() => (++veces === 1 ? { estado: 403, cuerpo: cuerpoLimite("rateLimitExceeded") } : { estado: 200, cuerpo: { ok: 1 } }));
+    const { cliente, esperas, avisos } = clienteQueAnota(api);
+    assert.deepEqual(await cliente.get("/labels"), { ok: 1 });
+    assert.equal(api.llamadas.length, 2);
+    assert.deepEqual(esperas, [1500]);
+    assert.equal(avisos.length, 1);
+  });
+
+  test("leerBandeja con 403 de permiso: un pedido y codigo sin_permiso (el panel muestra «Dar permiso»)", async () => {
+    const lista = `/messages?labelIds=INBOX&maxResults=${MAX_CORREOS}`;
+    const gmail = gmailFalso({ respuestas: { [lista]: { estado: 403, cuerpo: CUERPO_SIN_PERMISO } } });
+    const avisos = [];
+    const r = await leerBandeja({ identidad: identidadFalsa(), pedir: gmail.pedir, esperar: sinEspera, alReintentar: () => avisos.push(1) });
+    assert.deepEqual(r, { ok: false, codigo: "sin_permiso", mensaje: MENSAJES_GMAIL.sinPermiso });
+    assert.equal(gmail.llamadas.length, 1);
+    assert.deepEqual(avisos, []);
+  });
+
+  test("papelera con 403 de permiso: fallidos + sinPermiso, sin reintentos", async () => {
+    const api = apiFalsa((_m, ruta) => (ruta === "/messages/s2/trash" ? { estado: 403, cuerpo: CUERPO_SIN_PERMISO } : { estado: 200, cuerpo: {} }));
+    const { cliente, esperas } = clienteQueAnota(api);
+    const r = await moverAPapelera(cliente, ["s1", "s2", "s3"]);
+    assert.deepEqual(r, { hechos: ["s1", "s3"], fallidos: ["s2"], sinPermiso: true });
+    assert.equal(api.llamadas.filter((l) => l.ruta === "/messages/s2/trash").length, 1);
+    assert.deepEqual(esperas, []);
+  });
+
+  test("Deshacer con 403 de permiso también avisa sinPermiso", async () => {
+    const api = apiFalsa(() => ({ estado: 403, cuerpo: CUERPO_SIN_PERMISO }));
+    const r = await sacarDePapelera(clienteQueAnota(api).cliente, ["u1"]);
+    assert.deepEqual(r, { hechos: [], fallidos: ["u1"], sinPermiso: true });
+  });
+
+  test("cuarentena con 403 de permiso: error sin_permiso, sin reintentos", async () => {
+    const api = apiFalsa(() => ({ estado: 403, cuerpo: CUERPO_SIN_PERMISO }));
+    const { cliente, esperas } = clienteQueAnota(api);
+    await assert.rejects(ponerEnCuarentena(cliente, ["f1"]), (e) => e.codigo === "sin_permiso");
+    assert.equal(api.llamadas.length, 1);
+    assert.deepEqual(esperas, []);
   });
 });

@@ -350,7 +350,8 @@ uvicorn app.main:app --app-dir api --reload
 | `POST /auth/google` | Con el token de Google en `Bearer`: lo verifica con Google y devuelve `{token_sesion, expira, consentimiento_version}`. La sesión dura 8 h |
 | `POST /consentimiento` | Con sesión y `{"version": "1"}`: guarda qué versión de los permisos aceptó |
 | `POST /analizar` | Con sesión **y consentimiento** |
-| `POST /analizar/lote` | Igual, para hasta 50 correos a la vez: `{"correos": [...]}` → `{"resultados": [...]}` en el mismo orden. Cuenta como **una** petición en el límite por IP (paso 4.4) |
+| `POST /analizar/lote` | Igual, para hasta 50 correos a la vez: `{"correos": [...]}` → `{"resultados": [...]}` en el mismo orden. Cuenta como **una** petición en el límite por IP (paso 4.4). Con `"registrar": false` no cuenta en `/estadisticas` (paso 4.5, "Liberar espacio") |
+| `POST /acciones` | Con sesión y consentimiento: `{"accion": "papelera", "cantidad": 40, "mb": 12.5}` → 204. Solo anota la acción que la extensión hizo en Gmail (fecha, acción, cantidad, MB), sin identificadores ni remitentes (paso 4.5) |
 | `GET /estadisticas` | Con sesión |
 | `POST /auth/cerrar` | Cierra esa sesión |
 | `DELETE /cuenta` | Borra el usuario y todas sus sesiones |

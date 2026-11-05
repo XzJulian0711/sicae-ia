@@ -722,3 +722,126 @@ input[type="password"] {
   padding-top: 18px;
   border-top: 1px solid var(--borde);
 }
+
+/* ----- Liberar espacio y cuarentena (paso 4.5) ----- */
+
+/* Acción de alerta (mover a la papelera o a cuarentena): naranja.
+   Blanco sobre #c2410c = 5,18:1; sobre #9a3412 (hover) = 7,31:1. */
+.boton-alerta { background: var(--naranja); color: #ffffff; }
+.boton-alerta:hover { background: #9a3412; }
+/* Deshabilitado sin opacidad: #475569 sobre #f1f5f9 = 6,92:1. */
+.boton-alerta:disabled { background: #f1f5f9; color: #475569; border-color: #cbd5e1; cursor: not-allowed; }
+
+/* Enlace de acción azul (6,70:1 sobre blanco), p. ej. "← Volver a la bandeja". */
+.boton-texto-azul {
+  font: inherit;
+  font-weight: 700;
+  color: var(--azul);
+  background: none;
+  border: none;
+  padding: 0;
+  justify-self: start;
+  cursor: pointer;
+}
+.boton-texto-azul:hover { text-decoration: underline; }
+
+.formulario-liberar { display: grid; gap: 14px; }
+.formulario-liberar fieldset {
+  margin: 0;
+  padding: 0;
+  border: none;
+  display: grid;
+  gap: 8px;
+}
+.formulario-liberar legend { padding: 0; margin-bottom: 6px; }
+
+.opcion {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.opcion input[type="checkbox"],
+.opcion input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--azul);
+}
+
+/* Campos numéricos: borde #64748b = 4,76:1 sobre blanco (mínimo 3:1 para controles). */
+.opcion input[type="number"] {
+  font: inherit;
+  width: 72px;
+  padding: 5px 8px;
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  color: var(--texto);
+  background: var(--fondo);
+}
+
+.fila-cantidad { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+
+.fila-seleccion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Total seleccionado: azul sobre azul suave = 6,16:1. */
+.total-seleccion {
+  font-weight: 700;
+  color: var(--azul);
+  background: var(--azul-suave);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.total-seleccion:empty { display: none; }
+
+.resultado-limpieza { display: grid; gap: 12px; }
+
+.grupos { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.grupo {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+.grupo > .opcion { font-weight: 700; }
+.grupo summary {
+  color: var(--azul);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  width: fit-content;
+}
+.grupo .lista-correos { margin-top: 4px; padding-left: 26px; }
+.grupo .lista-correos .opcion { padding: 6px 0; font-size: 13px; }
+
+.cuarentena { display: grid; gap: 8px; }
+
+/* Diálogo de confirmación (<dialog> con showModal: atrapa el foco y se cierra con Escape). */
+.dialogo {
+  width: min(360px, calc(100% - 32px));
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  padding: 20px;
+  color: var(--texto);
+  background: var(--fondo);
+}
+.dialogo h2 { margin-bottom: 8px; }
+.dialogo p { margin-bottom: 16px; line-height: 1.55; }
+.dialogo::backdrop { background: rgba(15, 23, 42, 0.55); }
+
+.boton-texto-azul:focus-visible,
+.grupo summary:focus-visible,
+.opcion input:focus-visible {
+  outline: 3px solid var(--azul);
+  outline-offset: 2px;
+}

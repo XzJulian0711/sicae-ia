@@ -8,6 +8,7 @@ Endpoints:
   DELETE /cuenta          -> con sesión: borra el usuario y todas sus sesiones.
   POST   /analizar        -> con sesión y consentimiento: categoría, confianza, prioridad y motivos.
   POST   /analizar/lote   -> lo mismo para hasta 50 correos a la vez (paso 4.4, pestaña Bandeja).
+  POST   /acciones        -> con sesión y consentimiento: registra papelera/cuarentena (solo cantidad y MB).
   GET    /estadisticas    -> con sesión: conteos por categoría y prioridad (solo números).
 
 Arrancar (desde la raíz del proyecto, con SICAE_GOOGLE_CLIENT_ID en .env):
@@ -35,6 +36,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import registro, usuarios
 from app.config import obtener_ajustes
 from app.esquemas import (
+    AccionEntrada,
     ConsentimientoEntrada,
     Estadisticas,
     Resultado,
@@ -305,12 +307,12 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
     )
     def analizar_lote(lote: LoteEntrada, request: Request):
         """Mismo análisis que /analizar para cada correo, en el mismo orden. Si uno falla, en su
-        lugar va {"error": ...} y los demás siguen. Registro igual que hoy: una fila por correo."""
+        lugar va {"error": ...} y los demás siguen. Registro: una fila por correo, salvo registrar=false."""
         recursos = recursos_o_503(request)
         resultados = []
         for correo in lote.correos:
             try:
-                resultados.append(_analizar_uno(correo, request, recursos))
+                resultados.append(_analizar_uno(correo, request, recursos, registrar=lote.registrar))
             except Exception as error:
                 logger.error("Error al analizar un correo del lote (%s)", type(error).__name__)
                 resultados.append({"error": "No se pudo analizar este correo."})
@@ -325,8 +327,9 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
             )
         return recursos
 
-    def _analizar_uno(correo, request, recursos):
-        """analizar_correo() + registro de UNA fila (sin texto). Lo usan /analizar y el lote."""
+    def _analizar_uno(correo, request, recursos, registrar=True):
+        """analizar_correo() + registro de UNA fila (sin texto). Lo usan /analizar y el lote.
+        registrar=False (paso 4.5): los análisis de "Liberar espacio" no se cuentan."""
         # From y To salen de los campos explícitos y mandan sobre las cabeceras opcionales.
         cabeceras = {"From": correo.remitente, "To": ", ".join(correo.destinatarios)}
         cabeceras.update({k: v for k, v in correo.cabeceras.items() if k.lower() not in ("from", "to")})
@@ -336,11 +339,27 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
         )
         # Registro: solo categoría, puntaje, confianza, prioridad y versión. Si falla, la
         # respuesta se entrega igual y en el log queda solo el tipo de error.
-        try:
-            registro.registrar(ajustes.db_path, resultado)
-        except Exception as error:
-            logger.error("No se pudo registrar el análisis (%s)", type(error).__name__)
+        if registrar:
+            try:
+                registro.registrar(ajustes.db_path, resultado)
+            except Exception as error:
+                logger.error("No se pudo registrar el análisis (%s)", type(error).__name__)
         return resultado
+
+    @app.post("/acciones", status_code=204, summary="Registra una acción sobre el correo (sin ids ni remitentes)",
+              responses={401: {"description": "Sin sesión válida"},
+                         403: {"description": "Falta el consentimiento"},
+                         503: {"description": "Registro no disponible"}},
+              dependencies=[Depends(exigir_consentimiento)])
+    def registrar_accion(entrada: AccionEntrada):
+        """Paso 4.5: papelera, deshacer, cuarentena o devolver. Solo fecha, acción, cantidad y MB;
+        nunca ids de correo, remitentes ni el usuario."""
+        try:
+            registro.registrar_accion(ajustes.db_path, entrada.accion, entrada.cantidad, entrada.mb)
+        except Exception as error:
+            logger.error("No se pudo registrar la acción (%s)", type(error).__name__)
+            raise HTTPException(status_code=503, detail="El registro no está disponible.") from None
+        return Response(status_code=204)
 
     @app.get(
         "/estadisticas",

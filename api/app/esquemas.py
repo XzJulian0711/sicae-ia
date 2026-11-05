@@ -6,7 +6,7 @@ negativo, un asunto demasiado largo), FastAPI responde 422 sin llamar a analizar
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 LARGO_MAX_DIRECCION = 320  # largo máximo de una dirección de correo (RFC 3696)
 
@@ -83,8 +83,24 @@ def crear_lote_entrada(ajustes, CorreoEntrada):
             min_length=1, max_length=ajustes.max_lote,
             description=f"De 1 a {ajustes.max_lote} correos. La respuesta los devuelve en el mismo orden.",
         )
+        registrar: StrictBool = Field(
+            default=True,
+            description="False para no guardar estos análisis en el registro (paso 4.5: los análisis "
+                        "que hace 'Liberar espacio' para excluir phishing y prioridad alta no se cuentan "
+                        "en /estadisticas).",
+        )
 
     return LoteEntrada
+
+
+class AccionEntrada(BaseModel):
+    """Cuerpo de POST /acciones (paso 4.5): qué se hizo y cuánto. Sin ids ni remitentes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    accion: Literal["papelera", "deshacer_papelera", "cuarentena", "devolver_cuarentena"]
+    cantidad: int = Field(ge=0, le=500, description="Cuántos correos.")
+    mb: float = Field(ge=0, le=1_000_000, description="Cuántos MB sumaban.")
 
 
 class ErrorDeCorreo(BaseModel):

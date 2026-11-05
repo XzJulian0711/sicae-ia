@@ -11,7 +11,7 @@
 //
 // Los mensajes son propios: nunca se muestra el texto crudo de un error.
 
-export const VERSION_CONSENTIMIENTO = "2"; // "2" desde el paso 4.4 (leer tus correos con la API de Gmail)
+export const VERSION_CONSENTIMIENTO = "3"; // "2" en el 4.4 (leer correos); "3" en el 4.5 (papelera y cuarentena)
 export const URL_REVOCAR = "https://oauth2.googleapis.com/revoke";
 export const TIEMPO_SESION_MS = 10_000; // máximo para comprobar la sesión sin ventana
 const TIEMPO_REVOCAR_MS = 5_000;

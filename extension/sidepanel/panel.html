@@ -119,11 +119,22 @@
           <div>
             <label for="permiso-leer-correos">Leer tus correos para clasificarlos</label>
             <span class="etiqueta-obligatorio">Obligatorio</span>
-            <p class="suave">No guardamos su contenido. Solo lectura: no puede mover, borrar ni enviar correos.</p>
+            <p class="suave">No guardamos su contenido.</p>
+          </div>
+        </li>
+        <!-- Paso 4.5 (consentimiento versión 3): papelera y cuarentena, siempre con confirmación. -->
+        <li class="permiso">
+          <input type="checkbox" id="permiso-mover-correos" checked disabled>
+          <div>
+            <label for="permiso-mover-correos">Mover correos a la papelera o a cuarentena</label>
+            <span class="etiqueta-obligatorio">Obligatorio</span>
+            <p class="suave">Mover correos a la papelera o a cuarentena solo cuando lo confirmas. Se puede deshacer. Nunca borramos de forma definitiva.</p>
+            <!-- Aclaración (no sube la versión: no pide nada nuevo). -->
+            <p class="suave nota-pequena">Google describe este permiso como «leer, redactar y enviar». Es el mínimo que existe para mover a la papelera; SICAE-IA nunca envía ni borra correos de forma definitiva.</p>
           </div>
         </li>
       </ul>
-      <p class="suave nota-pequena">Organizar, borradores y recordatorios se pedirán aparte cuando existan.</p>
+      <p class="suave nota-pequena">Borradores y recordatorios se pedirán aparte cuando existan.</p>
       <div class="nunca-haremos">
         <p class="nunca-titulo">Nunca haremos</p>
         <p>Borrar correos de forma permanente, enviar sin tu aprobación, ni vender o compartir tus datos.</p>
@@ -177,6 +188,15 @@
           <ol class="chips" id="lista-motivos" aria-labelledby="titulo-motivos"></ol>
         </div>
         <p class="aviso" id="aviso-recorte" hidden>El correo es muy largo: se analizó solo el inicio.</p>
+        <!-- Paso 4.5: cuarentena de phishing (etiqueta SICAE/Cuarentena + quitar de Recibidos).
+             Nunca va a la papelera. Solo se muestra en la tarjeta de phishing. -->
+        <div class="cuarentena" id="cuarentena" hidden>
+          <button type="button" class="boton boton-alerta" id="mover-cuarentena">Mover a cuarentena</button>
+          <button type="button" class="boton boton-secundario" id="devolver-recibidos" hidden>Devolver a Recibidos</button>
+          <p class="estado" id="cuarentena-estado" role="status" aria-live="polite" hidden></p>
+          <!-- Solo si Gmail dice que falta el permiso (403 de permiso insuficiente). -->
+          <button type="button" class="boton boton-secundario" id="cuarentena-dar-permiso" hidden>Dar permiso</button>
+        </div>
         <p class="tarjeta-nota" id="tarjeta-nota"></p>
       </section>
     </div>
@@ -239,13 +259,92 @@
             <h3 id="titulo-publicidad">Sobrecarga de publicidad</h3>
           </div>
           <p id="publicidad-texto"></p>
-          <button type="button" class="boton boton-secundario" id="liberar-espacio" aria-disabled="true" aria-describedby="liberar-nota">Revisar y liberar espacio</button>
-          <p class="suave nota-pequena" id="liberar-nota">Próximamente (4.5).</p>
+          <button type="button" class="boton boton-secundario" id="liberar-espacio">Revisar y liberar espacio</button>
         </section>
 
         <p class="suave nota-pequena" id="bandeja-sin-clasificar" hidden></p>
       </div>
     </section>
+
+    <!-- Vista "Liberar espacio" (paso 4.5): elegir correos y moverlos a la PAPELERA, con
+         confirmación y Deshacer. Nunca se borra nada de forma definitiva. -->
+    <section class="vista vista-liberar" id="vista-liberar" aria-labelledby="titulo-liberar" hidden>
+      <button type="button" class="boton-texto-azul" id="volver-bandeja">← Volver a la bandeja</button>
+      <h2 class="titulo-grande" id="titulo-liberar" tabindex="-1">Liberar espacio</h2>
+      <p class="subtitulo">Elige qué correos revisar. Nada se mueve sin tu confirmación, y se puede deshacer.</p>
+
+      <form class="caja formulario-liberar" id="formulario-liberar" novalidate>
+        <fieldset>
+          <legend class="rotulo">Origen (se suman)</legend>
+          <label class="opcion"><input type="checkbox" name="origen" value="publicidad"> Publicidad detectada</label>
+          <label class="opcion"><input type="checkbox" name="origen" value="promociones"> Promociones de Gmail</label>
+          <label class="opcion"><input type="checkbox" name="origen" value="spam"> Spam</label>
+          <label class="opcion"><input type="checkbox" name="origen" value="todo" id="origen-todo"> Todo el correo</label>
+          <p class="aviso" id="aviso-todo" role="alert" hidden></p>
+        </fieldset>
+
+        <fieldset>
+          <legend class="rotulo">Condiciones (opcionales, filtran)</legend>
+          <label class="opcion">
+            <input type="checkbox" id="usar-meses"> Más antiguos que
+            <input type="number" id="meses" min="1" max="120" value="6" inputmode="numeric" aria-label="Meses"> meses
+          </label>
+          <label class="opcion">
+            <input type="checkbox" id="usar-mb"> Más grandes que
+            <input type="number" id="mb" min="1" max="50" value="5" inputmode="numeric" aria-label="Megabytes"> MB
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend class="rotulo">Cuántos revisar</legend>
+          <div class="fila-cantidad">
+            <label class="opcion"><input type="radio" name="cantidad" value="10"> 10</label>
+            <label class="opcion"><input type="radio" name="cantidad" value="25" checked> 25</label>
+            <label class="opcion"><input type="radio" name="cantidad" value="50"> 50</label>
+            <label class="opcion"><input type="radio" name="cantidad" value="100"> 100</label>
+            <label class="opcion"><input type="radio" name="cantidad" value="otro"> Otro:
+              <input type="number" id="cantidad-otra" min="1" max="500" value="200" inputmode="numeric" aria-label="Cantidad (máximo 500)">
+            </label>
+          </div>
+        </fieldset>
+
+        <p class="suave nota-pequena">Siempre se excluyen los destacados, los importantes, los de prioridad alta y los de posible phishing.</p>
+        <div class="acciones">
+          <button type="submit" class="boton boton-principal" id="buscar-limpieza">Buscar</button>
+          <button type="button" class="boton boton-secundario" id="cancelar-limpieza" hidden>Cancelar</button>
+        </div>
+      </form>
+
+      <p class="estado" id="liberar-progreso" role="status" aria-live="polite" hidden></p>
+      <div class="estado" id="liberar-error" role="alert" data-tipo="error" hidden><span id="liberar-error-texto"></span></div>
+      <!-- Solo si Gmail dice que falta el permiso (403 de permiso insuficiente). -->
+      <button type="button" class="boton boton-secundario" id="liberar-dar-permiso" hidden>Dar permiso</button>
+      <p class="suave nota-pequena" id="liberar-excluidos" hidden></p>
+
+      <div class="caja resultado-limpieza" id="resultado-limpieza" hidden>
+        <div class="fila-seleccion">
+          <label class="opcion"><input type="checkbox" id="seleccionar-todo"> Seleccionar todo</label>
+          <p class="total-seleccion" id="total-seleccion" role="status" aria-live="polite"></p>
+        </div>
+        <ul class="grupos" id="grupos-remitente" aria-label="Correos agrupados por remitente"></ul>
+        <button type="button" class="boton boton-alerta" id="mover-papelera" disabled>Mover a la papelera…</button>
+      </div>
+
+      <div class="caja" id="movimiento" hidden>
+        <p class="estado" id="movimiento-texto" role="status" aria-live="polite"></p>
+        <button type="button" class="boton boton-secundario" id="deshacer-movimiento">Deshacer</button>
+      </div>
+    </section>
+
+    <!-- Confirmación antes de mover a la papelera (diálogo nativo: Escape cierra). -->
+    <dialog class="dialogo" id="dialogo-confirmar" aria-labelledby="dialogo-titulo" aria-describedby="dialogo-texto">
+      <h2 id="dialogo-titulo">¿Mover a la papelera?</h2>
+      <p id="dialogo-texto"></p>
+      <div class="fila-botones">
+        <button type="button" class="boton boton-secundario" id="dialogo-cancelar">Cancelar</button>
+        <button type="button" class="boton boton-alerta" id="dialogo-confirmar-boton">Mover a la papelera</button>
+      </div>
+    </dialog>
 
     <details class="caja conexion">
       <summary>Estado de la conexión</summary>
