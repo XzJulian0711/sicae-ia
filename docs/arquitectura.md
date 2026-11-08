@@ -29,6 +29,7 @@
 | `POST /analizar/lote` | Sesión + consentimiento | Lo mismo para 1 a `SICAE_MAX_LOTE` (50) correos, en el mismo orden (paso 4.4). Reutiliza `analizar_correo()`; si uno falla, en su lugar va `{"error": ...}` y los demás siguen. Una fila de registro por correo, sin texto. Tope propio de `SICAE_MAX_BYTES_LOTE` (2 MB) y cuenta como **una** petición en el límite por IP. Con `"registrar": false` (paso 4.5, la clasificación para "Liberar espacio") **no** escribe filas, así no cuenta en `/estadisticas`; por defecto es `true` y solo acepta `true`/`false` |
 | `POST /acciones` | Sesión + consentimiento | Registra una acción hecha en Gmail desde la extensión (paso 4.5): `{accion, cantidad, mb}`. Responde **204**. Ver "Registro de acciones" |
 | `POST /redactar` | Sesión + consentimiento **"4"** | Propone un borrador con IA (paso 6.2): Ollama local o, solo para la cuenta de prueba, el modo demostración con Gemini. Ver "3.3 Redacción con IA" |
+| `GET /redactar/proveedores` | Sesión | Paso 6.3: `{local, modelo_local, demostracion}`. `demostracion` es `true` solo si hay `SICAE_DEMO_API_KEY` y el `google_sub` de la sesión es `SICAE_DEMO_CUENTA`. La extensión muestra el interruptor del modo demostración solo entonces. Nunca devuelve la clave ni la cuenta |
 | `GET /estadisticas` | Sesión | Conteos por categoría y prioridad |
 
 ### 3.1 Seguridad de la API
@@ -170,6 +171,11 @@ demostracion)}`. A propósito **no** acepta remitente, destinatarios ni cabecera
   - 502: respuesta rara o clave de Gemini rechazada.
 
   **Nunca** se devuelve ni se escribe en los logs lo que respondió el proveedor.
+- **`codigo` en los errores** (paso 6.3): los errores de `/redactar` traen `{"detalle", "codigo"}`
+  (`sin_conexion`, `modelo_no_descargado`, `tiempo_agotado`, `consentimiento`, `demo_cuenta`,
+  `demo_desactivado`, `limite_hora`…). La extensión elige su propio mensaje con el código y no
+  muestra el `detalle`. Se hace con `ErrorConCodigo`, una `HTTPException` con `codigo` que el
+  manejador de errores agrega al JSON. Los demás errores de la API no cambian.
 - **Límite:** `SICAE_IA_LIMITE_HORA` (20) borradores por usuario por hora, en memoria (ventana
   deslizante; se reinicia con la API). Al pasarse: 429 con `Retry-After`.
 

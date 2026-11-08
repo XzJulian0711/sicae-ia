@@ -218,6 +218,14 @@ class Borrador(BaseModel):
     avisos: list[str] = Field(default_factory=list)
 
 
+class Proveedores(BaseModel):
+    """Respuesta de GET /redactar/proveedores (paso 6.3). Nunca trae la clave ni la cuenta de prueba."""
+
+    local: bool = Field(description="Ollama en este equipo (siempre se ofrece).")
+    modelo_local: str = Field(description='Modelo de Ollama configurado, por ejemplo "gemma4:e4b".')
+    demostracion: bool = Field(description="Si ESTA sesión puede usar el modo demostración (Gemini).")
+
+
 class Salud(BaseModel):
     estado: Literal["ok", "sin_modelo"]
     modelo_cargado: bool

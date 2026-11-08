@@ -380,15 +380,21 @@ uvicorn app.main:app --app-dir api --reload
 | `POST /analizar` | Con sesión **y consentimiento** |
 | `POST /analizar/lote` | Igual, para hasta 50 correos a la vez: `{"correos": [...]}` → `{"resultados": [...]}` en el mismo orden. Cuenta como **una** petición en el límite por IP (paso 4.4). Con `"registrar": false` no cuenta en `/estadisticas` (paso 4.5, "Liberar espacio") |
 | `POST /acciones` | Con sesión y consentimiento: `{"accion": "papelera", "cantidad": 40, "mb": 12.5}` → 204. Solo anota la acción que la extensión hizo en Gmail (fecha, acción, cantidad, MB), sin identificadores ni remitentes (paso 4.5) |
-| `POST /redactar` | Con sesión y **consentimiento "4"** (paso 6.2): `{"indicacion", "tono", "asunto", "cuerpo", "modo"}` → `{"borrador", "proveedor", "modelo", "segundos", "enlaces_quitados", "cuerpo_recortado", "avisos"}`. Ver "Redacción con IA" |
+| `POST /redactar` | Con sesión y **consentimiento "4"** (paso 6.2): `{"indicacion", "tono", "asunto", "cuerpo", "modo"}` → `{"borrador", "proveedor", "modelo", "segundos", "enlaces_quitados", "cuerpo_recortado", "avisos"}`. Ver "Redacción con IA". Los errores traen además `codigo` (paso 6.3), para que la extensión elija su propio mensaje |
+| `GET /redactar/proveedores` | Con sesión (paso 6.3): `{"local": true, "modelo_local": "gemma4:e4b", "demostracion": bool}`. `demostracion` es `true` solo si hay clave **y** la sesión es la cuenta de prueba. Nunca devuelve la clave ni la cuenta |
 | `GET /estadisticas` | Con sesión |
 | `POST /auth/cerrar` | Cierra esa sesión |
 | `DELETE /cuenta` | Borra el usuario y todas sus sesiones |
 
-### Redacción con IA (paso 6.2)
+### Redacción con IA (pasos 6.2 y 6.3)
 
-`POST /redactar` propone un borrador de respuesta. La extensión todavía no lo usa (llega en el
-paso 6.3), y exige el consentimiento **"4"**, que se pedirá entonces.
+`POST /redactar` propone un borrador de respuesta. La extensión lo usa en la pestaña
+**Redactar** (paso 6.3): escribes qué quieres decir, eliges el tono, editas el borrador y puedes
+**copiarlo** o **guardarlo como borrador en Gmail**, en el mismo hilo. **Nunca se envía.** Exige el
+consentimiento **"4"**. Detalles en [docs/extension.md](docs/extension.md), "Redactar".
+
+**Antes de usar la pestaña Redactar**, Ollama tiene que estar instalado y abierto, con el modelo
+descargado (pasos 1 y 2 de abajo). La primera vez puede tardar mientras carga el modelo.
 
 **Por defecto, Ollama en tu equipo** (nada sale de la máquina):
 1. Instala Ollama desde [ollama.com](https://ollama.com) y ábrelo (o `ollama serve`).

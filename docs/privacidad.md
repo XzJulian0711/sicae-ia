@@ -1,7 +1,7 @@
 # Política de privacidad de SICAE-IA
 
-- **Versión:** 3 (la misma del consentimiento que aceptas en "Revisa los permisos")
-- **Vigente desde:** 4 de noviembre de 2026
+- **Versión:** 4 (la misma del consentimiento que aceptas en "Revisa los permisos")
+- **Vigente desde:** 8 de noviembre de 2026
 - **Normas:** Ley 1581 de 2012 y Decreto 1377 de 2013 (protección de datos personales en
   Colombia).
 
@@ -31,6 +31,7 @@ pedir tu consentimiento.
 | **Versión y fecha del consentimiento** | Saber qué texto aceptaste y cuándo (es la prueba de tu autorización) | Base de la API (`usuarios`) y tu navegador |
 | **Tu correo electrónico** | Mostrarlo en el encabezado del panel | **No se guarda**: se pide a Google cada vez |
 | **El contenido de tus correos** (asunto, cuerpo, remitente, destinatarios, enlaces, cantidad de adjuntos y algunas cabeceras) | Clasificarlos | **Solo en memoria**, mientras se analizan. No se guarda |
+| **Lo que quieres decir y el borrador** (pestaña Redactar, sección 11) | Redactar una respuesta | **Solo en memoria** del panel. No se guarda; solo va a Gmail como borrador si tú lo pides |
 | **Registros anónimos de análisis**: fecha, categoría, puntaje, confianza, prioridad y versión del modelo | Estadísticas y resultados de la tesis | Base de la API (`analisis`), **sin** usuario ni texto |
 | **Registros anónimos de acciones**: fecha, acción (papelera, deshacer, cuarentena, devolver), cantidad y MB | Estadísticas y resultados de la tesis | Base de la API (`acciones`), **sin** usuario ni identificadores de correo |
 
@@ -70,9 +71,10 @@ API muestra la dirección local, el método y la ruta de cada petición (por eje
   - mostrar tu correo en el panel (`userinfo`);
   - leer y mover tus correos con la API de Gmail;
   - revocar el acceso cuando cierras sesión.
-- **No se envía nada a servicios de inteligencia artificial externos.** El modelo es propio y
-  corre en la API local. Con esta versión (3) la redacción con IA no está disponible; el modo
-  demostración de la sección 11 pedirá aceptar la versión 4.
+- No se envía nada a servicios de inteligencia artificial externos, **salvo** el modo demostración
+  opcional de la sección 11 (solo la cuenta de prueba del proyecto). El modelo de clasificación es
+  propio y corre en la API local, y la redacción con IA, por defecto, también corre en tu equipo
+  (Ollama).
 - El archivo del modelo se descarga **una vez** desde las publicaciones (Releases) del
   repositorio en GitHub, sin enviar datos tuyos.
 
@@ -81,12 +83,12 @@ API muestra la dirección local, el método y la ruta de cada petición (por eje
 | Permiso | Para qué |
 |---|---|
 | `openid` y `userinfo.email` | Saber quién eres al iniciar sesión y mostrar tu correo en el panel |
-| `gmail.modify` | Leer tus correos para clasificarlos (Bandeja y Liberar espacio), moverlos a la papelera o sacarlos de ella, y poner o quitar la etiqueta de cuarentena |
+| `gmail.modify` | Leer tus correos para clasificarlos (Bandeja y Liberar espacio), moverlos a la papelera o sacarlos de ella, poner o quitar la etiqueta de cuarentena y **guardar un borrador** de respuesta (sección 11) |
 
 Google describe `gmail.modify` como «leer, redactar y enviar». Es el permiso más pequeño que
 existe para mover a la papelera. **SICAE-IA nunca envía correos ni los borra de forma
-definitiva**: el código solo permite mover a la papelera, sacar de ella y cambiar etiquetas, y
-las pruebas del proyecto lo revisan.
+definitiva**: el código solo permite mover a la papelera, sacar de ella, cambiar etiquetas y
+crear borradores (nunca enviarlos), y las pruebas del proyecto lo revisan.
 
 ## 6. Acciones sobre tu correo
 
@@ -95,8 +97,10 @@ las pruebas del proyecto lo revisan.
   durante 30 días. Después, Gmail la vacía sola; SICAE-IA nunca la vacía.
 - **Cuarentena** (correos con posible phishing): solo pone la etiqueta "SICAE/Cuarentena" y lo
   quita de Recibidos. Se deshace con "Devolver a Recibidos" o quitando la etiqueta en Gmail.
+- **Insertar como borrador** (pestaña Redactar): guarda tu respuesta en Gmail como borrador, en el
+  mismo hilo. **Nunca se envía**: la revisas y la envías tú desde Gmail, o la borras.
 - **Nunca** hay borrado definitivo ni envío de correos.
-- De cada acción se registra solo la fecha, el tipo de acción, la cantidad y los MB.
+- De cada acción sobre el buzón se registra solo la fecha, el tipo de acción, la cantidad y los MB.
 
 ## 7. Tus derechos y cómo ejercerlos
 
@@ -165,15 +169,16 @@ solo borra solas las sesiones vencidas.
 - La pantalla de consentimiento de Google está en **modo de prueba**: solo pueden entrar las
   cuentas que el equipo agregó como usuarios de prueba.
 - Las acciones que mueven correos se prueban solo en la cuenta de pruebas del proyecto.
-- Esta es la **versión 3**, vigente desde el 4 de noviembre de 2026. Si cambia lo que se pide, se
+- Esta es la **versión 4**, vigente desde el 8 de noviembre de 2026 (la 3, del 4 de noviembre, no
+  incluía la redacción con IA). Si cambia lo que se pide, se
   publica una versión nueva y el panel vuelve a pedir el consentimiento.
 
-## 11. Redacción con IA (todavía no disponible en la extensión)
+## 11. Redacción con IA (pestaña Redactar)
 
-La API ya puede proponer un **borrador de respuesta** (`POST /redactar`, paso 6.2), pero la
-extensión todavía no lo usa. **Para usarlo habrá que aceptar la versión 4** de esta política y
-de "Revisa los permisos" (paso 6.3): la API lo rechaza con cualquier versión anterior, porque
-redactar es una finalidad nueva.
+En la pestaña **Redactar** escribes qué quieres decir y eliges un tono; la IA propone un
+**borrador** de respuesta al correo abierto. Lo puedes editar, copiar o guardar en Gmail como
+borrador. Usarla exige haber aceptado la **versión 4** de esta política y de "Revisa los
+permisos", porque redactar es una finalidad nueva.
 
 **Qué recibe la IA:** tu indicación (lo que quieres decir, máximo 500 caracteres), el tono, el
 asunto y el inicio del cuerpo del correo que respondes (por defecto, hasta 4.000 caracteres).
@@ -182,9 +187,11 @@ asunto y el inicio del cuerpo del correo que respondes (por defecto, hasta 4.000
 **Dónde se procesa:**
 - **Por defecto, en tu equipo, con Ollama.** La API solo acepta Ollama en `127.0.0.1`, sin
   proxies: **nada sale de tu computador.**
-- **Modo demostración (Gemini, de Google), solo para la cuenta de prueba del proyecto.** Se usa
-  únicamente si se pide expresamente y si la sesión es de esa cuenta (sicae.pruebas.2026@gmail.com);
-  con cualquier otra cuenta se rechaza. Si Ollama falla, **nunca** se pasa a Gemini solo.
+- **Modo demostración (Gemini, de Google), opcional y solo para la cuenta de prueba del
+  proyecto** (sicae.pruebas.2026@gmail.com). El interruptor solo aparece para esa cuenta, viene
+  apagado y, **cada vez** que se usa, el panel avisa y deja cancelar: "El texto se envía a Google
+  Gemini (capa gratuita). Personas de Google pueden leerlo. Úsalo solo con correos de prueba."
+  Si Ollama falla, **nunca** se pasa a Gemini solo.
   - **Qué se envía a Google:** la indicación, el tono, el asunto y el inicio del cuerpo, con
     **cada dirección de correo cambiada por `[correo]`**.
   - **Lo que dicen los términos de Google** para la capa gratuita (vigentes desde el 23 de marzo
@@ -192,12 +199,18 @@ asunto y el inicio del cuerpo del correo que respondes (por defecto, hasta 4.000
     pueden leerlo, anotarlo y procesarlo**. Google pide no enviar información sensible,
     confidencial ni personal. Por eso este modo es **solo para datos de prueba**.
 
-**Qué se registra:** solo la fecha, el proveedor (`ollama` o `demostracion`), el modelo, los
-segundos que tardó y si salió bien. **Nunca** tu indicación, el correo ni el borrador, ni quién
-lo pidió.
+**Insertar como borrador:** guarda el texto en Gmail con `drafts.create` (permiso
+`gmail.modify`), en el **mismo hilo** del correo, dirigido a su remitente y con el asunto
+"Re: …". **Nunca se envía**: la extensión no puede enviar correos. También puedes **Copiar** el
+texto; eso no necesita ningún permiso.
+
+**Qué se guarda:** tu indicación y el borrador viven **solo en la memoria** del panel (no en tu
+navegador ni en la API), salvo el borrador que tú guardes en Gmail. En la API se registra solo la
+fecha, el proveedor (`ollama` o `demostracion`), el modelo, los segundos que tardó y si salió
+bien. **Nunca** tu indicación, el correo ni el borrador, ni quién lo pidió.
 
 **Límite:** 20 borradores por persona por hora.
 
-**El borrador es solo una propuesta:** SICAE-IA no envía correos. De él se quitan los enlaces que
+**El borrador es solo una propuesta:** revísalo antes de usarlo. De él se quitan los enlaces que
 no estaban en tu indicación, y lo que diga el correo recibido se trata como datos, no como
 instrucciones para la IA.

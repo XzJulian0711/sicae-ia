@@ -533,3 +533,64 @@ def test_transporte_urllib_no_sigue_redirecciones(servidor_local):
 def test_transporte_urllib_sin_servidor_lanza_error_de_conexion():
     with pytest.raises(OSError):
         redaccion.transporte_urllib("http://127.0.0.1:9/api/chat", {}, {}, 2, True)
+
+# ---------------------------------------------------------------------------
+# Paso 6.3: GET /redactar/proveedores y el "codigo" de los errores
+# ---------------------------------------------------------------------------
+
+
+def test_proveedores_sin_sesion_401(crear):
+    cliente, _, _ = crear(demo_api_key=CLAVE_DEMO, demo_cuenta=SUB)
+    assert cliente.get("/redactar/proveedores").status_code == 401
+
+
+@pytest.mark.parametrize("cambios, token, demostracion", [
+    ({"demo_api_key": CLAVE_DEMO, "demo_cuenta": SUB}, TOKEN_GOOGLE, True),  # cuenta de prueba con clave
+    ({"demo_api_key": CLAVE_DEMO, "demo_cuenta": SUB}, TOKEN_GOOGLE_2, False),  # otra cuenta
+    ({"demo_api_key": "", "demo_cuenta": SUB}, TOKEN_GOOGLE, False),  # sin clave
+    ({"demo_api_key": CLAVE_DEMO, "demo_cuenta": ""}, TOKEN_GOOGLE, False),  # sin cuenta configurada
+])
+def test_proveedores_dice_si_el_demo_esta_disponible_para_esta_sesion(crear, cambios, token, demostracion):
+    cliente, ia, _ = crear(**cambios)
+    # Solo exige sesión: sirve también antes de registrar el consentimiento.
+    respuesta = cliente.get("/redactar/proveedores", headers=entrar(cliente, token_google=token, version=None))
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"local": True, "modelo_local": "gemma4:e4b", "demostracion": demostracion}
+    assert CLAVE_DEMO not in respuesta.text and SUB not in respuesta.text, "nunca la clave ni la cuenta"
+    assert ia.llamadas == [], "preguntar no llama a ninguna IA"
+
+
+@pytest.mark.parametrize("respuesta_ia, codigo", [
+    (urllib.error.URLError(ConnectionRefusedError()), "sin_conexion"),
+    ((404, "{}"), "modelo_no_descargado"),
+    (TimeoutError("timed out"), "tiempo_agotado"),
+    ((200, "no es json"), "respuesta_invalida"),
+    ((200, json.dumps({"message": {"content": "  "}})), "borrador_vacio"),
+])
+def test_los_errores_de_la_ia_traen_su_codigo(crear, respuesta_ia, codigo):
+    cliente, _, _ = crear(ia=IaFalsa(lambda _: respuesta_ia))
+    datos = cliente.post("/redactar", json=peticion(), headers=entrar(cliente)).json()
+    assert datos["codigo"] == codigo
+    assert set(datos) == {"detalle", "codigo"}
+
+
+def test_los_rechazos_de_redactar_traen_su_codigo(crear):
+    cliente, _, _ = crear(demo_api_key=CLAVE_DEMO, demo_cuenta=SUB, ia_limite_hora=1)
+    assert cliente.post("/redactar", json=peticion(), headers=entrar(cliente, version="3")).json()["codigo"] == "consentimiento"
+    otra = entrar(cliente, token_google=TOKEN_GOOGLE_2)
+    assert cliente.post("/redactar", json=peticion(modo="demostracion"), headers=otra).json()["codigo"] == "demo_cuenta"
+    una = entrar(cliente)
+    assert cliente.post("/redactar", json=peticion(), headers=una).status_code == 200
+    limite = cliente.post("/redactar", json=peticion(), headers=una)
+    assert (limite.status_code, limite.json()["codigo"]) == (429, "limite_hora")
+    assert "Retry-After" in limite.headers
+
+    sin_clave, _, _ = crear(demo_api_key="", demo_cuenta=SUB)
+    respuesta = sin_clave.post("/redactar", json=peticion(modo="demostracion"), headers=entrar(sin_clave))
+    assert (respuesta.status_code, respuesta.json()["codigo"]) == (503, "demo_desactivado")
+
+
+def test_los_demas_errores_no_cambian_de_forma(crear):
+    cliente, _, _ = crear()
+    respuesta = cliente.post("/redactar", json=peticion())
+    assert respuesta.status_code == 401 and "codigo" not in respuesta.json()

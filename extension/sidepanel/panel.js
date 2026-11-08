@@ -43,7 +43,9 @@ import {
 } from "../lib/correo.js";
 import {
   MENSAJES_GMAIL,
+  crearBorrador,
   crearClienteGmail,
+  datosParaResponder,
   datosPromociones,
   devolverARecibidos,
   leerBandeja,
@@ -68,6 +70,23 @@ import {
   totalesSeleccion,
   validarOpciones,
 } from "../lib/limpieza.js";
+import {
+  MENSAJES_REDACCION,
+  MENSAJE_BORRADOR_GUARDADO,
+  MENSAJE_COPIADO,
+  MENSAJE_NO_COPIADO,
+  MODELO_LOCAL_POR_DEFECTO,
+  TEXTO_PROGRESO,
+  armarMime,
+  armarPeticionRedactar,
+  enlaceBorradores,
+  interpretarProveedores,
+  interpretarRedaccion,
+  textoContador,
+  textoProveedor,
+  urlProveedores,
+  urlRedactar,
+} from "../lib/redaccion.js";
 import {
   TIEMPO_ESPERA_MS,
   interpretarSalud,
@@ -203,7 +222,8 @@ async function leerCorreoDeLaPestana() {
     // Sin content script: la pestaña se abrió antes de instalar o recargar la extensión.
     return { ok: false, resultado: resultadoRecargarGmail() };
   }
-  return interpretarLectura(respuesta);
+  // urlPestana (paso 6.3): para el enlace a Borradores de la MISMA cuenta (/mail/u/N/).
+  return { ...interpretarLectura(respuesta), urlPestana: pestana.url };
 }
 
 /**
@@ -405,24 +425,19 @@ function abrirOpciones() {
   chrome.runtime.openOptionsPage();
 }
 
-/** Redactar todavía no existe: solo avisa "Próximamente" y no hace nada más. */
-function avisarProximamente(evento) {
-  const nombre = evento.currentTarget.querySelector("span")?.textContent ?? "";
-  elementos.proximamente.textContent = `${nombre}: próximamente.`;
-}
-
-// ----- Pestañas de la vista principal: Analizar y Bandeja -----
+// ----- Pestañas de la vista principal: Analizar, Bandeja y Redactar -----
 
 const VISTAS = {
   analizar: { seccion: document.getElementById("vista-analizar"), pestana: "nav-analizar", foco: "analizar" },
   bandeja: { seccion: document.getElementById("vista-bandeja"), pestana: "nav-bandeja", foco: "titulo-bandeja" },
   liberar: { seccion: document.getElementById("vista-liberar"), pestana: "nav-bandeja", foco: "titulo-liberar" },
+  redactar: { seccion: document.getElementById("vista-redactar"), pestana: "nav-redactar", foco: "titulo-redactar" },
 };
 
 function mostrarVistaPrincipal(nombre, { enfocar = true } = {}) {
   for (const [clave, vista] of Object.entries(VISTAS)) vista.seccion.hidden = clave !== nombre;
   // "Liberar espacio" es parte de la Bandeja: la pestaña activa sigue siendo Bandeja.
-  for (const id of ["nav-analizar", "nav-bandeja"]) {
+  for (const id of ["nav-analizar", "nav-bandeja", "nav-redactar"]) {
     const pestana = document.getElementById(id);
     if (id === VISTAS[nombre].pestana) pestana.setAttribute("aria-current", "page");
     else pestana.removeAttribute("aria-current");
@@ -1133,6 +1148,346 @@ function iniciarLiberar() {
   l.deshacer.addEventListener("click", deshacerMovimiento);
 }
 
+// ----- Redactar (paso 6.3): borrador con IA (POST /redactar) e "Insertar como borrador" -----
+// El correo abierto, la indicación y el borrador viven SOLO en estas variables y en los campos
+// del panel: nunca van a chrome.storage ni a la consola. Nada se envía: como mucho se guarda un
+// BORRADOR en Gmail (drafts.create), y solo si la persona lo pide.
+
+const TIEMPO_REDACTAR_MS = 310_000; // la API corta antes (SICAE_IA_TIEMPO_MAX_S, máximo 300 s)
+
+const red = {
+  correo: document.getElementById("redactar-correo"),
+  asunto: document.getElementById("redactar-asunto"),
+  remitente: document.getElementById("redactar-remitente"),
+  vacio: document.getElementById("redactar-vacio"),
+  vacioTexto: document.getElementById("redactar-vacio-texto"),
+  leer: document.getElementById("redactar-leer"),
+  formulario: document.getElementById("formulario-redactar"),
+  indicacion: document.getElementById("indicacion"),
+  contador: document.getElementById("contador-indicacion"),
+  interruptorDemo: document.getElementById("interruptor-demo"),
+  modoDemo: document.getElementById("modo-demo"),
+  generar: document.getElementById("generar"),
+  progreso: document.getElementById("redactar-progreso"),
+  error: document.getElementById("redactar-error"),
+  errorTexto: document.getElementById("redactar-error-texto"),
+  enlaceOllama: document.getElementById("enlace-ollama"),
+  darPermiso: document.getElementById("redactar-dar-permiso"),
+  cajaBorrador: document.getElementById("caja-borrador"),
+  borrador: document.getElementById("borrador"),
+  avisos: document.getElementById("avisos-borrador"),
+  regenerar: document.getElementById("regenerar"),
+  copiar: document.getElementById("copiar"),
+  insertar: document.getElementById("insertar-borrador"),
+  accion: document.getElementById("redactar-accion"),
+  abrirBorradores: document.getElementById("abrir-borradores"),
+  proveedorUsado: document.getElementById("proveedor-usado"),
+  dialogoDemo: document.getElementById("dialogo-demo"),
+  dialogoDemoCancelar: document.getElementById("dialogo-demo-cancelar"),
+  dialogoDemoContinuar: document.getElementById("dialogo-demo-continuar"),
+};
+
+let correoRedactar = null; // {asunto, remitente, cuerpo, idGmail}: SOLO en memoria
+let modeloLocal = MODELO_LOCAL_POR_DEFECTO; // el que dice /redactar/proveedores (para «ollama pull …»)
+let redactando = false;
+
+function progresoRedactar(texto) {
+  red.progreso.textContent = texto ?? "";
+  red.progreso.hidden = !texto;
+}
+
+function errorRedactar(texto, { enlaceOllama = false, conPermiso = false } = {}) {
+  red.errorTexto.textContent = texto ?? "";
+  red.error.hidden = !texto;
+  red.enlaceOllama.hidden = !enlaceOllama;
+  red.darPermiso.hidden = !conPermiso;
+}
+
+function accionRedactar(texto) {
+  red.accion.textContent = texto ?? "";
+  red.accion.hidden = !texto;
+}
+
+function tonoElegido() {
+  return red.formulario.querySelector('input[name="tono"]:checked')?.value ?? "formal";
+}
+
+function botonesRedactar(activos) {
+  for (const boton of [red.generar, red.regenerar, red.copiar, red.insertar]) boton.disabled = !activos;
+}
+
+/** fetch con un tiempo máximo largo: el modelo puede tardar la primera vez mientras carga. */
+function pedirRedaccion(url, { metodo = "GET", cabeceras = {}, cuerpo } = {}) {
+  return fetch(url, {
+    method: metodo,
+    headers: cabeceras,
+    body: cuerpo,
+    cache: "no-store",
+    credentials: "omit",
+    signal: AbortSignal.timeout(TIEMPO_REDACTAR_MS),
+  });
+}
+
+async function abrirRedactar() {
+  mostrarVistaPrincipal("redactar");
+  await Promise.all([leerCorreoParaRedactar(), cargarProveedores()]);
+}
+
+/** "Respondiendo a": el correo abierto en la pestaña de Gmail (misma cuenta que la sesión). */
+async function leerCorreoParaRedactar() {
+  errorRedactar(null);
+  const lectura = await leerCorreoDeLaPestana();
+  if (!lectura.ok) {
+    correoRedactar = null;
+    red.correo.hidden = true;
+    red.vacio.hidden = false;
+    red.vacioTexto.textContent = lectura.resultado?.mensaje || MENSAJES_REDACCION.sinCorreo;
+    red.cajaBorrador.hidden = true;
+    return;
+  }
+  const { asunto, remitente, cuerpo, idGmail } = lectura.correo;
+  const otroCorreo = !correoRedactar || correoRedactar.idGmail !== idGmail || correoRedactar.asunto !== asunto;
+  correoRedactar = { asunto: asunto ?? "", remitente: remitente ?? "", cuerpo: cuerpo ?? "", idGmail: idGmail ?? null };
+  red.asunto.textContent = correoRedactar.asunto.trim() || "(Sin asunto)";
+  red.remitente.textContent = correoRedactar.remitente;
+  red.correo.hidden = false;
+  red.vacio.hidden = true;
+  if (otroCorreo) {
+    // Otro correo: el borrador anterior no le corresponde.
+    red.borrador.value = "";
+    red.cajaBorrador.hidden = true;
+    accionRedactar(null);
+  }
+}
+
+/** GET /redactar/proveedores: el interruptor del modo demostración aparece SOLO si esta sesión puede usarlo. */
+async function cargarProveedores() {
+  red.interruptorDemo.hidden = true;
+  red.modoDemo.checked = false;
+  try {
+    const url = validarUrlApi((await leerConfiguracion()).urlApi);
+    if (!url.ok) return;
+    const intento = await conSesion(await contextoSesion(url.url), (sesion) => pedir(urlProveedores(url.url), {
+      cabeceras: { Authorization: `Bearer ${sesion.token}` },
+    }));
+    if (!intento.ok) return;
+    let cuerpo = null;
+    try {
+      cuerpo = await intento.respuesta.json();
+    } catch {
+      cuerpo = null;
+    }
+    const proveedores = interpretarProveedores(intento.respuesta.status, cuerpo);
+    modeloLocal = proveedores.modeloLocal;
+    red.interruptorDemo.hidden = !proveedores.demostracion;
+  } catch {
+    // Sin API: solo queda el modo local (y /redactar dirá qué pasa al generar).
+  }
+}
+
+/** Aviso del modo demostración, CADA vez. → true (continuar) o false (Cancelar o Escape: no se envía nada). */
+function confirmarDemo() {
+  return new Promise((resolver) => {
+    const control = new AbortController();
+    const terminar = (valor) => {
+      control.abort();
+      if (red.dialogoDemo.open) red.dialogoDemo.close();
+      resolver(valor);
+    };
+    red.dialogoDemoCancelar.addEventListener("click", () => terminar(false), { signal: control.signal });
+    red.dialogoDemoContinuar.addEventListener("click", () => terminar(true), { signal: control.signal });
+    red.dialogoDemo.addEventListener("cancel", () => terminar(false), { signal: control.signal });
+    red.dialogoDemo.showModal();
+    red.dialogoDemoCancelar.focus();
+  });
+}
+
+/**
+ * POST /redactar con la sesión (conSesion la abre o la renueva). Ante un 403 sin consentimiento
+ * registrado en la API, hace lo mismo que Analizar: si en este equipo hay uno válido (v4), lo
+ * registra y reintenta UNA vez; si no, vuelve a "Revisa los permisos".
+ */
+async function pedirBorrador(base, peticion, demo) {
+  const leerRespuesta = async (respuesta) => {
+    let cuerpo = null;
+    try {
+      cuerpo = await respuesta.json();
+    } catch {
+      cuerpo = null;
+    }
+    return interpretarRedaccion(respuesta.status, cuerpo, {
+      demo, modeloLocal, retryAfter: respuesta.headers?.get?.("Retry-After") ?? null,
+    });
+  };
+  try {
+    const contexto = await contextoSesion(base);
+    const enviar = (sesion) => pedirRedaccion(urlRedactar(base), {
+      metodo: "POST",
+      cabeceras: { "Content-Type": "application/json", Authorization: `Bearer ${sesion.token}` },
+      cuerpo: JSON.stringify(peticion),
+    });
+    let intento = await conSesion(contexto, enviar);
+    if (!intento.ok) return { tipo: "error", mensaje: intento.mensaje };
+    let resultado = await leerRespuesta(intento.respuesta);
+    if (resultado.tipo === "pedir_permisos" && queHacerAnte403(await leerConsentimiento()) === "registrar") {
+      intento = await conSesion(contexto, async (sesion) => {
+        await registrarConsentimiento(fetch, base, sesion, contexto.version);
+        return enviar(sesion);
+      });
+      if (!intento.ok) return { tipo: "error", mensaje: intento.mensaje };
+      resultado = await leerRespuesta(intento.respuesta);
+    }
+    return resultado;
+  } catch {
+    return { tipo: "error", mensaje: MENSAJES_REDACCION.sinConexionApi };
+  }
+}
+
+async function generarBorrador(evento) {
+  evento?.preventDefault();
+  if (redactando) return;
+  errorRedactar(null);
+  accionRedactar(null);
+  red.abrirBorradores.hidden = true;
+  const demo = !red.interruptorDemo.hidden && red.modoDemo.checked;
+  const armada = armarPeticionRedactar({ indicacion: red.indicacion.value, tono: tonoElegido(), correo: correoRedactar, demo });
+  if (!armada.ok) {
+    errorRedactar(armada.mensaje);
+    return;
+  }
+  const url = validarUrlApi((await leerConfiguracion()).urlApi);
+  if (!url.ok) {
+    errorRedactar(URL_NO_VALIDA.mensaje);
+    return;
+  }
+  if (demo && !(await confirmarDemo())) return; // Cancelar: no se envía nada a Gemini
+
+  redactando = true;
+  botonesRedactar(false);
+  progresoRedactar(TEXTO_PROGRESO);
+  try {
+    const resultado = await pedirBorrador(url.url, armada.peticion, demo);
+    if (resultado.tipo === "pedir_permisos") {
+      mostrarPantalla("permisos"); // sin el consentimiento v4 no se redacta
+      return;
+    }
+    if (resultado.tipo === "error") {
+      errorRedactar(resultado.mensaje, { enlaceOllama: resultado.enlaceOllama === true });
+      return;
+    }
+    red.borrador.value = resultado.borrador; // .value: el texto nunca se interpreta como HTML
+    red.avisos.replaceChildren(...resultado.avisos.map((aviso) => {
+      const li = document.createElement("li");
+      li.textContent = aviso;
+      return li;
+    }));
+    red.proveedorUsado.textContent = textoProveedor(resultado);
+    red.cajaBorrador.hidden = false;
+  } finally {
+    progresoRedactar(null);
+    redactando = false;
+    botonesRedactar(true);
+  }
+}
+
+/** Copiar: dentro del clic (activación del usuario), así no hace falta el permiso clipboardWrite. */
+async function copiarBorrador() {
+  accionRedactar(null);
+  try {
+    await navigator.clipboard.writeText(red.borrador.value);
+    accionRedactar(MENSAJE_COPIADO);
+  } catch {
+    red.borrador.focus();
+    red.borrador.select();
+    accionRedactar(MENSAJE_NO_COPIADO);
+  }
+}
+
+/**
+ * "Insertar como borrador" (users.drafts.create), en el MISMO hilo: threadId, In-Reply-To y
+ * References salen de la API de Gmail; Para = el remitente original; Asunto "Re: …" sin duplicar.
+ * NUNCA se envía.
+ */
+async function insertarComoBorrador() {
+  errorRedactar(null);
+  accionRedactar(null);
+  red.abrirBorradores.hidden = true;
+  const texto = red.borrador.value;
+  if (!texto.trim()) {
+    errorRedactar("El borrador está vacío.");
+    return;
+  }
+  // Se vuelve a leer la pestaña: tiene que seguir el mismo correo, de la cuenta de la sesión.
+  const lectura = await leerCorreoDeLaPestana();
+  if (!lectura.ok) {
+    errorRedactar(lectura.resultado?.mensaje || MENSAJES_REDACCION.sinCorreo);
+    return;
+  }
+  if (!correoRedactar?.idGmail || lectura.correo.idGmail !== correoRedactar.idGmail) {
+    errorRedactar(correoRedactar?.idGmail
+      ? "El correo abierto cambió: vuelve a leerlo antes de insertar el borrador."
+      : "No se encontró el identificador del correo en la página de Gmail: copia el borrador y pégalo en Gmail.");
+    return;
+  }
+  if (!correoSesion) await mostrarCuenta();
+  if (!correoSesion) {
+    errorRedactar("No se pudo saber tu correo de Google para el remitente del borrador. Inténtalo de nuevo.");
+    return;
+  }
+
+  botonesRedactar(false);
+  progresoRedactar("Guardando el borrador en Gmail…");
+  try {
+    const cliente = clienteGmail(progresoRedactar);
+    const datos = await datosParaResponder(cliente, correoRedactar.idGmail);
+    const mime = armarMime({
+      de: correoSesion,
+      para: datos.de,
+      asunto: datos.asunto,
+      inReplyTo: datos.messageId,
+      references: datos.references,
+      cuerpo: texto,
+    });
+    if (!mime.ok) {
+      errorRedactar(mime.motivo === "destinatario"
+        ? "No se pudo leer la dirección del remitente original: copia el borrador y pégalo en Gmail."
+        : "No se pudo saber tu correo de Google para el remitente del borrador.");
+      return;
+    }
+    await crearBorrador(cliente, { raw: mime.raw, threadId: datos.threadId });
+    accionRedactar(MENSAJE_BORRADOR_GUARDADO);
+    red.abrirBorradores.href = enlaceBorradores(lectura.urlPestana);
+    red.abrirBorradores.hidden = false;
+  } catch (error) {
+    errorRedactar(error?.message || "No se pudo guardar el borrador en Gmail.", { conPermiso: error?.codigo === "sin_permiso" });
+  } finally {
+    progresoRedactar(null);
+    botonesRedactar(true);
+  }
+}
+
+/** "Dar permiso" de Redactar: NO repite la acción sola; la persona vuelve a pulsar. */
+async function darPermisoRedactar() {
+  const sesion = await pedirPermisoGmail();
+  if (!sesion.ok) {
+    errorRedactar(sesion.mensaje, { conPermiso: true });
+    return;
+  }
+  errorRedactar(null);
+  accionRedactar(PERMISO_LISTO);
+}
+
+function iniciarRedactar() {
+  elementos.navRedactar.addEventListener("click", abrirRedactar);
+  red.leer.addEventListener("click", leerCorreoParaRedactar);
+  red.formulario.addEventListener("submit", generarBorrador);
+  red.regenerar.addEventListener("click", () => generarBorrador());
+  red.copiar.addEventListener("click", copiarBorrador);
+  red.insertar.addEventListener("click", insertarComoBorrador);
+  red.darPermiso.addEventListener("click", darPermisoRedactar);
+  red.indicacion.addEventListener("input", () => { red.contador.textContent = textoContador(red.indicacion.value); });
+}
+
 // ----- Bienvenida, permisos e inicio de sesión (paso 4.2) -----
 // El token de Google nunca pasa por aquí: lib/sesion.js solo responde {ok, mensaje} o true/false.
 
@@ -1290,7 +1645,7 @@ async function iniciar() {
   elementos.probar.addEventListener("click", probarConexion);
   elementos.navBandeja.addEventListener("click", () => mostrarVistaPrincipal("bandeja"));
   elementos.navAnalizar.addEventListener("click", () => mostrarVistaPrincipal("analizar"));
-  elementos.navRedactar.addEventListener("click", avisarProximamente);
+  iniciarRedactar();
   iniciarBandeja();
 }
 
