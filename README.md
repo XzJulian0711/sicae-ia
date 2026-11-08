@@ -108,7 +108,15 @@ sicae-ia/
 │
 ├── herramientas/             Scripts que se corren a mano (no se empaquetan con la extensión)
 │   ├── iconos.js             Genera los íconos PNG de la extensión sin paquetes
-│   └── id-extension.js       Muestra el ID fijo de la extensión (campo "key" del manifest)
+│   ├── id-extension.js       Muestra el ID fijo de la extensión (campo "key" del manifest)
+│   ├── comparar_redaccion.py Compara los modelos de redacción (paso 6.4, ver docs/metricas.md)
+│   └── resumir_redaccion.py  Resume las calificaciones a ciegas de esa comparación
+│
+├── evaluacion/redaccion/     Comparación de modelos de redacción (paso 6.4)
+│   ├── casos.csv             Correos INVENTADOS para comparar (los escribe el equipo)
+│   ├── calificacion.csv      Plantilla para calificar a ciegas (2 evaluadores)
+│   ├── reportes/             Resumen: redaccion.json y redaccion.md (solo números)
+│   └── resultados/           Borradores y clave (NO se suben a Git)
 │
 ├── docs/
 │   ├── arquitectura.md       Documentación de arquitectura y decisiones
