@@ -11,6 +11,9 @@ Proyecto de grado, Ingeniería de Sistemas, Fundación Universitaria Los Liberta
 
 - Las pruebas de acciones (papelera, cuarentena) se hacen SOLO en
   sicae.pruebas.2026@gmail.com, en el perfil de Chrome "SICAE pruebas".
+- Redacción con IA (paso 6.2): por defecto Ollama local (nada sale del equipo). Modo
+  demostración con Gemini (capa gratuita) solo para la cuenta de prueba (SICAE_DEMO_CUENTA) y
+  datos de prueba, con las direcciones de correo enmascaradas. Google puede usar y leer lo enviado.
 
 ## Stack
 - ml/: Python 3.13, scikit-learn, pandas

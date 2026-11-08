@@ -160,6 +160,64 @@ class ConsentimientoEntrada(BaseModel):
                          description='Versión del texto de permisos, por ejemplo "1".')
 
 
+LARGO_MAX_INDICACION = 500
+
+
+def crear_redactar_entrada(ajustes):
+    """Cuerpo de POST /redactar (paso 6.2), con los límites de los ajustes.
+
+    A propósito NO tiene remitente, destinatarios ni cabeceras: así nunca llegan a la IA (y
+    extra="forbid" responde 422 si alguien los manda).
+    """
+
+    class RedactarEntrada(BaseModel):
+        model_config = ConfigDict(
+            extra="forbid",
+            json_schema_extra={
+                "examples": [{
+                    "indicacion": "Confirma que asistiré a la reunión del viernes.",
+                    "tono": "cordial",
+                    "asunto": "Reunión del comité",
+                    "cuerpo": "Hola, ¿nos acompañas el viernes a las 10?",
+                    "modo": "local",
+                }]
+            },
+        )
+
+        indicacion: str = Field(min_length=1, max_length=LARGO_MAX_INDICACION,
+                                description="Qué quiere decir la persona en el borrador (máx. 500 caracteres).")
+        tono: Literal["formal", "breve", "cordial"] = Field(description="Tono del borrador.")
+        asunto: str = Field(default="", max_length=ajustes.max_asunto, description="Asunto del correo recibido.")
+        cuerpo: str = Field(default="", max_length=ajustes.max_cuerpo,
+                            description="Cuerpo del correo recibido. A la IA llegan solo los primeros "
+                                        "SICAE_IA_MAX_CUERPO caracteres.")
+        modo: Literal["local", "demostracion"] = Field(
+            default="local",
+            description='"local": Ollama en este equipo. "demostracion": Gemini, solo para la cuenta de prueba.',
+        )
+
+        @field_validator("indicacion")
+        @classmethod
+        def indicacion_con_texto(cls, valor):
+            if not valor.strip():
+                raise ValueError("La indicación no puede estar vacía.")
+            return valor.strip()
+
+    return RedactarEntrada
+
+
+class Borrador(BaseModel):
+    """Respuesta de POST /redactar. El borrador NO se guarda en ningún lado."""
+
+    borrador: str = Field(description="Texto del correo propuesto. Revísalo antes de usarlo.")
+    proveedor: Literal["ollama", "demostracion"]
+    modelo: str
+    segundos: float = Field(ge=0, description="Cuánto tardó la IA.")
+    enlaces_quitados: int = Field(ge=0, description="Enlaces que la IA agregó y no estaban en la indicación.")
+    cuerpo_recortado: bool = Field(description="Si a la IA le llegó solo el inicio del cuerpo.")
+    avisos: list[str] = Field(default_factory=list)
+
+
 class Salud(BaseModel):
     estado: Literal["ok", "sin_modelo"]
     modelo_cargado: bool

@@ -28,6 +28,7 @@
 | `POST /analizar` | Sesión + consentimiento | Clasifica un correo y registra el resultado (sin el texto ni el usuario) |
 | `POST /analizar/lote` | Sesión + consentimiento | Lo mismo para 1 a `SICAE_MAX_LOTE` (50) correos, en el mismo orden (paso 4.4). Reutiliza `analizar_correo()`; si uno falla, en su lugar va `{"error": ...}` y los demás siguen. Una fila de registro por correo, sin texto. Tope propio de `SICAE_MAX_BYTES_LOTE` (2 MB) y cuenta como **una** petición en el límite por IP. Con `"registrar": false` (paso 4.5, la clasificación para "Liberar espacio") **no** escribe filas, así no cuenta en `/estadisticas`; por defecto es `true` y solo acepta `true`/`false` |
 | `POST /acciones` | Sesión + consentimiento | Registra una acción hecha en Gmail desde la extensión (paso 4.5): `{accion, cantidad, mb}`. Responde **204**. Ver "Registro de acciones" |
+| `POST /redactar` | Sesión + consentimiento **"4"** | Propone un borrador con IA (paso 6.2): Ollama local o, solo para la cuenta de prueba, el modo demostración con Gemini. Ver "3.3 Redacción con IA" |
 | `GET /estadisticas` | Sesión | Conteos por categoría y prioridad |
 
 ### 3.1 Seguridad de la API
@@ -139,6 +140,52 @@ correos en Gmail; la API **solo anota** que pasó, con `POST /acciones`:
 - **Las sesiones vencidas** se borran al usarse y cada vez que se crea una nueva.
 - **Una prueba revisa los bytes del `.db`:** después de iniciar sesión y analizar, no aparecen ni
   el correo de Google, ni el token de Google, ni el token de sesión.
+
+### 3.3 Redacción con IA (paso 6.2)
+
+Código en [`api/app/redaccion.py`](../api/app/redaccion.py). `POST /redactar` recibe
+`{indicacion (1 a 500), tono (formal | breve | cordial), asunto, cuerpo, modo (local |
+demostracion)}`. A propósito **no** acepta remitente, destinatarios ni cabeceras (`extra="forbid"`).
+
+**Proveedores:**
+
+| Modo | Proveedor | Cómo |
+|---|---|---|
+| `local` (por defecto) | **Ollama en este equipo** (`SICAE_IA_URL`, solo `http://127.0.0.1:<puerto>`) | API nativa `POST /api/chat` con `"think": false` (sin razonamiento), `"stream": false` y `"keep_alive": "10m"`. **Sin proxies** y sin seguir redirecciones: nada sale de la máquina |
+| `demostracion` | **Gemini, capa gratuita** (dirección fija: `generativelanguage.googleapis.com/v1beta/openai/chat/completions`) | Solo si hay `SICAE_DEMO_API_KEY` y el `google_sub` de la sesión es `SICAE_DEMO_CUENTA`. `reasoning_effort: "minimal"` (en Gemini 3 no se puede apagar). Las direcciones de correo se cambian por `[correo]` |
+
+- **Por qué la API nativa de Ollama:** según su documentación (8 nov. 2026), `"think": false` y
+  `keep_alive` existen en `/api/chat`. El endpoint compatible con OpenAI no acepta `keep_alive`.
+- **Nunca hay "plan B":** si Ollama falla, la respuesta es el error; no se pasa a Gemini.
+- **Inyección de instrucciones:**
+  - el mensaje de sistema dice que el correo, entre `<<<CORREO>>>` y `<<<FIN_CORREO>>>`, son
+    datos y no instrucciones;
+  - las marcas que traiga el correo se neutralizan;
+  - del borrador se quitan los `<think>…</think>` y los enlaces que no estaban en la indicación
+    (`enlaces_quitados` y un aviso).
+- **Errores:**
+  - 503: Ollama no instalado o apagado (se ven igual: conexión rechazada), modelo no descargado
+    (`ollama pull …`), configuración inválida o demostración desactivada;
+  - 504: tiempo agotado (`SICAE_IA_TIEMPO_MAX_S`);
+  - 502: respuesta rara o clave de Gemini rechazada.
+
+  **Nunca** se devuelve ni se escribe en los logs lo que respondió el proveedor.
+- **Límite:** `SICAE_IA_LIMITE_HORA` (20) borradores por usuario por hora, en memoria (ventana
+  deslizante; se reinicia con la API). Al pasarse: 429 con `Retry-After`.
+
+**Registro de borradores**, en la misma base y en `registro.py`:
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `id` | entero | Número de la fila, automático |
+| `fecha` | texto | Momento en UTC, ISO 8601 |
+| `proveedor` | texto | `ollama` o `demostracion` (`CHECK`) |
+| `modelo` | texto | Por ejemplo `gemma4:e4b` (1 a 100 caracteres) |
+| `segundos` | real | Cuánto tardó, ≥ 0 |
+| `exitoso` | entero | 1 si hubo borrador, 0 si falló |
+
+**Nunca** se guardan la indicación, el correo, el borrador ni el usuario. Una prueba busca esos
+textos (y la clave de Gemini) en los bytes del `.db` y en los logs.
 
 ## 4. Extension de Chrome (`extension/`)
 

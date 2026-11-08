@@ -127,6 +127,17 @@ def ajustes_para(carpeta, **cambios):
         "max_bytes": 200_000,
         "rate_limit": 30,
         "modo": "desarrollo",
+        # Redacción con IA (paso 6.2): valores fijos, así una clave de Gemini en el .env local
+        # nunca llega a las pruebas (que tampoco usan la red: el transporte es simulado).
+        "ia_url": "http://127.0.0.1:11434",
+        "ia_modelo": "gemma4:e4b",
+        "ia_keep_alive": "10m",
+        "ia_tiempo_max_s": 60,
+        "ia_max_cuerpo": 4_000,
+        "ia_limite_hora": 20,
+        "demo_api_key": "",
+        "demo_modelo": "gemini-3.5-flash-lite",
+        "demo_cuenta": "",
     }
     return Ajustes(**{**valores, **cambios})
 

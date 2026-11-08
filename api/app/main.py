@@ -9,6 +9,8 @@ Endpoints:
   POST   /analizar        -> con sesión y consentimiento: categoría, confianza, prioridad y motivos.
   POST   /analizar/lote   -> lo mismo para hasta 50 correos a la vez (paso 4.4, pestaña Bandeja).
   POST   /acciones        -> con sesión y consentimiento: registra papelera/cuarentena (solo cantidad y MB).
+  POST   /redactar        -> con sesión y consentimiento v4: borrador con IA (paso 6.2; Ollama local
+                             o, solo para la cuenta de prueba, el modo demostración con Gemini).
   GET    /estadisticas    -> con sesión: conteos por categoría y prioridad (solo números).
 
 Arrancar (desde la raíz del proyecto, con SICAE_GOOGLE_CLIENT_ID en .env):
@@ -20,10 +22,13 @@ prioridad y versión del modelo (registro.py). NUNCA el asunto, el cuerpo, las d
 las URLs ni un hash del contenido; tampoco se escriben en los logs ni se devuelven en errores.
 Los análisis NO se ligan al usuario. De cada usuario se guarda solo google_sub, fechas y la
 versión del consentimiento (usuarios.py): nunca el correo. De cada sesión, solo el hash del token.
-ALCANCE: no borra ni envía correos; solo los clasifica.
+De cada borrador con IA se guarda solo fecha, proveedor, modelo, segundos y si salió bien
+(registro.py): nunca la indicación, el correo ni el borrador.
+ALCANCE: no borra ni envía correos; los clasifica y, si se pide, propone un borrador.
 """
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, Security
@@ -33,10 +38,11 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import registro, usuarios
+from app import redaccion, registro, usuarios
 from app.config import obtener_ajustes
 from app.esquemas import (
     AccionEntrada,
+    Borrador,
     ConsentimientoEntrada,
     Estadisticas,
     Resultado,
@@ -45,6 +51,7 @@ from app.esquemas import (
     SesionApi,
     crear_correo_entrada,
     crear_lote_entrada,
+    crear_redactar_entrada,
 )
 from app.google import GoogleNoDisponible, TokenGoogleInvalido, verificar_token_google
 from app.seguridad import (
@@ -68,6 +75,8 @@ MENSAJES = {
     "missing": "Falta este campo.",
     "extra_forbidden": "Este campo no está permitido.",
     "string_too_long": "El texto es demasiado largo.",
+    "string_too_short": "El texto no puede estar vacío.",
+    "literal_error": "Valor no permitido.",
     "too_long": "La lista tiene demasiados elementos.",
     "greater_than_equal": "Debe ser un número mayor o igual a 0.",
     "int_parsing": "Debe ser un número entero.",
@@ -102,18 +111,25 @@ def _cargar(ajustes, sha256_modelo):
 
 
 def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_google=None,
-              reloj_sesiones=None):
+              reloj_sesiones=None, transporte_ia=None, reloj_redaccion=None):
     """Crea la aplicación. Las pruebas pasan sus propios ajustes (modelo inventado), el
     SHA-256 de ese modelo y, si hace falta:
       - reloj: reloj falso para el límite de peticiones;
       - verificar_google(token) -> IdentidadGoogle: Google simulado, sin red;
-      - reloj_sesiones() -> datetime UTC: para probar el vencimiento de las sesiones.
+      - reloj_sesiones() -> datetime UTC: para probar el vencimiento de las sesiones;
+      - transporte_ia(url, cuerpo, cabeceras, tiempo, sin_proxy) -> (estado, texto): Ollama y
+        Gemini simulados, sin red (paso 6.2);
+      - reloj_redaccion(): reloj falso para el límite de borradores por hora.
 
     sha256_modelo NO se lee de .env a propósito: si fuera configurable, se podría cambiar el
     modelo y su hash a la vez. Por defecto es el del modelo v1.0 (sicae_ml.integridad)."""
     ajustes = ajustes or obtener_ajustes()
     CorreoEntrada = crear_correo_entrada(ajustes)
     LoteEntrada = crear_lote_entrada(ajustes, CorreoEntrada)
+    RedactarEntrada = crear_redactar_entrada(ajustes)
+    transporte_ia = transporte_ia or redaccion.transporte_urllib
+    limite_borradores = redaccion.LimitePorHora(ajustes.ia_limite_hora,
+                                                **({"reloj": reloj_redaccion} if reloj_redaccion else {}))
     ahora_sesiones = reloj_sesiones or usuarios.ahora_utc
     verificar_sesion = crear_verificador_sesion(ajustes, ahora_sesiones)
     if verificar_google is None:
@@ -149,7 +165,7 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
         description="Clasifica correos en legítimo, publicidad o phishing y les asigna prioridad. "
                     "Prototipo académico: no guarda el contenido de los correos, no los borra ni "
                     "los envía.",
-        version="0.4.0",
+        version="0.5.0",
         lifespan=lifespan,
         # /docs, /redoc y /openapi.json solo en desarrollo.
         docs_url="/docs" if desarrollo else None,
@@ -360,6 +376,63 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
             logger.error("No se pudo registrar la acción (%s)", type(error).__name__)
             raise HTTPException(status_code=503, detail="El registro no está disponible.") from None
         return Response(status_code=204)
+
+    # ---------- Redacción con IA (paso 6.2) ----------
+
+    @app.post(
+        "/redactar",
+        response_model=Borrador,
+        summary="Propone un borrador de respuesta con IA (Ollama local o modo demostración)",
+        responses={401: {"description": "Sin sesión válida"},
+                   403: {"description": "Falta el consentimiento v4, o el modo demostración no es para esta cuenta"},
+                   422: {"description": "Entrada inválida"},
+                   429: {"description": "Más de SICAE_IA_LIMITE_HORA borradores en la última hora"},
+                   502: {"description": "La IA respondió de forma inesperada"},
+                   503: {"description": "Ollama no disponible, modelo no descargado o modo demostración desactivado"},
+                   504: {"description": "La IA tardó demasiado"}},
+    )
+    def redactar(entrada: RedactarEntrada, usuario=Depends(exigir_consentimiento)):
+        """Ley 1581: redactar es una finalidad nueva, que autoriza el texto de permisos v4.
+        Nunca se registra la indicación, el correo ni el borrador; solo fecha, proveedor, modelo,
+        segundos y si salió bien."""
+        if not redaccion.consentimiento_suficiente(usuario["consentimiento_version"]):
+            raise HTTPException(status_code=403,
+                                detail="Acepta los permisos nuevos (versión 4) para usar la redacción con IA.")
+        demo = entrada.modo == "demostracion"
+        if demo:
+            # Nunca hay "plan B": el modo demostración solo se usa si se pide, hay clave y es la
+            # cuenta de prueba. Si Ollama falla, tampoco se pasa a Gemini.
+            if not ajustes.demo_api_key.get_secret_value().strip():
+                raise HTTPException(status_code=503, detail="El modo demostración está desactivado.")
+            if not redaccion.es_cuenta_demo(usuario.get("google_sub"), ajustes.demo_cuenta):
+                raise HTTPException(status_code=403, detail="El modo demostración solo está disponible para "
+                                                            "la cuenta de prueba del proyecto.")
+        espera = limite_borradores.permitir(usuario["id"])
+        if espera is not None:
+            raise HTTPException(status_code=429,
+                                detail=f"Llegaste al límite de {ajustes.ia_limite_hora} borradores por hora. "
+                                       "Espera un poco e inténtalo de nuevo.",
+                                headers={"Retry-After": str(espera)})
+
+        proveedor = "demostracion" if demo else "ollama"
+        modelo = ajustes.demo_modelo if demo else ajustes.ia_modelo
+        inicio = time.monotonic()
+        try:
+            resultado = redaccion.redactar(entrada, demo, ajustes, transporte_ia)
+        except redaccion.ErrorRedaccion as error:
+            _registrar_borrador(proveedor, modelo, time.monotonic() - inicio, False)
+            # Solo el tipo de error: nunca la respuesta del proveedor ni el texto.
+            logger.warning("Borrador con IA fallido (%s)", error.tipo)
+            raise HTTPException(status_code=error.estado, detail=error.mensaje) from None
+        segundos = round(time.monotonic() - inicio, 3)
+        _registrar_borrador(proveedor, modelo, segundos, True)
+        return Borrador(proveedor=proveedor, modelo=modelo, segundos=segundos, **resultado)
+
+    def _registrar_borrador(proveedor, modelo, segundos, exitoso):
+        try:
+            registro.registrar_borrador(ajustes.db_path, proveedor, modelo, segundos, exitoso)
+        except Exception as error:
+            logger.error("No se pudo registrar el borrador (%s)", type(error).__name__)
 
     @app.get(
         "/estadisticas",
