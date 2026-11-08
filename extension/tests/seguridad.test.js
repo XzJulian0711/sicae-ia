@@ -12,13 +12,17 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, test } from "node:test";
 
+import { AVISO_DEMO } from "../lib/redaccion.js";
 import { VERSION_CONSENTIMIENTO } from "../lib/sesion.js";
 
 const RAIZ = join(import.meta.dirname, "..");
 
-// Paso 4.6: el ÚNICO enlace a internet del HTML. Es navegación (abre una pestaña), no carga nada.
+// Los ÚNICOS enlaces a internet del HTML (pasos 4.6 y 6.3). Son navegación (abren una pestaña),
+// no cargan nada.
 const URL_POLITICA = "https://github.com/XzJulian0711/sicae-ia/blob/main/docs/privacidad.md";
 const ENLACE_POLITICA = `<a class="enlace" href="${URL_POLITICA}" target="_blank" rel="noopener noreferrer">Política de privacidad</a>`;
+const ENLACE_OLLAMA = '<a class="enlace" id="enlace-ollama" href="https://ollama.com/download" target="_blank" '
+  + 'rel="noopener noreferrer" hidden>Descargar Ollama</a>';
 
 // SHA-256 de las fuentes descargadas de github.com/google/fonts (ver docs/extension.md).
 const FUENTES = {
@@ -91,8 +95,8 @@ describe("HTML y CSS", () => {
 
   test("no carga nada de internet (fuentes, estilos, scripts, imágenes)", () => {
     for (const { nombre, codigo: original } of [...leer(".html"), ...leer(".css")]) {
-      // La única excepción es el enlace exacto a la política de privacidad (ver la prueba siguiente).
-      const codigo = original.split(ENLACE_POLITICA).join("");
+      // Las únicas excepciones son los enlaces EXACTOS a la política y a ollama.com (pruebas siguientes).
+      const codigo = original.split(ENLACE_POLITICA).join("").split(ENLACE_OLLAMA).join("");
       assert.doesNotMatch(codigo, /\b(src|href)\s*=\s*["']?(https?:)?\/\//i, `${nombre} carga un recurso remoto`);
       assert.doesNotMatch(codigo, /url\(\s*["']?(https?:)?\/\//i, `${nombre} carga un recurso remoto`);
       assert.doesNotMatch(codigo, /@import/i, `${nombre} usa @import`);
@@ -109,6 +113,16 @@ describe("HTML y CSS", () => {
     const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
     assert.ok(!(manifest.host_permissions ?? []).some((p) => p.includes("github.com")));
     assert.ok(!(manifest.permissions ?? []).includes("tabs"));
+  });
+
+  test("el enlace a ollama.com (paso 6.3): uno solo, oculto, en el error de Redactar, sin permisos", () => {
+    const todo = leer(".html").map(({ codigo }) => codigo).join("\n");
+    assert.equal(todo.split(ENLACE_OLLAMA).length - 1, 1, "exactamente un enlace a ollama.com");
+    const panel = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+    const error = /id="redactar-error"[\s\S]*?<\/div>/.exec(panel)[0];
+    assert.ok(error.includes(ENLACE_OLLAMA), "está dentro del error de Redactar");
+    const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
+    assert.ok(!(manifest.host_permissions ?? []).some((p) => p.includes("ollama")));
   });
 });
 
@@ -151,11 +165,15 @@ describe("política de privacidad (paso 4.6, docs/privacidad.md)", () => {
     assert.ok(retirar.indexOf("borrarCuentaApi") < retirar.indexOf("cerrarSesion("), "DELETE /cuenta antes de revocar");
   });
 
-  test("dice lo que hace el sistema: sesiones de 8 h, sin IA externa, nunca borrado definitivo", () => {
+  test("dice lo que hace el sistema: sesiones de 8 h, IA externa solo en el modo demostración, nunca borrado definitivo", () => {
     const config = readFileSync(join(RAIZ, "..", "api", "app", "config.py"), "utf8");
     const horas = /duracion_sesion_horas: int = (\d+)/.exec(config)[1];
     assert.match(politica, new RegExp(`\\*\\*Sesiones\\*\\* \\| ${horas} horas`));
-    assert.match(politica, /No se envía nada a servicios de inteligencia artificial externos/);
+    // Paso 6.3: la única excepción es el modo demostración (solo la cuenta de prueba).
+    assert.match(politica, /No se envía nada a servicios de inteligencia artificial externos, \*\*salvo\*\* el modo demostración/);
+    assert.match(politica, /Personas de Google pueden leerlo|personas pueden leerlo/);
+    assert.match(politica, /drafts\.create/);
+    assert.match(politica, /nunca se envía/i);
     assert.match(politica, /Nunca\*\* hay borrado definitivo ni envío/);
     assert.match(politica, /compromiso del equipo, no algo automático del código/);
   });
@@ -214,8 +232,12 @@ describe("panel (paso 3.4)", () => {
     assert.doesNotMatch(bienvenida, /Microsoft|Outlook|Otro proveedor/i);
     assert.equal((bienvenida.match(/<li>/g) || []).length, 3, "3 beneficios");
     const permisos = /id="pantalla-permisos"[\s\S]*?<\/section>/.exec(panel)[0];
-    // Pasos 4.4 y 4.5 (consentimiento v3): identificarte + leer tus correos + papelera/cuarentena.
-    assert.equal((permisos.match(/class="permiso"/g) || []).length, 3, "solo los permisos que se piden hoy");
+    // Pasos 4.4, 4.5 y 6.3 (consentimiento v4): identificarte + leer + papelera/cuarentena + redactar.
+    assert.equal((permisos.match(/class="permiso"/g) || []).length, 4, "solo los permisos que se piden hoy");
+    assert.match(permisos, /Redactar borradores con un modelo de IA que funciona en tu equipo; el texto no sale de él\. Solo se guarda en Gmail como borrador si tú lo pides, y nunca se envía\./);
+    // La nota del modo demostración se ve SIEMPRE (no se llama a la API antes de aceptar).
+    assert.match(permisos, /<p class="suave nota-pequena" id="nota-modo-demo">Modo demostración \(opcional, solo la cuenta de prueba del proyecto\): envía el texto a Google Gemini\.<\/p>/);
+    assert.doesNotMatch(/<p[^>]*id="nota-modo-demo"[^>]*>/.exec(permisos)[0], /hidden/);
     assert.match(permisos, /Identificarte con tu correo de Google/);
     assert.match(permisos, /Leer tus correos para clasificarlos/);
     assert.match(permisos, /No guardamos su contenido/);
@@ -239,10 +261,12 @@ describe("panel (paso 3.4)", () => {
     assert.match(panel, /id="ir-opciones"[^>]*aria-label="Ajustes"/);
   });
 
-  test("Bandeja ya funciona (4.4); Redactar sigue no disponible; Analizar es la actual al cargar", () => {
+  test("Bandeja (4.4) y Redactar (6.3) ya funcionan; Analizar es la actual al cargar", () => {
     assert.match(panel, /<button[^>]*id="nav-bandeja"/);
     assert.doesNotMatch(panel, /id="nav-bandeja"[^>]*aria-disabled/);
-    assert.match(panel, /id="nav-redactar"[^>]*aria-disabled="true"/);
+    assert.match(panel, /<button[^>]*id="nav-redactar"/);
+    assert.doesNotMatch(panel, /id="nav-redactar"[^>]*aria-disabled/);
+    assert.match(panel, /id="vista-redactar"[^>]*hidden/);
     assert.match(panel, /id="nav-analizar"[^>]*aria-current="page"/);
     assert.match(panel, /id="vista-bandeja"[^>]*hidden/);
   });
@@ -428,7 +452,7 @@ describe("lectura de Gmail (content script)", () => {
 describe("Gmail (pasos 4.4 y 4.5): leer, papelera y cuarentena; NUNCA borrado definitivo ni envío", () => {
   const gmail = sinComentarios(readFileSync(join(RAIZ, "lib", "gmail.js"), "utf8"), ".js");
 
-  test("el cliente solo llama con GET o POST, y los POST solo a las 4 rutas permitidas", () => {
+  test("el cliente solo llama con GET o POST, y los POST solo a las 5 rutas permitidas", () => {
     assert.match(gmail, /get: \(ruta\) => llamar\("GET", ruta\)/);
     assert.match(gmail, /return llamar\("POST", ruta, cuerpo\)/);
     assert.match(gmail, /if \(!rutaPostPermitida\(ruta\)\)/);
@@ -439,11 +463,16 @@ describe("Gmail (pasos 4.4 y 4.5): leer, papelera y cuarentena; NUNCA borrado de
       "/^\\/messages\\/[\\w-]+\\/untrash$/",
       "/^\\/messages\\/batchModify$/",
       "/^\\/labels$/",
+      "/^\\/drafts$/", // paso 6.3: crear un borrador (drafts.create), NUNCA drafts/send
     ]);
   });
 
-  test("ninguna ruta de Gmail borra de forma definitiva ni envía", () => {
-    assert.doesNotMatch(gmail, /\/(delete|batchDelete|send|drafts|import|insert)\b/i);
+  test("ninguna ruta de Gmail borra de forma definitiva ni envía; drafts solo para CREAR", () => {
+    assert.doesNotMatch(gmail, /\/(delete|batchDelete|send|import|insert)\b/i);
+    // "/drafts" aparece SOLO en la lista de permitidas y en el POST de crearBorrador.
+    assert.equal((gmail.match(/\/drafts\b/g) || []).length, 2, "solo /^\\/drafts$/ y post(\"/drafts\")");
+    assert.match(gmail, /cliente\.post\("\/drafts", \{ message: \{ raw, threadId \} \}\)/);
+    assert.doesNotMatch(gmail, /drafts\/|drafts\.send|messages\.send/);
   });
 
   test("la cuarentena usa batchModify y NUNCA trash", () => {
@@ -465,8 +494,8 @@ describe("Gmail (pasos 4.4 y 4.5): leer, papelera y cuarentena; NUNCA borrado de
     assert.match(gmail, /\/\^\[\\w-\]\+\$\/\.test\(id\)/);
   });
 
-  test("nada de lo leído se guarda: ni gmail.js, ni bandeja.js, ni limpieza.js usan almacenamiento", () => {
-    for (const archivo of ["gmail.js", "bandeja.js", "limpieza.js"]) {
+  test("nada de lo leído se guarda: ni gmail.js, ni bandeja.js, ni limpieza.js, ni redaccion.js usan almacenamiento", () => {
+    for (const archivo of ["gmail.js", "bandeja.js", "limpieza.js", "redaccion.js"]) {
       const codigo = sinComentarios(readFileSync(join(RAIZ, "lib", archivo), "utf8"), ".js");
       assert.doesNotMatch(codigo, /chrome\.storage|localStorage|sessionStorage|indexedDB|console\./, archivo);
     }
@@ -615,4 +644,68 @@ describe("fuentes locales", () => {
       assert.equal(createHash("sha256").update(datos).digest("hex"), esperado);
     });
   }
+});
+
+describe("Redactar (paso 6.3): demo oculto sin permiso, aviso con Cancelar, nada guardado", () => {
+  const panelHtml = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+  const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+  const cuerpoDe = (codigo, nombre) => {
+    const inicio = codigo.search(new RegExp(`\\n(async )?function ${nombre}\\(`));
+    assert.ok(inicio >= 0, `falta ${nombre}`);
+    const resto = codigo.slice(inicio + 1);
+    const fin = resto.slice(1).search(/\n(async )?function /);
+    return fin < 0 ? resto : resto.slice(0, fin + 1);
+  };
+
+  test("el interruptor del modo demostración viene oculto y apagado; solo lo muestra /redactar/proveedores", () => {
+    assert.match(panelHtml, /<label class="interruptor" id="interruptor-demo" hidden>/);
+    assert.match(panelHtml, /<input type="checkbox" role="switch" id="modo-demo">/);
+    assert.doesNotMatch(/<input[^>]*id="modo-demo"[^>]*>/.exec(panelHtml)[0], /checked/);
+    // Solo cargarProveedores() lo muestra, y solo con demostracion: true.
+    const muestras = panel.match(/red\.interruptorDemo\.hidden = [^;]+;/g) ?? [];
+    assert.deepEqual(muestras, ["red.interruptorDemo.hidden = true;", "red.interruptorDemo.hidden = !proveedores.demostracion;"]);
+    assert.match(cuerpoDe(panel, "cargarProveedores"), /red\.modoDemo\.checked = false;/);
+    // Al generar, el modo demo solo cuenta si el interruptor está a la vista.
+    assert.match(cuerpoDe(panel, "generarBorrador"), /const demo = !red\.interruptorDemo\.hidden && red\.modoDemo\.checked;/);
+  });
+
+  test("cada generación con el modo demostración pide confirmar (Cancelar no envía nada)", () => {
+    const dialogo = /<dialog[^>]*id="dialogo-demo"[\s\S]*?<\/dialog>/.exec(panelHtml)[0];
+    assert.ok(dialogo.includes(`<p id="dialogo-demo-texto">${AVISO_DEMO}</p>`), "el texto exacto del aviso");
+    assert.match(dialogo, /id="dialogo-demo-cancelar">Cancelar</);
+    const generar = cuerpoDe(panel, "generarBorrador");
+    assert.match(generar, /if \(demo && !\(await confirmarDemo\(\)\)\) return;/);
+    assert.ok(generar.indexOf("confirmarDemo()") < generar.indexOf("pedirBorrador("), "se confirma ANTES de pedir");
+    const confirmar = cuerpoDe(panel, "confirmarDemo");
+    assert.match(confirmar, /dialogoDemoCancelar\.addEventListener\("click", \(\) => terminar\(false\)/);
+    assert.match(confirmar, /addEventListener\("cancel", \(\) => terminar\(false\)/, "Escape también cancela");
+  });
+
+  test("el borrador va a un campo editable con .value y nada de Redactar va a storage ni a la consola", () => {
+    assert.match(panelHtml, /<textarea class="campo-texto campo-borrador" id="borrador"/);
+    assert.match(panelHtml, /<textarea class="campo-texto" id="indicacion" maxlength="500"/);
+    assert.match(cuerpoDe(panel, "generarBorrador"), /red\.borrador\.value = resultado\.borrador;/);
+    const inicio = panel.indexOf("const red = {");
+    const seccion = panel.slice(inicio, panel.indexOf("function iniciarRedactar("));
+    assert.ok(inicio > 0 && seccion.length > 1000);
+    assert.doesNotMatch(seccion, /chrome\.storage|localStorage|sessionStorage|indexedDB|console\./);
+    assert.doesNotMatch(seccion, /innerHTML|outerHTML|insertAdjacentHTML/);
+    assert.match(panelHtml, /id="redactar-progreso"[^>]*role="status"[^>]*aria-live="polite"/);
+    assert.match(panelHtml, /id="contador-indicacion"[^>]*aria-live="polite"/);
+  });
+
+  test("insertar: datos de la API de Gmail, mismo hilo, y nunca un envío", () => {
+    const insertar = cuerpoDe(panel, "insertarComoBorrador");
+    assert.match(insertar, /datosParaResponder\(cliente, correoRedactar\.idGmail\)/);
+    assert.match(insertar, /crearBorrador\(cliente, \{ raw: mime\.raw, threadId: datos\.threadId \}\)/);
+    assert.match(insertar, /para: datos\.de/, "Para = el remitente original");
+    assert.match(insertar, /inReplyTo: datos\.messageId/);
+    assert.doesNotMatch(panel, /\bsend\b|drafts\/send/i);
+  });
+
+  test("no se pide ningún permiso nuevo (tampoco clipboardWrite: la copia ocurre dentro del clic)", () => {
+    const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
+    assert.ok(!manifest.permissions.includes("clipboardWrite") && !manifest.permissions.includes("clipboardRead"));
+    assert.match(cuerpoDe(panel, "copiarBorrador"), /navigator\.clipboard\.writeText\(red\.borrador\.value\)/);
+  });
 });

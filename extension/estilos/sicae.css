@@ -860,3 +860,109 @@ input[type="password"] {
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/* ----- Redactar (paso 6.3, demo página 6) ----- */
+
+.vista-redactar { display: grid; gap: 12px; }
+
+.respondiendo { display: grid; gap: 4px; }
+.respondiendo-asunto { font-family: var(--titulos); font-weight: 700; overflow-wrap: anywhere; }
+.respondiendo-remitente { font-size: 13px; overflow-wrap: anywhere; }
+
+.formulario-redactar { display: grid; gap: 8px; }
+.etiqueta-campo { font-weight: 700; }
+
+/* Campos de texto. Borde #64748b = 4,76:1 sobre blanco (mínimo 3:1 para controles);
+   el texto de ejemplo (placeholder) también usa #64748b: 4,76:1. */
+.campo-texto {
+  font: inherit;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #64748b;
+  border-radius: var(--radio);
+  color: var(--texto);
+  background: var(--fondo);
+  resize: vertical;
+  line-height: 1.5;
+}
+.campo-texto::placeholder { color: #64748b; }
+.campo-borrador { min-height: 180px; }
+
+/* Contador "123/500": gris #475569 sobre blanco = 7,58:1. */
+.contador { justify-self: end; font-size: 12px; color: var(--texto-suave); }
+
+/* Tonos: radios nativos con forma de botón. Elegido: blanco sobre azul = 6,70:1;
+   sin elegir: texto sobre blanco = 17,85:1 con borde #64748b (4,76:1). */
+.tonos { margin: 0; padding: 0; border: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.tonos legend { padding: 0; margin-bottom: 6px; width: 100%; }
+.tono { position: relative; }
+.tono input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.tono span {
+  display: inline-block;
+  padding: 7px 16px;
+  border: 1px solid #64748b;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--fondo);
+  color: var(--texto);
+}
+.tono input:checked + span { background: var(--azul); border-color: var(--azul); color: #ffffff; }
+.tono input:focus-visible + span { outline: 3px solid var(--azul); outline-offset: 2px; }
+
+/* Interruptor del modo demostración (checkbox con role="switch").
+   Apagado: pista #64748b (4,76:1 sobre blanco); encendido: azul (6,70:1). Perilla blanca. */
+.interruptor { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
+.interruptor input {
+  appearance: none;
+  width: 40px;
+  height: 22px;
+  margin: 0;
+  flex: none;
+  border-radius: 999px;
+  background: #64748b;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.interruptor input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.15s;
+}
+.interruptor input:checked { background: var(--azul); }
+.interruptor input:checked::after { transform: translateX(18px); }
+.interruptor input:focus-visible { outline: 3px solid var(--azul); outline-offset: 2px; }
+
+.caja-borrador { display: grid; gap: 10px; }
+
+/* Avisos del borrador (enlaces quitados, cuerpo recortado): naranja sobre naranja suave = 4,88:1. */
+.avisos-borrador { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.avisos-borrador:empty { display: none; }
+.avisos-borrador li {
+  padding: 8px 10px;
+  border-radius: var(--radio);
+  border: 1px solid var(--naranja-borde);
+  background: var(--naranja-suave);
+  color: var(--naranja);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fila-borrador { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fila-borrador #insertar-borrador { grid-column: 1 / -1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .interruptor input, .interruptor input::after { transition: none; }
+}

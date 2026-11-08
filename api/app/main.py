@@ -11,6 +11,7 @@ Endpoints:
   POST   /acciones        -> con sesión y consentimiento: registra papelera/cuarentena (solo cantidad y MB).
   POST   /redactar        -> con sesión y consentimiento v4: borrador con IA (paso 6.2; Ollama local
                              o, solo para la cuenta de prueba, el modo demostración con Gemini).
+  GET    /redactar/proveedores -> con sesión: ¿esta sesión puede usar el modo demostración? (paso 6.3)
   GET    /estadisticas    -> con sesión: conteos por categoría y prioridad (solo números).
 
 Arrancar (desde la raíz del proyecto, con SICAE_GOOGLE_CLIENT_ID en .env):
@@ -45,6 +46,7 @@ from app.esquemas import (
     Borrador,
     ConsentimientoEntrada,
     Estadisticas,
+    Proveedores,
     Resultado,
     ResultadoLote,
     Salud,
@@ -86,6 +88,15 @@ MENSAJES = {
     "dict_type": "Debe ser un objeto con pares nombre: valor.",
     "json_invalid": "El cuerpo de la petición no es un JSON válido.",
 }
+
+
+class ErrorConCodigo(HTTPException):
+    """HTTPException con un "codigo" corto (paso 6.3): la extensión elige su propio mensaje con él,
+    sin mostrar el "detalle" de la API."""
+
+    def __init__(self, estado, detalle, codigo, headers=None):
+        super().__init__(status_code=estado, detail=detalle, headers=headers)
+        self.codigo = codigo
 
 
 def _cargar(ajustes, sha256_modelo):
@@ -205,8 +216,12 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
     @app.exception_handler(StarletteHTTPException)
     async def error_http(request: Request, exc: StarletteHTTPException):
         # Mismo formato que el 422: {"detalle": ...}. Se conservan las cabeceras del error
-        # (por ejemplo WWW-Authenticate en el 401).
-        return JSONResponse(status_code=exc.status_code, content={"detalle": exc.detail},
+        # (por ejemplo WWW-Authenticate en el 401). Los errores de /redactar traen además un
+        # "codigo" (paso 6.3) para que la extensión elija su propio mensaje.
+        contenido = {"detalle": exc.detail}
+        if getattr(exc, "codigo", None):
+            contenido["codigo"] = exc.codigo
+        return JSONResponse(status_code=exc.status_code, content=contenido,
                             headers=getattr(exc, "headers", None))
 
     @app.get("/salud", response_model=Salud, summary="Estado de la API y del modelo")
@@ -379,6 +394,22 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
 
     # ---------- Redacción con IA (paso 6.2) ----------
 
+    def demo_disponible(usuario):
+        """¿El modo demostración está disponible PARA ESTA SESIÓN? Clave configurada y cuenta de prueba."""
+        return bool(ajustes.demo_api_key.get_secret_value().strip()) and \
+            redaccion.es_cuenta_demo(usuario.get("google_sub"), ajustes.demo_cuenta)
+
+    @app.get(
+        "/redactar/proveedores",
+        response_model=Proveedores,
+        summary="Qué proveedores de IA puede usar esta sesión (paso 6.3)",
+        responses={401: {"description": "Sin sesión válida"}},
+    )
+    def proveedores(usuario=Depends(verificar_sesion)):
+        """La extensión muestra el interruptor del modo demostración solo si esto dice true.
+        Nunca devuelve la clave ni la cuenta de prueba."""
+        return Proveedores(local=True, modelo_local=ajustes.ia_modelo, demostracion=demo_disponible(usuario))
+
     @app.post(
         "/redactar",
         response_model=Borrador,
@@ -396,23 +427,22 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
         Nunca se registra la indicación, el correo ni el borrador; solo fecha, proveedor, modelo,
         segundos y si salió bien."""
         if not redaccion.consentimiento_suficiente(usuario["consentimiento_version"]):
-            raise HTTPException(status_code=403,
-                                detail="Acepta los permisos nuevos (versión 4) para usar la redacción con IA.")
+            raise ErrorConCodigo(403, "Acepta los permisos nuevos (versión 4) para usar la redacción con IA.",
+                                 "consentimiento")
         demo = entrada.modo == "demostracion"
         if demo:
             # Nunca hay "plan B": el modo demostración solo se usa si se pide, hay clave y es la
             # cuenta de prueba. Si Ollama falla, tampoco se pasa a Gemini.
-            if not ajustes.demo_api_key.get_secret_value().strip():
-                raise HTTPException(status_code=503, detail="El modo demostración está desactivado.")
-            if not redaccion.es_cuenta_demo(usuario.get("google_sub"), ajustes.demo_cuenta):
-                raise HTTPException(status_code=403, detail="El modo demostración solo está disponible para "
-                                                            "la cuenta de prueba del proyecto.")
+            if not demo_disponible(usuario):
+                if not ajustes.demo_api_key.get_secret_value().strip():
+                    raise ErrorConCodigo(503, "El modo demostración está desactivado.", "demo_desactivado")
+                raise ErrorConCodigo(403, "El modo demostración solo está disponible para la cuenta de prueba "
+                                          "del proyecto.", "demo_cuenta")
         espera = limite_borradores.permitir(usuario["id"])
         if espera is not None:
-            raise HTTPException(status_code=429,
-                                detail=f"Llegaste al límite de {ajustes.ia_limite_hora} borradores por hora. "
-                                       "Espera un poco e inténtalo de nuevo.",
-                                headers={"Retry-After": str(espera)})
+            raise ErrorConCodigo(429, f"Llegaste al límite de {ajustes.ia_limite_hora} borradores por hora. "
+                                      "Espera un poco e inténtalo de nuevo.",
+                                 "limite_hora", headers={"Retry-After": str(espera)})
 
         proveedor = "demostracion" if demo else "ollama"
         modelo = ajustes.demo_modelo if demo else ajustes.ia_modelo
@@ -423,7 +453,7 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
             _registrar_borrador(proveedor, modelo, time.monotonic() - inicio, False)
             # Solo el tipo de error: nunca la respuesta del proveedor ni el texto.
             logger.warning("Borrador con IA fallido (%s)", error.tipo)
-            raise HTTPException(status_code=error.estado, detail=error.mensaje) from None
+            raise ErrorConCodigo(error.estado, error.mensaje, error.tipo) from None
         segundos = round(time.monotonic() - inicio, 3)
         _registrar_borrador(proveedor, modelo, segundos, True)
         return Borrador(proveedor=proveedor, modelo=modelo, segundos=segundos, **resultado)

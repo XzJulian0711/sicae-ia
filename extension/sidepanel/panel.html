@@ -133,8 +133,19 @@
             <p class="suave nota-pequena">Google describe este permiso como «leer, redactar y enviar». Es el mínimo que existe para mover a la papelera; SICAE-IA nunca envía ni borra correos de forma definitiva.</p>
           </div>
         </li>
+        <!-- Paso 6.3 (consentimiento versión 4): redactar borradores con IA. La nota del modo
+             demostración se muestra SIEMPRE (así no se llama a la API antes de aceptar). -->
+        <li class="permiso">
+          <input type="checkbox" id="permiso-redactar" checked disabled>
+          <div>
+            <label for="permiso-redactar">Redactar borradores con IA</label>
+            <span class="etiqueta-obligatorio">Obligatorio</span>
+            <p class="suave">Redactar borradores con un modelo de IA que funciona en tu equipo; el texto no sale de él. Solo se guarda en Gmail como borrador si tú lo pides, y nunca se envía.</p>
+            <p class="suave nota-pequena" id="nota-modo-demo">Modo demostración (opcional, solo la cuenta de prueba del proyecto): envía el texto a Google Gemini.</p>
+          </div>
+        </li>
       </ul>
-      <p class="suave nota-pequena">Borradores y recordatorios se pedirán aparte cuando existan.</p>
+      <p class="suave nota-pequena">Los recordatorios se pedirán aparte cuando existan.</p>
       <div class="nunca-haremos">
         <p class="nunca-titulo">Nunca haremos</p>
         <p>Borrar correos de forma permanente, enviar sin tu aprobación, ni vender o compartir tus datos.</p>
@@ -338,6 +349,78 @@
       </div>
     </section>
 
+    <!-- Vista "Redactar" (paso 6.3, demo página 6): un borrador de respuesta con IA (POST /redactar).
+         El correo, la indicación y el borrador viven SOLO en memoria. Nada se envía: como mucho se
+         guarda como borrador en Gmail si la persona lo pide. -->
+    <section class="vista vista-redactar" id="vista-redactar" aria-labelledby="titulo-redactar" hidden>
+      <h2 class="titulo-grande" id="titulo-redactar" tabindex="-1">Redactar</h2>
+
+      <div class="caja respondiendo" id="redactar-correo" hidden>
+        <p class="rotulo">Respondiendo a</p>
+        <p class="respondiendo-asunto" id="redactar-asunto"></p>
+        <p class="suave respondiendo-remitente" id="redactar-remitente"></p>
+      </div>
+      <div class="vacio" id="redactar-vacio">
+        <p id="redactar-vacio-texto">Abre un correo en Gmail para responderlo.</p>
+      </div>
+      <button type="button" class="boton boton-secundario" id="redactar-leer">Leer el correo abierto</button>
+
+      <form class="formulario-redactar" id="formulario-redactar" novalidate>
+        <label class="etiqueta-campo" for="indicacion">¿Qué quieres decir?</label>
+        <textarea class="campo-texto" id="indicacion" maxlength="500" rows="3" aria-describedby="contador-indicacion"
+                  placeholder="Por ejemplo: confirmar que entregamos el 6 de octubre y preguntar la fecha de sustentación"></textarea>
+        <p class="contador" id="contador-indicacion" aria-live="polite">0/500</p>
+
+        <fieldset class="tonos">
+          <legend class="rotulo">Tono</legend>
+          <label class="tono"><input type="radio" name="tono" value="formal" checked><span>Formal</span></label>
+          <label class="tono"><input type="radio" name="tono" value="breve"><span>Breve</span></label>
+          <label class="tono"><input type="radio" name="tono" value="cordial"><span>Cordial</span></label>
+        </fieldset>
+
+        <!-- Solo aparece si GET /redactar/proveedores dice que ESTA sesión puede usarlo. -->
+        <label class="interruptor" id="interruptor-demo" hidden>
+          <input type="checkbox" role="switch" id="modo-demo">
+          <span>Modo demostración (Gemini)</span>
+        </label>
+
+        <button type="submit" class="boton boton-principal" id="generar">Generar</button>
+      </form>
+
+      <p class="estado" id="redactar-progreso" role="status" aria-live="polite" hidden></p>
+      <div class="estado" id="redactar-error" role="alert" data-tipo="error" hidden>
+        <span id="redactar-error-texto"></span>
+        <!-- Solo un enlace (pestaña nueva): no carga nada de internet. -->
+        <a class="enlace" id="enlace-ollama" href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" hidden>Descargar Ollama</a>
+      </div>
+      <button type="button" class="boton boton-secundario" id="redactar-dar-permiso" hidden>Dar permiso</button>
+
+      <div class="caja caja-borrador" id="caja-borrador" hidden>
+        <label class="rotulo" for="borrador">Borrador</label>
+        <textarea class="campo-texto campo-borrador" id="borrador" rows="10"></textarea>
+        <ul class="avisos-borrador" id="avisos-borrador" aria-label="Avisos del borrador"></ul>
+        <div class="fila-borrador">
+          <button type="button" class="boton boton-secundario" id="regenerar">Regenerar</button>
+          <button type="button" class="boton boton-secundario" id="copiar">Copiar</button>
+          <button type="button" class="boton boton-principal" id="insertar-borrador">Insertar como borrador</button>
+        </div>
+        <p class="estado" id="redactar-accion" role="status" aria-live="polite" hidden></p>
+        <a class="enlace" id="abrir-borradores" target="_blank" rel="noopener noreferrer" hidden>Abrir Borradores en Gmail</a>
+        <p class="suave nota-pequena">Nada se envía sin tu revisión.</p>
+        <p class="suave nota-pequena" id="proveedor-usado"></p>
+      </div>
+    </section>
+
+    <!-- Aviso del modo demostración: se muestra CADA VEZ que se genera con Gemini (Cancelar no envía nada). -->
+    <dialog class="dialogo" id="dialogo-demo" aria-labelledby="dialogo-demo-titulo" aria-describedby="dialogo-demo-texto">
+      <h2 id="dialogo-demo-titulo">¿Usar el modo demostración?</h2>
+      <p id="dialogo-demo-texto">El texto se envía a Google Gemini (capa gratuita). Personas de Google pueden leerlo. Úsalo solo con correos de prueba.</p>
+      <div class="fila-botones">
+        <button type="button" class="boton boton-secundario" id="dialogo-demo-cancelar">Cancelar</button>
+        <button type="button" class="boton boton-alerta" id="dialogo-demo-continuar">Enviar a Gemini</button>
+      </div>
+    </dialog>
+
     <!-- Confirmación antes de mover a la papelera (diálogo nativo: Escape cierra). -->
     <dialog class="dialogo" id="dialogo-confirmar" aria-labelledby="dialogo-titulo" aria-describedby="dialogo-texto">
       <h2 id="dialogo-titulo">¿Mover a la papelera?</h2>
@@ -381,7 +464,7 @@
         </svg>
         <span>Analizar</span>
       </button>
-      <button type="button" class="pestana" id="nav-redactar" aria-disabled="true">
+      <button type="button" class="pestana" id="nav-redactar">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M16.9 3.6a2.1 2.1 0 0 1 3 3L8 18.5 4 19.5l1-4z"/>
         </svg>

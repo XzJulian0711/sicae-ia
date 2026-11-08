@@ -113,10 +113,16 @@ Abrir el panel ─┬─ con sesión y consentimiento ─→ vista principal (an
     Se puede deshacer. Nunca borramos de forma definitiva."**, con la aclaración "Google
     describe este permiso como «leer, redactar y enviar». Es el mínimo que existe para mover a
     la papelera; SICAE-IA nunca envía ni borra correos de forma definitiva." La aclaración **no
-    sube la versión** del consentimiento (sigue en "3"), porque no pide nada nuevo.
+    sube la versión** del consentimiento, porque no pide nada nuevo;
+  - desde el paso 6.3, **"Redactar borradores con un modelo de IA que funciona en tu equipo; el
+    texto no sale de él. Solo se guarda en Gmail como borrador si tú lo pides, y nunca se
+    envía."**, con la nota **"Modo demostración (opcional, solo la cuenta de prueba del
+    proyecto): envía el texto a Google Gemini."** La nota se muestra **siempre**: para saber si
+    el modo demostración está disponible habría que abrir la sesión de la API **antes** de
+    aceptar, y eso guardaría el `google_sub` de alguien que todavía no aceptó.
 
-  Los tres son obligatorios, porque el permiso de Gmail es uno solo (`gmail.modify`, que
-  incluye leer). Borradores y recordatorios se pedirán aparte cuando existan. Incluye "Nunca
+  Los cuatro son obligatorios, porque el permiso de Gmail es uno solo (`gmail.modify`, que
+  incluye leer). Los recordatorios se pedirán aparte cuando existan. Incluye "Nunca
   haremos…" y el texto de la **Ley 1581 de 2012**, con el enlace **"Política de privacidad"**
   (paso 4.6), que abre [docs/privacidad.md](privacidad.md) en GitHub, en una pestaña nueva:
   - es un `<a>` normal con `target="_blank"` y `rel="noopener noreferrer"`: no carga nada
@@ -124,15 +130,16 @@ Abrir el panel ─┬─ con sesión y consentimiento ─→ vista principal (an
   - **no necesita ningún permiso**: los `host_permissions` solo cuentan para `fetch` y para los
     content scripts, y la CSP limita lo que la página carga, no a dónde se navega;
   - apunta a la rama `main`, así que funciona después de unir el PR;
-  - **la versión de la política es la del consentimiento ("3")**, y una prueba lo revisa. El
+  - **la versión de la política es la del consentimiento ("4")**, y una prueba lo revisa. El
     enlace no sube la versión, porque no pide nada nuevo.
-- **Qué se guarda al aceptar:** solo `{aceptado: true, version: "3", fecha}`, en
+- **Qué se guarda al aceptar:** solo `{aceptado: true, version: "4", fecha}`, en
   `chrome.storage.local` (`lib/sesion.js` → `crearConsentimiento`).
   - Si cambia el texto de los permisos, se sube la versión y se vuelve a pedir.
   - En el **paso 4.4 pasó de la versión "1" a la "2"**, porque se agregó la lectura de correos.
   - En el **paso 4.5 pasó a la "3"**, porque se agregó mover a la papelera y a cuarentena.
-    Quien aceptó una versión anterior vuelve a ver "Revisa los permisos", y al aceptar, Google
-    pide el permiso nuevo de Gmail.
+  - En el **paso 6.3 pasó a la "4"**, porque se agregó redactar con IA (una finalidad nueva).
+    Quien aceptó una versión anterior vuelve a ver "Revisa los permisos". La API también exige
+    el "4" para `/redactar`.
 - **El token nunca:**
   - se guarda en `storage`;
   - se muestra en pantalla ni se escribe en la consola;
@@ -486,6 +493,74 @@ unidades por hasta 1.000 correos), pero **no se usa**:
 identificadores de correo, sin remitentes y sin usuario.** Si el registro falla, la acción en
 Gmail ya se hizo, y el panel solo avisa.
 
+## Redactar (paso 6.3)
+
+Sigue el demo (página 6) con SICAE-IA. Se abre con **Redactar** en la barra inferior y usa
+`POST /redactar` de la API (paso 6.2). Exige el consentimiento **v4**.
+
+1. **Respondiendo a:** el asunto y el remitente del correo abierto en Gmail, leídos con el
+   content script de siempre. Se comprueba que la pestaña sea de la cuenta de la sesión. Si no hay
+   un correo abierto: "Abre un correo en Gmail para responderlo." y el botón **Leer el correo
+   abierto**.
+2. **¿Qué quieres decir?:** hasta 500 caracteres, con contador ("123/500", en `aria-live`).
+3. **Tono:** Formal (elegido por defecto), Breve o Cordial. Son radios nativos con forma de botón.
+4. **Generar:** muestra "Generando borrador… La primera vez puede tardar mientras carga el
+   modelo." y deja el borrador en un **campo editable** (`<textarea>`, con `.value`).
+5. **Regenerar · Copiar · Insertar como borrador.** Debajo: "Nada se envía sin tu revisión." y
+   el proveedor y los segundos ("Ollama (gemma4:e4b) en tu equipo · 1,4 s").
+6. **Avisos:** si `/redactar` quitó enlaces que no estaban en tu indicación, o recortó el
+   cuerpo, se dice. Los avisos los arma la extensión con los números de la respuesta.
+
+**Insertar como borrador** (`users.drafts.create`, permiso `gmail.modify`), en el **mismo
+hilo**, como pide la guía "Threads" de la API de Gmail:
+- el `threadId`, el `Message-ID`, `References`, `Subject` y `From` se piden a la API con
+  `messages.get` (`format=metadata` y esos `metadataHeaders`), sin adivinarlos. El id del
+  mensaje lo lee el content script (`data-legacy-message-id`, paso 4.5);
+- el MIME se arma a mano (`lib/redaccion.js` → `armarMime`):
+  - `From`: tu correo (la documentación no dice que Gmail lo complete solo);
+  - `To`: el remitente original;
+  - `Subject`: "Re: …" sin duplicar el "Re:", codificado según el RFC 2047 si no es ASCII;
+  - `In-Reply-To` y `References`;
+  - el cuerpo en UTF-8 y base64, y el mensaje entero en base64url;
+- **inyección de cabeceras:** cada valor se limpia de saltos de línea y caracteres de control, y
+  los `Message-ID` y las direcciones se validan. Un asunto con "\r\nBcc: …" no agrega nada;
+- se manda `POST /drafts` con `{message: {raw, threadId}}`. **Nunca se envía**:
+  `/drafts/send` y `/messages/send` están bloqueadas en el cliente;
+- al terminar: "**Borrador guardado en Gmail. Revísalo antes de enviarlo.**" y un enlace
+  **Abrir Borradores en Gmail** de la **misma cuenta** (`/mail/u/N/#drafts`, sacado de la
+  URL de la pestaña y validado).
+
+**Copiar** usa `navigator.clipboard.writeText` **dentro del clic**. Según MDN, en Chromium
+*"writing requires either the clipboard-write permission or transient activation"*: con el
+clic basta, así que **no se pide `clipboardWrite`** (que mostraría el aviso "Modificar los datos
+que copias y pegas"). Si el navegador lo rechaza, se selecciona el texto y se pide Ctrl+C.
+
+**Modo demostración (Gemini):**
+- el interruptor **solo aparece** si `GET /redactar/proveedores` dice que **esta sesión**
+  puede usarlo (hay clave y es la cuenta de prueba), y viene **apagado**;
+- **cada vez** que se genera con él, se abre un diálogo con **Cancelar**: "El texto se envía a
+  Google Gemini (capa gratuita). Personas de Google pueden leerlo. Úsalo solo con correos de
+  prueba." Cancelar (o Escape) no envía nada.
+
+**Errores** (mensajes fijos de la extensión, según el `codigo` que manda la API):
+
+| Caso | Mensaje |
+|---|---|
+| Ollama apagado o no instalado | "No se pudo conectar con Ollama. Si no lo tienes, descárgalo de ollama.com; si ya lo tienes, ábrelo." + enlace **Descargar Ollama** |
+| Modelo no descargado | "Falta el modelo: en una terminal ejecuta «ollama pull gemma4:e4b»." (el modelo que dice la API) |
+| Tiempo agotado | "La IA tardó demasiado. Inténtalo de nuevo." |
+| Límite (20 por hora) | "Llegaste al límite de borradores por hora. Inténtalo en N min." |
+| Sin el consentimiento v4 | Vuelve a "Revisa los permisos" |
+| Pestaña de Gmail de otra cuenta | "Esta pestaña de Gmail es de otra cuenta…" (el de siempre) |
+| Falta el permiso de Gmail al insertar | El mensaje de siempre + **Dar permiso** |
+
+**Qué NO hace:**
+- no envía correos (ni puede: el cliente bloquea `send`);
+- no guarda el correo, la indicación ni el borrador: viven solo en la memoria del panel (ni
+  `chrome.storage` ni la consola), salvo el borrador que tú guardes en Gmail;
+- no cita el correo original ni agrega adjuntos;
+- no usa `Reply-To`: Para es siempre el remitente original.
+
 ## Analizar un correo de Gmail
 
 1. Abre Gmail en Chrome con una **cuenta de prueba**. Si la pestaña ya estaba abierta antes de
@@ -508,7 +583,7 @@ arriba hacia abajo:
 | **CORREO ABIERTO** | Asunto (o "(Sin asunto)") y remitente leídos de Gmail. Se ve aunque la API falle |
 | **Franja de resultado** | Ícono + título en color, con consejos, prioridad, motivos y la nota (ver la tabla siguiente) |
 | **Estado de la conexión** | Sección plegable (`<details>`) con "Probar conexión" y sus dos líneas |
-| **Barra inferior** | **Bandeja** (paso 4.4, ver "Bandeja") · **Analizar** · Redactar. Redactar todavía dice "Próximamente" y no hace nada |
+| **Barra inferior** | **Bandeja** (paso 4.4, ver "Bandeja") · **Analizar** · **Redactar** (paso 6.3, ver "Redactar") |
 
 Todavía **no hay botones de acción** (mover a cuarentena, reportar): llegan con la API de Gmail.
 
@@ -557,8 +632,8 @@ En todos los casos:
 - **En el resto del panel:**
   - los íconos son decorativos (`aria-hidden`);
   - el botón de ajustes, que solo tiene ícono, se llama "Ajustes" (`aria-label`);
-  - en la barra inferior, la pestaña abierta (Analizar o Bandeja) tiene `aria-current="page"` y
-    Redactar tiene `aria-disabled="true"`. Su "Próximamente" sale en una región `aria-live`.
+  - en la barra inferior, la pestaña abierta (Analizar, Bandeja o Redactar) tiene
+    `aria-current="page"`.
 - **Más contrastes,** todos ≥ 7:1:
   - rótulos, remitente y pestañas inactivas, gris `#475569` sobre blanco o sobre el fondo
     `#f6f6f4`;
@@ -718,7 +793,7 @@ los dos lugares.
 | `http://127.0.0.1:8000/*` | Llamar a la API que corre en tu equipo |
 | `https://oauth2.googleapis.com/*` (paso 4.2) | **Solo** para revocar el token al cerrar sesión (`POST /revoke`) y **leer la respuesta**, para confirmar que Google lo revocó. Sin este permiso la petición se podría enviar, pero no se sabría si funcionó. No da acceso a la cuenta ni al correo |
 | `https://openidconnect.googleapis.com/*` (paso 4.2) | **Solo** para leer el correo de la sesión que se muestra en el encabezado: `GET /v1/userinfo`, con el token en la cabecera `Authorization`. Usa el alcance `userinfo.email`, que el usuario ya aceptó en "Revisa los permisos". El correo no se guarda |
-| `https://gmail.googleapis.com/*` (pasos 4.4 y 4.5) | La API de Gmail, con el token en la cabecera `Authorization`: **leer** (`GET`) la bandeja y los correos a revisar, y **solo cuatro `POST`** (paso 4.5): `/messages/{id}/trash`, `/messages/{id}/untrash`, `/messages/batchModify` (cuarentena) y `/labels` (crear "SICAE/Cuarentena"). Cualquier otra ruta se rechaza **antes** de llamar a Gmail. Sin este permiso no se podrían leer las respuestas de Gmail |
+| `https://gmail.googleapis.com/*` (pasos 4.4, 4.5 y 6.3) | La API de Gmail, con el token en la cabecera `Authorization`: **leer** (`GET`) la bandeja y los correos a revisar, y **solo cinco `POST`**: `/messages/{id}/trash`, `/messages/{id}/untrash`, `/messages/batchModify` (cuarentena), `/labels` (crear "SICAE/Cuarentena") y `/drafts` (crear un borrador, paso 6.3; **nunca** `/drafts/send`). Cualquier otra ruta se rechaza **antes** de llamar a Gmail. Sin este permiso no se podrían leer las respuestas de Gmail |
 
 **Alcances (scopes) de `oauth2`:**
 
@@ -736,11 +811,12 @@ consultada el 4 nov. 2026):
   definitivo** de hilos y mensajes, saltándose la papelera". Es el alcance más pequeño que deja
   usar `messages.trash` y `untrash`.
 - **Pero `gmail.modify` sí permite enviar.** Por eso el cliente de `lib/gmail.js` solo acepta las
-  cuatro rutas `POST` de la tabla anterior (`RUTAS_POST_PERMITIDAS`). Las pruebas revisan:
+  cinco rutas `POST` de la tabla anterior (`RUTAS_POST_PERMITIDAS`). Las pruebas revisan:
   - que en **todo el código** (extensión, API y `herramientas`) no aparezcan `batchDelete`,
     `messages.delete`, `threads.delete`, `emptyTrash` ni el alcance `mail.google.com/`;
-  - que `lib/gmail.js` no tenga rutas con `/delete`, `/send`, `/drafts` ni `/import`, y que
-    `post()` rechace esas rutas sin llamar a Gmail.
+  - que `lib/gmail.js` no tenga rutas con `/delete`, `/send` ni `/import`, que `/drafts` aparezca
+    solo para **crear** (nunca `/drafts/send` ni `/drafts/{id}`), y que `post()` rechace esas
+    rutas sin llamar a Gmail.
 - La papelera usa `messages.trash` y **no** `batchModify`: la documentación de `batchModify` solo
   habla de agregar y quitar etiquetas, mientras que `trash` está documentado para mover a la
   papelera. `batchModify` se usa solo para la cuarentena.
@@ -814,8 +890,8 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
     `/acciones`, `/estadisticas` (de la que solo se usa el código), `/consentimiento`,
     `/auth/cerrar` y `DELETE /cuenta`.
 - **Ningún borrado definitivo** (paso 4.5): la única llamada `DELETE` de todo el código es
-  `DELETE /cuenta` de nuestra API. A Gmail solo se le hacen `GET` y los cuatro `POST` permitidos
-  (ver "Permisos").
+  `DELETE /cuenta` de nuestra API. A Gmail solo se le hacen `GET` y los cinco `POST` permitidos
+  (ver "Permisos"). Ninguno envía correos.
 - **Lo que se mueve no se guarda:** los identificadores para Deshacer viven en una variable del
   panel (`ultimoMovimiento`), nunca en `chrome.storage` ni en la API.
 - **El resultado se valida:** solo se muestran categorías, prioridades y confianzas conocidas;
@@ -943,8 +1019,8 @@ node --test "extension/tests/*.test.js"
       mueven;
   - Promociones: con tope, sin la categoría y con error;
   - paso 4.5:
-    - `post()` acepta solo las cuatro rutas y rechaza las demás (`/delete`, `/send`,
-      `batchDelete`…) **sin llamar a Gmail**;
+    - `post()` acepta solo las cinco rutas y rechaza las demás (`/delete`, `/send`,
+      `/drafts/send`, `batchDelete`…) **sin llamar a Gmail**;
     - la búsqueda: etiquetas, `q` e `includeSpamTrash`; páginas hasta el tope; cancelar;
     - la papelera con **fallos parciales** (sigue con los demás) y **Deshacer** con los mismos
       identificadores;
@@ -953,6 +1029,13 @@ node --test "extension/tests/*.test.js"
 - **`tests/seguridad.test.js`** también revisa que cada búsqueda empiece con
   `limpiarResultadoPrevio()`, que esa función no borre lo que se puede deshacer, y que todos los
   clientes de Gmail del panel avisen los reintentos.
+  - paso 6.3: **mismo hilo** (`datosParaResponder` pide `format=metadata` con `Message-ID`,
+    `References`, `Subject` y `From`, y `crearBorrador` manda `POST /drafts` con
+    `{message: {raw, threadId}}`), y `raw` o `threadId` raros se rechazan sin llamar a Gmail.
+- **`tests/redaccion.test.js`** (paso 6.3): el MIME (cabeceras exactas, CRLF, UTF-8 de ida y
+  vuelta, líneas de base64 de 76), el RFC 2047 (palabras de ≤ 75 sin partir un emoji), la
+  **inyección de cabeceras**, "Re:" sin duplicar, `References`, el enlace a Borradores, y cada
+  `codigo` de `/redactar` con su mensaje fijo (nunca el `detalle` de la API).
 - **`tests/limpieza.test.js`** (paso 4.5):
   - nada marcado por defecto (tampoco "Todo el correo"), su aviso, y que sin origen no se busque;
   - los límites: cantidad 1–500, meses 1–120, MB 1–50;
@@ -1029,8 +1112,8 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
   `gmail.modify` como «leer, redactar y enviar». Es el mínimo que existe para mover a la
   papelera: `messages.trash` solo acepta `gmail.modify` o `https://mail.google.com/`, y este
   último también permite borrar de forma definitiva. Que SICAE-IA nunca envíe ni borre de forma
-  definitiva lo garantiza **el código** (solo cuatro rutas `POST` permitidas, revisadas por las
-  pruebas), no el permiso. La pantalla "Revisa los permisos" lo aclara.
+  definitiva lo garantiza **el código** (solo cinco rutas `POST` permitidas, ninguna de envío,
+  revisadas por las pruebas), no el permiso. La pantalla "Revisa los permisos" lo aclara.
 - **Deshacer se pierde al cerrar el panel** (paso 4.5): los identificadores movidos están solo en
   memoria. Después de cerrarlo, se recuperan desde la Papelera de Gmail (30 días).
 - **La papelera sigue ocupando espacio** hasta que Gmail la vacía sola a los 30 días. SICAE-IA
@@ -1048,6 +1131,10 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
   con `Retry-After`).
 - **Charset:** el cuerpo se decodifica con el `charset` de cada parte si el navegador lo conoce;
   si no, como UTF-8, y algún carácter podría verse mal.
+- **Redactar (paso 6.3):** para insertar el borrador hace falta el id del mensaje que la
+  extensión lee de la página de Gmail (`data-legacy-message-id`). Si Gmail lo cambia, el panel
+  pide copiar el borrador y pegarlo a mano. Para es siempre el remitente original (no se usa
+  `Reply-To`). La primera generación puede tardar mientras Ollama carga el modelo.
 - **La cuenta de la pestaña sale del título de Gmail.** Si Gmail cambia ese formato, Analizar no
   podrá comprobarla y analizará igual.
 - **La sesión de la API está en la memoria de Chrome** (`chrome.storage.session`) mientras el

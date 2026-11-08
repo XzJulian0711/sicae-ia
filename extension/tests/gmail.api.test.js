@@ -18,7 +18,10 @@ import {
   TOPE_PUBLICIDAD,
   URL_GMAIL,
   cabecera,
+  CABECERAS_RESPUESTA,
+  crearBorrador,
   crearClienteGmail,
+  datosParaResponder,
   datosPromociones,
   decodificarBase64Url,
   direcciones,
@@ -379,13 +382,14 @@ const clienteCon = (api, opciones = {}) => crearClienteGmail({ identidad: identi
 const parametros = (ruta) => new URL(`https://x.example${ruta}`).searchParams;
 
 describe("post(): solo las rutas permitidas", () => {
-  test("acepta trash, untrash, batchModify y labels; nada más", () => {
-    for (const ruta of ["/messages/abc123/trash", "/messages/abc123/untrash", "/messages/batchModify", "/labels"]) {
+  test("acepta trash, untrash, batchModify, labels y crear un borrador (5); nada más", () => {
+    for (const ruta of ["/messages/abc123/trash", "/messages/abc123/untrash", "/messages/batchModify", "/labels", "/drafts"]) {
       assert.equal(rutaPostPermitida(ruta), true, ruta);
     }
-    for (const ruta of ["/messages/abc123/delete", "/messages/batchDelete", "/messages/send", "/drafts", "/drafts/send",
-                        "/messages/import", "/messages", "/threads/abc/trash", "/messages/a/b/trash", "/messages/abc/trash?x=1",
-                        "/settings/filters", null, undefined, 42]) {
+    // drafts.send, messages.send y cualquier otra ruta de borradores siguen bloqueadas.
+    for (const ruta of ["/messages/abc123/delete", "/messages/batchDelete", "/messages/send", "/drafts/send", "/drafts/abc123",
+                        "/drafts/abc123/send", "/drafts?x=1", "/drafts/", "/messages/import", "/messages", "/threads/abc/trash",
+                        "/messages/a/b/trash", "/messages/abc/trash?x=1", "/settings/filters", null, undefined, 42]) {
       assert.equal(rutaPostPermitida(ruta), false, String(ruta));
     }
   });
@@ -800,5 +804,67 @@ describe("403: reintentar solo con rateLimitExceeded / userRateLimitExceeded", (
     await assert.rejects(ponerEnCuarentena(cliente, ["f1"]), (e) => e.codigo === "sin_permiso");
     assert.equal(api.llamadas.length, 1);
     assert.deepEqual(esperas, []);
+  });
+});
+
+// ===================== Paso 6.3: borrador de respuesta en el mismo hilo =====================
+
+describe("borrador de respuesta (drafts.create) en el MISMO hilo", () => {
+  const METADATOS = {
+    id: "18c0ffee",
+    threadId: "18cHILO01",
+    payload: {
+      headers: [
+        { name: "Message-Id", value: "<CAF123abc@mail.gmail.com>" },
+        { name: "References", value: "<raiz@uni.example.edu>" },
+        { name: "Subject", value: "Entrega del anteproyecto" },
+        { name: "From", value: "Coordinación <coordinacion@uni.example.edu>" },
+      ],
+    },
+  };
+
+  test("datosParaResponder pide format=metadata con las 4 cabeceras y devuelve el threadId", async () => {
+    const api = apiFalsa((metodo, ruta) => (metodo === "GET" && ruta.startsWith("/messages/18c0ffee?")
+      ? { estado: 200, cuerpo: METADATOS } : { estado: 404 }));
+    const datos = await datosParaResponder(clienteCon(api), "18c0ffee");
+    assert.deepEqual(datos, {
+      threadId: "18cHILO01",
+      messageId: "<CAF123abc@mail.gmail.com>",
+      references: "<raiz@uni.example.edu>",
+      asunto: "Entrega del anteproyecto",
+      de: "Coordinación <coordinacion@uni.example.edu>",
+    });
+    const p = parametros(api.llamadas[0].ruta);
+    assert.equal(p.get("format"), "metadata");
+    assert.deepEqual(p.getAll("metadataHeaders"), [...CABECERAS_RESPUESTA]);
+    assert.deepEqual([...CABECERAS_RESPUESTA], ["Message-ID", "References", "Subject", "From"]);
+  });
+
+  test("sin threadId, id raro o correo que ya no existe → error, sin seguir", async () => {
+    const sinHilo = apiFalsa(() => ({ estado: 200, cuerpo: { id: "x", payload: { headers: [] } } }));
+    await assert.rejects(datosParaResponder(clienteCon(sinHilo), "18c0ffee"), (e) => e.codigo === "inesperada");
+    const noExiste = apiFalsa(() => ({ estado: 404 }));
+    await assert.rejects(datosParaResponder(clienteCon(noExiste), "18c0ffee"), (e) => e.codigo === "inesperada");
+    const nada = apiFalsa(() => ({ estado: 200 }));
+    await assert.rejects(datosParaResponder(clienteCon(nada), "../labels"));
+    assert.equal(nada.llamadas.length, 0);
+  });
+
+  test("crearBorrador: POST /drafts con {message: {raw, threadId}}; nunca drafts/send", async () => {
+    const api = apiFalsa((metodo, ruta) => (metodo === "POST" && ruta === "/drafts"
+      ? { estado: 200, cuerpo: { id: "r-123", message: { id: "m1", threadId: "18cHILO01" } } } : { estado: 404 }));
+    const r = await crearBorrador(clienteCon(api), { raw: "RnJvbTogYUBiLmNv", threadId: "18cHILO01" });
+    assert.deepEqual(r, { id: "r-123" });
+    assert.deepEqual(api.llamadas.map((l) => [l.metodo, l.ruta]), [["POST", "/drafts"]]);
+    assert.deepEqual(api.llamadas[0].cuerpo, { message: { raw: "RnJvbTogYUBiLmNv", threadId: "18cHILO01" } });
+    assert.ok(api.llamadas.every((l) => !/send/i.test(l.ruta)));
+  });
+
+  test("crearBorrador rechaza un raw que no es base64url o un threadId raro, sin llamar a Gmail", async () => {
+    const api = apiFalsa(() => ({ estado: 200, cuerpo: { id: "x" } }));
+    for (const malo of [{ raw: "con espacios", threadId: "h1" }, { raw: "YWJj+/=", threadId: "h1" }, { raw: "YWJj", threadId: "../x" }]) {
+      await assert.rejects(crearBorrador(clienteCon(api), malo));
+    }
+    assert.equal(api.llamadas.length, 0);
   });
 });

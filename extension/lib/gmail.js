@@ -1,9 +1,10 @@
 // API de Gmail: lectura de la bandeja (paso 4.4) y, desde el paso 4.5, mover a la PAPELERA,
-// deshacerlo y la CUARENTENA de phishing (alcance gmail.modify).
+// deshacerlo y la CUARENTENA de phishing, y desde el 6.3, GUARDAR UN BORRADOR de respuesta
+// (alcance gmail.modify).
 //
 // NUNCA hay borrado definitivo ni envío: el cliente solo hace GET y POST, y los POST solo van a
-// las rutas de RUTAS_POST_PERMITIDAS (trash, untrash, batchModify y crear la etiqueta). Cualquier
-// otra ruta se rechaza antes de pedir nada. Una prueba revisa todo el código.
+// las rutas de RUTAS_POST_PERMITIDAS (trash, untrash, batchModify, crear la etiqueta y crear un
+// borrador). Cualquier otra ruta se rechaza antes de pedir nada. Una prueba revisa todo el código.
 //
 // - El token de Google sale de chrome.identity y va SOLO en Authorization: Bearer (nunca en la
 //   URL, en chrome.storage ni en la consola). Si Gmail responde 401, se renueva UNA vez.
@@ -295,13 +296,14 @@ async function tokenDe(identidad) {
   return token;
 }
 
-// Las ÚNICAS rutas a las que se puede hacer POST (paso 4.5). Nada de delete, batchDelete,
-// send, drafts ni import: con ellas no se borra de forma definitiva ni se envía nada.
+// Las ÚNICAS rutas a las que se puede hacer POST (pasos 4.5 y 6.3). Nada de delete, batchDelete,
+// send, drafts/send ni import: con ellas no se borra de forma definitiva ni se envía nada.
 export const RUTAS_POST_PERMITIDAS = Object.freeze([
   /^\/messages\/[\w-]+\/trash$/, // mover a la papelera (se puede deshacer 30 días)
   /^\/messages\/[\w-]+\/untrash$/, // sacar de la papelera (Deshacer)
   /^\/messages\/batchModify$/, // cuarentena: agregar/quitar etiquetas (no la papelera)
   /^\/labels$/, // crear la etiqueta "SICAE/Cuarentena"
+  /^\/drafts$/, // crear un borrador (drafts.create): NO lo envía (drafts/send sigue bloqueado)
 ]);
 
 export function rutaPostPermitida(ruta) {
@@ -551,4 +553,41 @@ export async function devolverARecibidos(cliente, ids) {
   const etiqueta = await asegurarEtiquetaCuarentena(cliente);
   await cliente.post("/messages/batchModify", { ids: seguros, addLabelIds: ["INBOX"], removeLabelIds: [etiqueta] });
   return { etiqueta, ids: seguros };
+}
+
+// ===================== Paso 6.3: borrador de respuesta en el MISMO hilo =====================
+
+// Cabeceras que hacen falta para responder en el mismo hilo (guía "Threads" de la API de Gmail:
+// threadId + In-Reply-To/References según el RFC 2822 + el mismo asunto).
+export const CABECERAS_RESPUESTA = Object.freeze(["Message-ID", "References", "Subject", "From"]);
+
+/**
+ * Datos del correo que se responde, pedidos a la API (no adivinados):
+ * messages.get con format=metadata → {threadId, messageId, references, asunto, de}.
+ */
+export async function datosParaResponder(cliente, id) {
+  if (typeof id !== "string" || !ID_SEGURO.test(id)) throw new ErrorGmail("inesperada", MENSAJES_GMAIL.inesperada);
+  const parametros = new URLSearchParams({ format: "metadata" });
+  for (const nombre of CABECERAS_RESPUESTA) parametros.append("metadataHeaders", nombre);
+  const mensaje = await cliente.get(`/messages/${id}?${parametros.toString()}`);
+  if (!mensaje || typeof mensaje.threadId !== "string" || !ID_SEGURO.test(mensaje.threadId)) {
+    throw new ErrorGmail("inesperada", MENSAJES_GMAIL.inesperada);
+  }
+  const cabeceras = mensaje.payload?.headers ?? [];
+  return {
+    threadId: mensaje.threadId,
+    messageId: cabecera(cabeceras, "Message-ID"),
+    references: cabecera(cabeceras, "References"),
+    asunto: cabecera(cabeceras, "Subject"),
+    de: cabecera(cabeceras, "From"),
+  };
+}
+
+/** users.drafts.create: guarda el borrador en el hilo. NO lo envía (drafts/send está bloqueado). → {id}. */
+export async function crearBorrador(cliente, { raw, threadId }) {
+  if (typeof raw !== "string" || !/^[A-Za-z0-9_-]+$/.test(raw) || typeof threadId !== "string" || !ID_SEGURO.test(threadId)) {
+    throw new ErrorGmail("inesperada", MENSAJES_GMAIL.inesperada);
+  }
+  const respuesta = await cliente.post("/drafts", { message: { raw, threadId } });
+  return { id: typeof respuesta?.id === "string" ? respuesta.id : null };
 }
