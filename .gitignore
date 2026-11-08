@@ -53,6 +53,12 @@ ml/data/eml/
 # usuario. Si existe, se usa en lugar del de Git. Nunca se sube.
 ml/config/prioridad.local.json
 
+# ---------- Evaluación de la redacción con IA (paso 6.4) ----------
+# Los borradores generados y la clave (código -> sistema) no se suben: la clave rompería la
+# calificación a ciegas. SÍ se suben casos.csv (correos inventados), la plantilla
+# calificacion.csv y el resumen en evaluacion/redaccion/reportes/ (solo números).
+evaluacion/redaccion/resultados/
+
 # ---------- Modelos entrenados (se regeneran entrenando) ----------
 ml/models/*.joblib
 

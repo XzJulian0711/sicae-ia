@@ -25,4 +25,5 @@ include = ["sicae_ml*"]
 # Un solo "pytest" desde la raíz corre las pruebas del modelo y de la API.
 testpaths = ["ml/tests", "api/tests"]
 # La API no se instala como paquete: pytest agrega api/ para poder hacer "from app.main import ...".
-pythonpath = ["api"]
+# herramientas/ (paso 6.4): para probar comparar_redaccion.py y resumir_redaccion.py.
+pythonpath = ["api", "herramientas"]

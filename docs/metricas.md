@@ -874,3 +874,125 @@ como publicidad, una categoría de prioridad baja, y el usuario no vería la ale
     prioridad baja y **sin ocultarse**: el usuario la sigue viendo en su bandeja.
   - Es solo la etiqueta visible de la categoría interna `publicidad`. Las tres categorías del
     sistema (legítimo, publicidad, phishing) no cambian.
+
+## Redacción con IA: comparación de modelos (paso 6.4)
+
+**Objetivo:** comparar, con los mismos casos y **a ciegas**, tres sistemas para redactar
+borradores de respuesta:
+
+| Sistema | Dónde corre |
+|---|---|
+| `gemma4:e2b` | Ollama, en el equipo |
+| `gemma4:e4b` | Ollama, en el equipo (el que usa la extensión por defecto) |
+| `gemini-3.5-flash-lite` | Google Gemini, capa gratuita (modo demostración) |
+
+Se mide el tiempo y, con 2 evaluadores, si cumple la indicación, si el tono es correcto, si
+inventa datos y la calidad (1 a 5).
+
+### Mismo código que la extensión
+
+`herramientas/comparar_redaccion.py` **importa** `api/app/redaccion.py` y llama a
+`redaccion.redactar()`, la misma función de `POST /redactar`. Así comparte con la API:
+- el mensaje de sistema;
+- las marcas que separan el correo como datos;
+- el recorte del cuerpo;
+- el enmascarado de direcciones para Gemini;
+- la limpieza de enlaces.
+
+Cada caso se valida con el mismo esquema de la API. Una prueba revisa que el script no copie
+nada de ese código.
+
+### Los casos
+
+- `evaluacion/redaccion/casos.csv`: separado por comas y `utf-8-sig`, con las columnas `id,
+  asunto, cuerpo, indicacion, tono, inventado, ejemplo`.
+- **Solo correos INVENTADOS:** cada caso lleva `inventado=si`. Si falta la columna o alguna fila
+  no dice "si", el script **se niega**. Así lo pide el Alcance: el modo demostración envía el
+  texto a Google, donde personas pueden leerlo.
+- El archivo trae **2 filas de ejemplo** (`ejemplo=si`), que el script ignora. El equipo escribe
+  **12 casos**: si no son 12, el script avisa y sigue.
+- **Cómo escribirlos:**
+  - mezclar los tres tonos (formal, breve, cordial);
+  - incluir fechas, horas y cifras en el correo o en la indicación, para ver si el modelo las
+    respeta o inventa otras;
+  - la indicación, como la escribiría una persona ("Confirmar que entregamos el 6 de octubre y
+    preguntar la fecha de sustentación").
+
+### Procedimiento
+
+1. **Preparar los modelos:** `ollama pull gemma4:e2b` y `ollama pull gemma4:e4b`. Para Gemini,
+   `SICAE_DEMO_API_KEY` en el `.env`; sin ella, Gemini se salta.
+2. **Generar:** `python herramientas/comparar_redaccion.py`. Para cada caso y cada modelo local:
+   1. **se descarga el modelo de la memoria** (`POST /api/generate` con `keep_alive: 0`, según la
+      FAQ de Ollama) y se confirma con `GET /api/ps` que ya no esté cargado (hasta 30 s);
+   2. **frío:** se genera y se mide el tiempo. Incluye cargar el modelo. Ese borrador no se
+      guarda;
+   3. **caliente:** se genera otra vez y se mide. **Este borrador es el que se califica.**
+
+   Con Gemini también se hacen dos llamadas, pero frío y caliente **no aplican** (es remoto): se
+   informa la mediana del tiempo de respuesta. Hay 4 s de pausa entre llamadas, por la cuota
+   gratuita, y ante un 429 espera 60 s y reintenta una vez.
+3. **Calificar a ciegas:** en `evaluacion/redaccion/resultados/` quedan:
+   - `borradores.csv`: código aleatorio, caso, indicación, tono, borrador y la revisión
+     automática. **No dice qué sistema lo escribió**, y el orden es aleatorio;
+   - `calificacion_por_llenar.csv`: una fila por código y evaluador (A y B);
+   - `clave.csv`: código → sistema y tiempos. **No se abre hasta terminar de calificar.**
+
+   Cada evaluador llena **solo sus filas**, sin ver las del otro:
+   - `cumple_indicacion`, `tono_correcto` y `dato_inventado`: "si" o "no";
+   - `calidad_1a5`: un número entero de 1 (inservible) a 5 (se enviaría casi sin cambios);
+   - `comentario`: opcional. No va al reporte.
+
+   La plantilla vacía está en `evaluacion/redaccion/calificacion.csv`.
+4. **Resumir:** `python herramientas/resumir_redaccion.py --calificaciones <archivo A> <archivo B>`.
+   Escribe `evaluacion/redaccion/reportes/redaccion.json` y `redaccion.md`.
+
+### Revisiones automáticas (solo una ayuda)
+
+`borradores.csv` trae una columna `revision_automatica`, para que la revisión humana no se
+salte nada:
+
+| Revisión | Cómo |
+|---|---|
+| **Español** | Más palabras frecuentes del español que del inglés, contando tildes, ñ, ¿ y ¡ |
+| **Una sola versión** | Busca "Opción 1/2", "Versión B:", "Alternativa", separadores `---`, "Aquí tienes", o más de un "Asunto:" |
+| **Enlaces nuevos** | Los que la IA agregó sin estar en la indicación (los quita `redactar()` y los cuenta) |
+| **Posible dato inventado** | Cifras (cada grupo de dígitos) y fechas (meses y días de la semana) del borrador que **no** aparecen en el asunto, el cuerpo ni la indicación |
+
+Son heurísticas: pueden marcar de más (por ejemplo, un "2" de "Opción 2") o de menos (una fecha
+escrita como "pasado mañana"). **Lo que cuenta es la calificación humana** (`dato_inventado`).
+
+### Métricas del resumen
+
+Por sistema:
+
+| Métrica | Cómo se calcula |
+|---|---|
+| Tiempo frío y caliente | **Mediana** de los segundos. El frío solo cuenta si `/api/ps` confirmó la descarga. Gemini: "no aplica", con la mediana del tiempo de respuesta |
+| Cumple la indicación, tono correcto, dato inventado | % de "si" sobre todas las calificaciones (de los dos evaluadores) |
+| Posible dato inventado, español, una sola versión | % de borradores, según la revisión automática |
+| Calidad | Media ± desviación estándar muestral de `calidad_1a5` |
+| Acuerdo entre evaluadores | **Kappa ponderado de Cohen** (pesos cuadráticos) sobre la calidad 1 a 5, con `sklearn.metrics.cohen_kappa_score(..., labels=[1..5], weights="quadratic")`, sobre los códigos que calificaron los dos. También se informa el de todo junto |
+
+El kappa ponderado tiene en cuenta que, en una escala ordenada, estar en desacuerdo por 1 punto es
+menos grave que por 4. Como referencia habitual (Landis y Koch, 1977): menos de 0,40 es un
+acuerdo débil, de 0,41 a 0,60 moderado, de 0,61 a 0,80 bueno, y más de 0,80 muy bueno.
+
+### Qué se sube a Git y qué no
+
+- **Se sube:** `casos.csv` (inventados), la plantilla `calificacion.csv` y `reportes/` (el JSON y
+  la tabla, **solo números**: ni casos, ni borradores, ni comentarios).
+- **No se sube:** `resultados/` (borradores, clave y calificaciones), que está en `.gitignore`. La
+  clave rompería la calificación a ciegas.
+
+### Limitaciones
+
+- **Pocos casos (12):** los porcentajes se mueven mucho con un solo borrador; sirven para
+  comparar, no para afirmar diferencias pequeñas.
+- **Las revisiones automáticas son heurísticas** (ver arriba).
+- **Los tiempos dependen del equipo** (CPU, GPU, memoria) y de qué más esté corriendo. Hay que
+  informar el equipo usado. Los de Gemini dependen además de la red y de la cuota gratuita.
+- **Gemini 3 no permite apagar el razonamiento** (se usa el mínimo, `reasoning_effort:
+  "minimal"`), y los modelos locales corren sin razonamiento (`think: false`).
+- **Dos evaluadores del mismo equipo:** pueden reconocer el estilo de un modelo aunque no vean su
+  nombre.
