@@ -22,15 +22,27 @@ hechos.
 Definido por el equipo. No se modifica sin aprobación conjunta.
 
 - **Prototipo en entorno controlado.** No es un producto listo para producción.
-- **Nunca borra ni envía correos reales.** La limpieza y el envío son **simulados**: el sistema
-  muestra qué haría, pero no ejecuta ninguna acción sobre el buzón.
+- **Nunca borra de forma definitiva ni envía correos.** Solo hace dos acciones sobre el buzón,
+  siempre con tu confirmación:
+  - **mover a la papelera** ("Liberar espacio"), con **Deshacer**. Gmail vacía la papelera solo a
+    los 30 días; SICAE-IA nunca la vacía;
+  - **cuarentena** de los correos con posible phishing: les pone una etiqueta y los quita de
+    Recibidos, con "Devolver a Recibidos". Nunca van a la papelera.
 - **Datos:** SpaPhish y cuentas de prueba creadas por el equipo.
+- **Pruebas de acciones** (papelera, cuarentena): **solo** en la cuenta de prueba
+  `sicae.pruebas.2026@gmail.com`, en el perfil de Chrome "SICAE pruebas".
 - **Modelo:** clasificación phishing vs. legítimo, entrenado solo con SpaPhish (correos en
   español). SpearPhishMX se descartó; las razones están en [docs/metricas.md](docs/metricas.md).
 - **Publicidad y spam:** se detectan por reglas, no por el modelo — cabecera `List-Unsubscribe` y
   señales de envío masivo.
 - **Salida al usuario:** una de tres categorías (legítimo, publicidad, phishing) y una prioridad
   (alta, media, baja).
+- **Redacción con IA** (paso 6.2): por defecto con Ollama en el propio equipo, así que nada sale
+  de la máquina. El modo demostración con Gemini (capa gratuita) es **solo con la cuenta de
+  prueba** (`SICAE_DEMO_CUENTA`) y datos de prueba, con las direcciones de correo enmascaradas:
+  Google puede usar y leer lo enviado.
+
+Los cambios del alcance y quién los aprobó están en [docs/bitacora-ia.md](docs/bitacora-ia.md).
 
 ## Stack
 
@@ -334,6 +346,15 @@ tu `.env`, se ignora y puedes borrarla.
 | `SICAE_MAX_LOTE` | Correos por `POST /analizar/lote` (pestaña Bandeja) | 50 |
 | `SICAE_MAX_BYTES_LOTE` | Tamaño máximo de un lote (no puede ser menor que `SICAE_MAX_BYTES`) | 2000000 |
 | `SICAE_DB_PATH` | Archivo SQLite del registro, los usuarios y las sesiones | `api/data/sicae.db` |
+| `SICAE_IA_URL` | Ollama para `POST /redactar`. **Solo** `http://127.0.0.1:<puerto>` (paso 6.2) | `http://127.0.0.1:11434` |
+| `SICAE_IA_MODELO` | Modelo de Ollama | `gemma4:e4b` |
+| `SICAE_IA_KEEP_ALIVE` | Cuánto queda cargado el modelo después de un borrador | `10m` |
+| `SICAE_IA_TIEMPO_MAX_S` | Tiempo máximo de una respuesta de la IA (5 a 300 s) | 60 |
+| `SICAE_IA_MAX_CUERPO` | Caracteres del cuerpo que se le pasan a la IA | 4000 |
+| `SICAE_IA_LIMITE_HORA` | Borradores por usuario por hora | 20 |
+| `SICAE_DEMO_API_KEY` | Clave de Gemini del modo demostración. **Secreta: solo en `.env`**. Vacía = modo demostración desactivado | vacío |
+| `SICAE_DEMO_MODELO` | Modelo de Gemini del modo demostración | `gemini-3.5-flash-lite` |
+| `SICAE_DEMO_CUENTA` | `google_sub` de la cuenta de prueba (no el correo): la única que puede usar el modo demostración | vacío (nadie) |
 
 ### Arrancar
 
@@ -359,9 +380,44 @@ uvicorn app.main:app --app-dir api --reload
 | `POST /analizar` | Con sesión **y consentimiento** |
 | `POST /analizar/lote` | Igual, para hasta 50 correos a la vez: `{"correos": [...]}` → `{"resultados": [...]}` en el mismo orden. Cuenta como **una** petición en el límite por IP (paso 4.4). Con `"registrar": false` no cuenta en `/estadisticas` (paso 4.5, "Liberar espacio") |
 | `POST /acciones` | Con sesión y consentimiento: `{"accion": "papelera", "cantidad": 40, "mb": 12.5}` → 204. Solo anota la acción que la extensión hizo en Gmail (fecha, acción, cantidad, MB), sin identificadores ni remitentes (paso 4.5) |
+| `POST /redactar` | Con sesión y **consentimiento "4"** (paso 6.2): `{"indicacion", "tono", "asunto", "cuerpo", "modo"}` → `{"borrador", "proveedor", "modelo", "segundos", "enlaces_quitados", "cuerpo_recortado", "avisos"}`. Ver "Redacción con IA" |
 | `GET /estadisticas` | Con sesión |
 | `POST /auth/cerrar` | Cierra esa sesión |
 | `DELETE /cuenta` | Borra el usuario y todas sus sesiones |
+
+### Redacción con IA (paso 6.2)
+
+`POST /redactar` propone un borrador de respuesta. La extensión todavía no lo usa (llega en el
+paso 6.3), y exige el consentimiento **"4"**, que se pedirá entonces.
+
+**Por defecto, Ollama en tu equipo** (nada sale de la máquina):
+1. Instala Ollama desde [ollama.com](https://ollama.com) y ábrelo (o `ollama serve`).
+2. Descarga el modelo: `ollama pull gemma4:e4b`.
+3. Arranca la API. Se usa `POST http://127.0.0.1:11434/api/chat` con **`"think": false`** (sin
+   razonamiento: en las pruebas del equipo, de 35–73 s a 1,4 s) y `"keep_alive": "10m"`, para no
+   recargar el modelo en cada borrador.
+
+**Modo demostración** (Gemini, capa gratuita), **solo para la cuenta de prueba del proyecto**:
+- se usa solo si la petición trae `"modo": "demostracion"`, si hay `SICAE_DEMO_API_KEY` y si la
+  sesión es de la cuenta `SICAE_DEMO_CUENTA`. Si Ollama falla, **nunca** se pasa a Gemini solo;
+- Google puede usar lo enviado para mejorar sus productos, y **personas pueden leerlo**. Por eso
+  las direcciones de correo se cambian por `[correo]`, y solo se envían la indicación, el asunto
+  y el cuerpo (nunca el remitente, los destinatarios ni las cabeceras). **Solo datos de prueba**;
+- para obtener el `google_sub` de la cuenta de prueba, entra una vez con esa cuenta desde la
+  extensión y mira el último usuario creado:
+
+  ```bash
+  python -c "import sqlite3; print(sqlite3.connect('api/data/sicae.db').execute('SELECT google_sub, creado FROM usuarios ORDER BY creado DESC LIMIT 1').fetchone())"
+  ```
+
+**Seguridad:**
+- el correo va como **datos** entre marcas, y la IA tiene la orden de ignorar instrucciones que
+  vengan dentro;
+- del borrador se quitan los enlaces que no estaban en tu indicación, con un aviso;
+- máximo 20 borradores por hora por usuario.
+
+**Registro:** solo fecha, proveedor, modelo, segundos y si salió bien. Nunca la indicación, el
+correo ni el borrador.
 
 Normalmente todo esto lo hace la extensión sola. Para probar a mano con curl, primero se necesita
 una sesión, y para eso un token de Google de una cuenta de prueba. Lo más simple es probar desde
@@ -407,11 +463,13 @@ Campos de `POST /analizar`:
 | Código | Cuándo |
 |---|---|
 | 401 | Sin sesión, o la sesión es inventada, venció o se cerró: siempre el mismo mensaje |
-| 403 | `/analizar` sin consentimiento registrado |
+| 403 | `/analizar` sin consentimiento registrado; `/redactar` sin el consentimiento "4", o el modo demostración con otra cuenta |
 | 413 | La petición pasa de `SICAE_MAX_BYTES` (o un lote pasa de `SICAE_MAX_BYTES_LOTE`) |
 | 422 | Entrada inválida: dice qué campo falló |
-| 429 | Más de `SICAE_RATE_LIMIT` peticiones por minuto. Espera los segundos de `Retry-After` |
-| 503 | Modelo no cargado (revisa `GET /salud`), o `/auth/google` no pudo hablar con Google |
+| 429 | Más de `SICAE_RATE_LIMIT` peticiones por minuto, o más de `SICAE_IA_LIMITE_HORA` borradores por hora. Espera los segundos de `Retry-After` |
+| 502 | `/redactar`: la IA respondió algo inesperado, o Gemini rechazó la clave |
+| 503 | Modelo no cargado (revisa `GET /salud`), o `/auth/google` no pudo hablar con Google. En `/redactar`: Ollama no está instalado o abierto, falta el modelo (`ollama pull gemma4:e4b`), `SICAE_IA_URL` no es `127.0.0.1`, o el modo demostración está desactivado |
+| 504 | `/redactar`: la IA tardó más de `SICAE_IA_TIEMPO_MAX_S` |
 
 **Privacidad.** La API nunca escribe en los logs el asunto, el cuerpo ni las direcciones de
 correo. Los logs de uvicorn muestran la dirección del cliente (en este prototipo, la local,
@@ -426,8 +484,8 @@ pytest            # ml/tests y api/tests
 pytest api/tests  # solo la API
 ```
 
-Las pruebas de la API usan un modelo inventado y **Google simulado**, así que corren sin el
-`.joblib`, sin `.env` y sin internet.
+Las pruebas de la API usan un modelo inventado, **Google simulado** y **Ollama y Gemini
+simulados**, así que corren sin el `.joblib`, sin `.env`, sin Ollama y sin internet.
 
 ## Cómo contribuir
 

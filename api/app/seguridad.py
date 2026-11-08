@@ -94,7 +94,8 @@ ESQUEMA_BEARER = HTTPBearer(auto_error=False, description="Authorization: Bearer
 
 def crear_verificador_sesion(ajustes, reloj):
     """Dependencia que exige una sesión válida de la API. Devuelve
-    {"id", "consentimiento_version", "token"} del usuario; si no, el 401 genérico.
+    {"id", "consentimiento_version", "google_sub", "token"} del usuario (todo en memoria); si no,
+    el 401 genérico.
 
     El token de sesión nunca se guarda en claro: usuarios.py busca por su hash (SHA-256).
     """

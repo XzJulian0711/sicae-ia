@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from sicae_ml.calibrar import RUTA_PROMEDIOS, RUTA_UMBRAL
@@ -63,6 +64,26 @@ class Ajustes(BaseSettings):
     rate_limit: int = 30
     # "desarrollo" habilita /docs y /redoc; en "produccion" quedan apagados.
     modo: Literal["desarrollo", "produccion"] = "produccion"
+
+    # ---------- Redacción con IA (paso 6.2: POST /redactar) ----------
+    # Proveedor por defecto: Ollama en ESTE equipo (nada sale de la máquina). Solo se acepta
+    # http://127.0.0.1:<puerto>; si no, /redactar responde 503 y dice por qué (redaccion.py).
+    ia_url: str = "http://127.0.0.1:11434"
+    ia_modelo: str = "gemma4:e4b"
+    # Cuánto tiempo deja Ollama el modelo cargado después de un borrador ("10m", "1h", "0").
+    ia_keep_alive: str = "10m"
+    # Tiempo máximo de una respuesta de la IA (s). La primera carga del modelo puede tardar.
+    ia_tiempo_max_s: int = Field(default=60, ge=5, le=300)
+    # Caracteres del cuerpo del correo que se le pasan a la IA (el resto se recorta).
+    ia_max_cuerpo: int = Field(default=4_000, ge=200, le=50_000)
+    # Borradores por usuario por hora (más = 429).
+    ia_limite_hora: int = Field(default=20, ge=1, le=1_000)
+    # Modo demostración (Gemini, capa gratuita): SOLO la cuenta de prueba del proyecto.
+    # Sin clave queda desactivado. La clave es SECRETA: solo en .env, nunca en Git ni en logs.
+    demo_api_key: SecretStr = SecretStr("")
+    demo_modelo: str = "gemini-3.5-flash-lite"
+    # google_sub (identificador numérico de Google, NO el correo) de la cuenta de prueba.
+    demo_cuenta: str = ""
 
     @property
     def origenes_cors(self):

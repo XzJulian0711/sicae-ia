@@ -45,6 +45,21 @@ CREATE TABLE IF NOT EXISTS acciones (
 """
 
 
+# Borradores con IA (paso 6.2): SOLO fecha, proveedor, modelo, segundos y si salió bien. Nunca la
+# indicación, el correo, el borrador ni el usuario.
+PROVEEDORES = ("ollama", "demostracion")
+ESQUEMA_BORRADORES = """
+CREATE TABLE IF NOT EXISTS borradores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha TEXT NOT NULL,
+    proveedor TEXT NOT NULL CHECK (proveedor IN ('ollama', 'demostracion')),
+    modelo TEXT NOT NULL CHECK (length(modelo) BETWEEN 1 AND 100),
+    segundos REAL NOT NULL CHECK (segundos >= 0),
+    exitoso INTEGER NOT NULL CHECK (exitoso IN (0, 1))
+)
+"""
+
+
 def _conectar(ruta):
     return closing(sqlite3.connect(ruta))
 
@@ -56,6 +71,7 @@ def inicializar(ruta):
     with _conectar(ruta) as conexion, conexion:
         conexion.execute(ESQUEMA)
         conexion.execute(ESQUEMA_ACCIONES)
+        conexion.execute(ESQUEMA_BORRADORES)
 
 
 def registrar(ruta, resultado):
@@ -89,6 +105,19 @@ def registrar_accion(ruta, accion, cantidad, mb):
         cursor = conexion.execute(
             "INSERT INTO acciones (fecha, accion, cantidad, mb) VALUES (?, ?, ?, ?)",
             (datetime.now(UTC).isoformat(timespec="seconds"), accion, int(cantidad), round(float(mb), 3)),
+        )
+        return cursor.lastrowid
+
+
+def registrar_borrador(ruta, proveedor, modelo, segundos, exitoso):
+    """Guarda UNA fila de un borrador con IA (paso 6.2): fecha, proveedor, modelo, segundos y si
+    salió bien. Nada de la indicación, del correo ni del borrador, y nada del usuario."""
+    inicializar(ruta)
+    with _conectar(ruta) as conexion, conexion:
+        cursor = conexion.execute(
+            "INSERT INTO borradores (fecha, proveedor, modelo, segundos, exitoso) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now(UTC).isoformat(timespec="seconds"), proveedor, str(modelo)[:100],
+             round(max(0.0, float(segundos)), 3), 1 if exitoso else 0),
         )
         return cursor.lastrowid
 

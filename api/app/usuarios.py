@@ -99,14 +99,15 @@ def crear_sesion(ruta, usuario_id, horas, ahora=None):
 
 
 def usuario_de_sesion(ruta, token, ahora=None):
-    """{"id", "consentimiento_version"} si la sesión existe y no venció; si no, None.
-    Una sesión vencida se borra."""
+    """{"id", "consentimiento_version", "google_sub"} si la sesión existe y no venció; si no,
+    None. Una sesión vencida se borra. google_sub (no es el correo) solo se usa en memoria, para
+    saber si es la cuenta de prueba del modo demostración (paso 6.2)."""
     if not isinstance(token, str) or not token:
         return None
     momento = _texto(ahora or ahora_utc())
     with _conectar(ruta) as conexion, conexion:
         fila = conexion.execute(
-            "SELECT s.expira, u.id, u.consentimiento_version FROM sesiones s "
+            "SELECT s.expira, u.id, u.consentimiento_version, u.google_sub FROM sesiones s "
             "JOIN usuarios u ON u.id = s.usuario_id WHERE s.hash = ?",
             (hash_token(token),),
         ).fetchone()
@@ -115,7 +116,7 @@ def usuario_de_sesion(ruta, token, ahora=None):
         if fila[0] <= momento:
             conexion.execute("DELETE FROM sesiones WHERE hash = ?", (hash_token(token),))
             return None
-    return {"id": fila[1], "consentimiento_version": fila[2]}
+    return {"id": fila[1], "consentimiento_version": fila[2], "google_sub": fila[3]}
 
 
 def cerrar_sesion(ruta, token):

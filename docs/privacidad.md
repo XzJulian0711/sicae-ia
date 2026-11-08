@@ -71,7 +71,8 @@ API muestra la dirección local, el método y la ruta de cada petición (por eje
   - leer y mover tus correos con la API de Gmail;
   - revocar el acceso cuando cierras sesión.
 - **No se envía nada a servicios de inteligencia artificial externos.** El modelo es propio y
-  corre en la API local.
+  corre en la API local. Con esta versión (3) la redacción con IA no está disponible; el modo
+  demostración de la sección 11 pedirá aceptar la versión 4.
 - El archivo del modelo se descarga **una vez** desde las publicaciones (Releases) del
   repositorio en GitHub, sin enviar datos tuyos.
 
@@ -141,7 +142,7 @@ contenido, así que no se pueden asociar a ti. Por eso no se borran al retirar e
 |---|---|
 | **Sesiones** | 8 horas. Las vencidas se borran solas, al usarlas y cada vez que se abre una sesión nueva |
 | **Datos del usuario** (identificador de Google, fechas, consentimiento) | Hasta que retires el consentimiento o hasta el fin del proyecto de grado, **lo que ocurra primero** |
-| **Registros de análisis y de acciones** (anónimos, sin texto) | Hasta el fin del proyecto, porque se usan para los resultados de la tesis |
+| **Registros de análisis, de acciones y de borradores con IA** (anónimos, sin texto; los de borradores, desde la sección 11) | Hasta el fin del proyecto, porque se usan para los resultados de la tesis |
 
 **Al terminar el proyecto, el equipo borra el archivo `api/data/sicae.db`** en cada equipo donde
 se haya usado. Esto es **un compromiso del equipo, no algo automático del código**: el sistema
@@ -166,3 +167,37 @@ solo borra solas las sesiones vencidas.
 - Las acciones que mueven correos se prueban solo en la cuenta de pruebas del proyecto.
 - Esta es la **versión 3**, vigente desde el 4 de noviembre de 2026. Si cambia lo que se pide, se
   publica una versión nueva y el panel vuelve a pedir el consentimiento.
+
+## 11. Redacción con IA (todavía no disponible en la extensión)
+
+La API ya puede proponer un **borrador de respuesta** (`POST /redactar`, paso 6.2), pero la
+extensión todavía no lo usa. **Para usarlo habrá que aceptar la versión 4** de esta política y
+de "Revisa los permisos" (paso 6.3): la API lo rechaza con cualquier versión anterior, porque
+redactar es una finalidad nueva.
+
+**Qué recibe la IA:** tu indicación (lo que quieres decir, máximo 500 caracteres), el tono, el
+asunto y el inicio del cuerpo del correo que respondes (por defecto, hasta 4.000 caracteres).
+**Nunca** el remitente, los destinatarios ni las cabeceras.
+
+**Dónde se procesa:**
+- **Por defecto, en tu equipo, con Ollama.** La API solo acepta Ollama en `127.0.0.1`, sin
+  proxies: **nada sale de tu computador.**
+- **Modo demostración (Gemini, de Google), solo para la cuenta de prueba del proyecto.** Se usa
+  únicamente si se pide expresamente y si la sesión es de esa cuenta (sicae.pruebas.2026@gmail.com);
+  con cualquier otra cuenta se rechaza. Si Ollama falla, **nunca** se pasa a Gemini solo.
+  - **Qué se envía a Google:** la indicación, el tono, el asunto y el inicio del cuerpo, con
+    **cada dirección de correo cambiada por `[correo]`**.
+  - **Lo que dicen los términos de Google** para la capa gratuita (vigentes desde el 23 de marzo
+    de 2026): Google **usa lo enviado y lo generado para mejorar sus productos**, y **personas
+    pueden leerlo, anotarlo y procesarlo**. Google pide no enviar información sensible,
+    confidencial ni personal. Por eso este modo es **solo para datos de prueba**.
+
+**Qué se registra:** solo la fecha, el proveedor (`ollama` o `demostracion`), el modelo, los
+segundos que tardó y si salió bien. **Nunca** tu indicación, el correo ni el borrador, ni quién
+lo pidió.
+
+**Límite:** 20 borradores por persona por hora.
+
+**El borrador es solo una propuesta:** SICAE-IA no envía correos. De él se quitan los enlaces que
+no estaban en tu indicación, y lo que diga el correo recibido se trata como datos, no como
+instrucciones para la IA.

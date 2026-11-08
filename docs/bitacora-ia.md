@@ -96,3 +96,46 @@ Cada entrada dice la fecha, quién la aprobó, qué cambió y por qué.
     consentimiento OAuth en Google Cloud;
   - la extensión se carga y se prueba en el perfil "SICAE pruebas";
   - `docs/extension.md` lo dice en "Liberar espacio y cuarentena" y en los pasos de Google Cloud.
+
+---
+
+## 2026-11-08 · Redacción con IA: Ollama local y modo demostración con Gemini (paso 6.2)
+
+- **Aprobada por:** el equipo.
+- **Dónde:** `CLAUDE.md`, sección "Alcance (no cambiar sin aprobación del equipo)".
+- **Regla nueva** (se agrega; las demás del Alcance no cambian):
+
+  > Redacción con IA (paso 6.2): por defecto Ollama local (nada sale del equipo). Modo
+  > demostración con Gemini (capa gratuita) solo para la cuenta de prueba (SICAE_DEMO_CUENTA) y
+  > datos de prueba, con las direcciones de correo enmascaradas. Google puede usar y leer lo
+  > enviado.
+
+- **Proveedor por defecto: Ollama en el propio equipo** (`gemma4:e4b`).
+  - Solo se acepta `http://127.0.0.1:<puerto>`, sin proxies y sin seguir redirecciones.
+  - **Sin razonamiento (`"think": false`)**: en las pruebas del equipo, `gemma4:e4b` tardó
+    35–73 s con razonamiento y 1,4 s sin él.
+  - Según la documentación de Ollama (consultada el 8 nov. 2026), `think` y `keep_alive` existen
+    en la API nativa `/api/chat`. El endpoint compatible con OpenAI no acepta `keep_alive`, así
+    que **se usa la API nativa**.
+  - `keep_alive` es de 10 min por defecto, para no recargar el modelo en cada borrador.
+- **Modo demostración: Gemini, capa gratuita**, por su endpoint compatible con OpenAI.
+  - Solo con `SICAE_DEMO_API_KEY` y solo si el `google_sub` de la sesión es `SICAE_DEMO_CUENTA`.
+  - Modelo por defecto: `gemini-3.5-flash-lite`. En los modelos Gemini 3 el razonamiento no se
+    puede apagar; se pide `reasoning_effort: "minimal"`.
+  - Los términos de la capa gratuita (vigentes desde el 23 mar. 2026) dicen que Google usa lo
+    enviado para mejorar sus productos, que *"human reviewers may read, annotate, and process
+    your API input and output"* y *"Do not submit sensitive, confidential, or personal
+    information"*.
+  - **Por eso:** solo la cuenta y los datos de prueba; las direcciones de correo se cambian por
+    `[correo]`; nunca se envían el remitente, los destinatarios ni las cabeceras; y si Ollama
+    falla, nunca se pasa a Gemini solo.
+- **Inyección de instrucciones:**
+  - el correo va como datos entre marcas;
+  - el mensaje de sistema ordena ignorar las instrucciones que vengan dentro;
+  - las marcas falsas se neutralizan;
+  - del borrador se quitan los enlaces que no estaban en la indicación del usuario.
+- **Registro:** solo fecha, proveedor, modelo, segundos y si salió bien. Nunca la indicación, el
+  correo ni el borrador. Límite de 20 borradores por usuario por hora.
+- **Consentimiento:** redactar es una finalidad nueva (Ley 1581), así que `/redactar` exige el
+  consentimiento **"4"**. La política sigue en la versión 3 con una sección 11 que lo anuncia;
+  la política y el texto de "Revisa los permisos" suben juntos a la versión 4 en el paso 6.3.
