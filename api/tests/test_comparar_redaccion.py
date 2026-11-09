@@ -49,14 +49,35 @@ def test_doce_casos_sin_aviso(tmp_path):
     assert comparar.leer_casos(ruta)[1] == []
 
 
-def test_el_archivo_de_ejemplo_del_repo_es_valido_y_solo_trae_ejemplos():
+def test_el_casos_csv_del_repo_ejemplos_y_casos_provisionales_sin_datos_reales():
     ruta = RAIZ / "evaluacion" / "redaccion" / "casos.csv"
-    assert ruta.read_bytes().startswith(b"\xef\xbb\xbf"), "utf-8-sig"
-    with pytest.raises(comparar.CasosInvalidos, match="no tiene casos"):
-        comparar.leer_casos(ruta)  # solo trae las 2 filas de ejemplo: los casos los escribe el equipo
+    contenido = ruta.read_bytes()
+    assert contenido.startswith(b"\xef\xbb\xbf") and contenido.count(b"\xef\xbb\xbf") == 1, "un solo BOM"
     with open(ruta, encoding="utf-8-sig", newline="") as archivo:
         filas = list(csv.DictReader(archivo))
-    assert len(filas) == 2 and all(f["ejemplo"] == "si" and f["inventado"] == "si" for f in filas)
+    ejemplos = [f for f in filas if f["ejemplo"] == "si"]
+    reales = [f for f in filas if f["ejemplo"] != "si"]
+    assert len(ejemplos) == 2
+    assert all(f["inventado"] == "si" for f in filas)
+    # Los del equipo con tono PROVISIONAL (solo para --prueba) hasta que cada autor dé el definitivo.
+    assert [f["id"] for f in reales] == ["provisional-01", "provisional-02", "provisional-03"]
+    casos, _ = comparar.leer_casos(ruta)
+    assert comparar.casos_provisionales(casos) == ["provisional-01", "provisional-02", "provisional-03"]
+    texto = ruta.read_text(encoding="utf-8-sig")
+    for real in ("@", "Recibidos", "para mí", "hace 12 horas"):
+        assert real not in texto, f"no debe quedar «{real}» (líneas de Gmail con datos reales)"
+
+
+def test_casos_provisionales_y_seleccion_de_prueba():
+    casos = [{"id": "provisional-01"}, {"id": "c02"}, {"id": "Provisional-03"}]
+    assert comparar.casos_provisionales(casos) == ["provisional-01", "Provisional-03"]
+    assert comparar.seleccionar_prueba(casos, 2) == casos[:2]
+    assert comparar.seleccionar_prueba(casos, 10) == casos, "si hay menos, usa los que haya"
+    for malo in (0, -1, True, "2"):
+        with pytest.raises(ValueError):
+            comparar.seleccionar_prueba(casos, malo)
+    assert comparar.carpeta_de_salida(Path("r"), prueba=True) == Path("r") / "prueba"
+    assert comparar.carpeta_de_salida(Path("r"), prueba=False) == Path("r")
 
 
 @pytest.mark.parametrize("filas, columnas, mensaje", [
@@ -303,6 +324,64 @@ def test_main_se_niega_con_casos_no_inventados_y_salta_gemini_sin_clave(tmp_path
     assert codigo == 0 and "se salta Gemini" in salida
     assert not any(ll["url"] == redaccion.URL_GEMINI for ll in falso.llamadas)
     assert {c["sistema"] for c in leer(tmp_path / "r" / "clave.csv")} == {"gemma4:e2b", "gemma4:e4b"}
+
+
+# ---------------------------------------------------------------------------
+# --prueba N: solo los N primeros casos, en una carpeta aparte
+# ---------------------------------------------------------------------------
+
+
+def correr_main(tmp_path, casos_csv, *argumentos, falso=None):
+    falso = falso or OllamaYGeminiFalsos()
+    codigo = comparar.main(["--casos", str(casos_csv), "--salida", str(tmp_path / "resultados"),
+                            "--pausa-gemini", "0", *argumentos],
+                           ajustes=ajustes_api(Path("."), demo_api_key=CLAVE_DEMO), transporte=falso,
+                           leer_ps=falso.leer_ps, esperar=lambda s: None, reloj=Reloj(), avisar=lambda m: None)
+    return codigo, falso
+
+
+def test_prueba_corre_solo_n_casos_en_una_carpeta_aparte_y_se_puede_repetir(tmp_path, capsys):
+    casos = escribir_casos(tmp_path / "casos.csv", [fila("provisional-01"), fila("provisional-02"), fila("c03")])
+    codigo, falso = correr_main(tmp_path, casos, "--prueba", "2")
+    salida = capsys.readouterr().out
+    assert codigo == 0
+    assert "Prueba con 2 de 3 casos" in salida and "tono provisional" in salida
+    prueba = tmp_path / "resultados" / "prueba"
+    clave = leer(prueba / "clave.csv")
+    assert sorted({c["caso_id"] for c in clave}) == ["provisional-01", "provisional-02"]
+    assert len(clave) == 2 * len(comparar.SISTEMAS), "2 casos × 3 sistemas"
+    assert not (tmp_path / "resultados" / "clave.csv").exists(), "la carpeta de la corrida completa no se toca"
+    assert sum(ll["url"].endswith("/api/chat") for ll in falso.llamadas) == 2 * 2 * 2, "2 casos × frío+caliente × 2 locales"
+    # Se repite sin --sobrescribir (pisa solo su propia carpeta).
+    assert correr_main(tmp_path, casos, "--prueba", "2")[0] == 0
+
+
+def test_prueba_con_mas_casos_de_los_que_hay_usa_todos(tmp_path):
+    casos = escribir_casos(tmp_path / "casos.csv", [fila("c01"), fila("c02")])
+    assert correr_main(tmp_path, casos, "--prueba", "10", "--sin-gemini")[0] == 0
+    assert len(leer(tmp_path / "resultados" / "prueba" / "clave.csv")) == 2 * 2
+
+
+@pytest.mark.parametrize("n", ["0", "-1"])
+def test_prueba_con_n_invalido_es_un_error(tmp_path, n):
+    casos = escribir_casos(tmp_path / "casos.csv", [fila("c01")])
+    with pytest.raises(SystemExit):
+        correr_main(tmp_path, casos, "--prueba", n)
+
+
+def test_la_corrida_completa_se_niega_con_casos_provisionales_sin_llamar_a_ningun_modelo(tmp_path, capsys):
+    casos = escribir_casos(tmp_path / "casos.csv", [fila("provisional-01"), fila("c02")])
+    codigo, falso = correr_main(tmp_path, casos)
+    assert codigo == 2
+    assert "tono provisional (provisional-01)" in capsys.readouterr().out
+    assert falso.llamadas == []
+    assert not (tmp_path / "resultados").exists()
+
+
+def test_la_corrida_completa_con_el_casos_csv_del_repo_se_niega_por_los_provisionales(tmp_path, capsys):
+    codigo, falso = correr_main(tmp_path, RAIZ / "evaluacion" / "redaccion" / "casos.csv")
+    assert codigo == 2 and falso.llamadas == []
+    assert "provisional-01, provisional-02, provisional-03" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
