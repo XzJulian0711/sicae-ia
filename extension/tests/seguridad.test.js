@@ -258,7 +258,28 @@ describe("panel (paso 3.4)", () => {
   });
 
   test("los botones de solo ícono tienen nombre accesible", () => {
-    assert.match(panel, /id="ir-opciones"[^>]*aria-label="Ajustes"/);
+    assert.match(panel, /id="cambiar-tema"[^>]*aria-label="Cambiar a tema oscuro"[^>]*title="Cambiar a tema oscuro"/);
+  });
+
+  test("el botón del sol/luna alterna el tema y ya NO abre Opciones", () => {
+    assert.doesNotMatch(panel, /id="ir-opciones"/);
+    const codigo = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    const iniciarTema = codigo.slice(codigo.indexOf("function iniciarTema("), codigo.indexOf("\nfunction ", codigo.indexOf("function iniciarTema(") + 1));
+    assert.match(iniciarTema, /elementos\.cambiarTema\.addEventListener\("click", \(\) => tema\.alternar\(\)\)/);
+    assert.doesNotMatch(iniciarTema, /abrirOpciones|openOptionsPage/);
+    // Los íconos se eligen por CSS (luna en claro, sol en oscuro), sin tocar el SVG desde JS.
+    assert.match(panel, /<svg class="icono-sol"[^>]*aria-hidden="true"/);
+    assert.match(panel, /<svg class="icono-luna"[^>]*aria-hidden="true"/);
+  });
+
+  test("Opciones sigue accesible: en el menú de la cuenta y en la bienvenida", () => {
+    assert.match(panel, /role="menuitem" id="menu-opciones">Opciones<\/button>\s*<button type="button" role="menuitem" id="menu-cerrar-sesion">/);
+    const bienvenida = panel.slice(panel.indexOf('id="pantalla-bienvenida"'), panel.indexOf('id="pantalla-permisos"'));
+    assert.match(bienvenida, /<button type="button" class="enlace enlace-pequeno" id="bienvenida-opciones">Opciones<\/button>/);
+    const codigo = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    assert.match(codigo, /acceso\.bienvenidaOpciones\.addEventListener\("click", abrirOpciones\)/);
+    assert.match(codigo, /acceso\.menuOpciones\.addEventListener\("click", \(\) => \{\s*cerrarMenuCuenta\(\{ devolverFoco: false \}\);\s*abrirOpciones\(\);/);
+    assert.equal((codigo.match(/chrome\.runtime\.openOptionsPage\(\)/g) || []).length, 1, "solo desde abrirOpciones()");
   });
 
   test("Bandeja (4.4) y Redactar (6.3) ya funcionan; Analizar es la actual al cargar", () => {
@@ -399,24 +420,27 @@ describe("lectura de Gmail (content script)", () => {
     }
   });
 
-  test("solo almacen.js usa chrome.storage: en local solo urlApi y consentimiento (ya no hay clave)", () => {
+  test("solo almacen.js usa chrome.storage: en local solo urlApi, consentimiento y tema (ya no hay clave)", () => {
     for (const { nombre, codigo } of leer(".js")) {
       if (nombre.replaceAll("\\", "/") !== "lib/almacen.js") {
         assert.doesNotMatch(codigo, /\bchrome\.storage\b/, `${nombre} usa chrome.storage`);
       }
     }
     const almacen = codigoDe("lib/almacen.js");
-    assert.match(almacen, /const CLAVES = \{ url: "urlApi", consentimiento: "consentimiento" \};/);
+    assert.match(almacen, /const CLAVES = \{ url: "urlApi", consentimiento: "consentimiento", tema: "tema" \};/);
+    // El tema es solo una preferencia: se guarda solo "claro" u "oscuro" (esTema lo revisa antes).
+    assert.match(almacen, /export async function guardarTema\(tema\) \{\s*if \(!esTema\(tema\)\) return;\s*await chrome\.storage\.local\.set\(\{ \[CLAVES\.tema\]: tema \}\);/);
     assert.doesNotMatch(almacen, /claveApi/);
     const guardados = [...almacen.matchAll(/chrome\.storage\.local\.set\(\{\s*\[CLAVES\.(\w+)\]: (.+?) \}\);/g)];
     assert.equal(guardados.length, (almacen.match(/chrome\.storage\.local\.set\(/g) || []).length,
                  "cada set guarda una sola clave de CLAVES");
     for (const [, clave, valor] of guardados) {
-      assert.ok(["url", "consentimiento"].includes(clave), clave);
+      assert.ok(["url", "consentimiento", "tema"].includes(clave), clave);
       if (clave === "consentimiento") {
         // Del consentimiento solo se guardan estos 3 campos.
         assert.equal(valor.trim(), "{ aceptado, version, fecha }");
       }
+      if (clave === "tema") assert.equal(valor.trim(), "tema");
     }
   });
 

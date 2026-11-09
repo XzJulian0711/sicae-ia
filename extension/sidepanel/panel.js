@@ -23,7 +23,15 @@
 // - Cada fetch tiene tiempo máximo (AbortSignal.timeout) y va sin cookies.
 // - Mensajes genéricos: nunca se muestra el texto crudo de un error.
 
-import { almacenSesionApi, guardarConsentimiento, leerConfiguracion, leerConsentimiento } from "../lib/almacen.js";
+import {
+  alCambiarTema,
+  almacenSesionApi,
+  guardarConsentimiento,
+  guardarTema,
+  leerConfiguracion,
+  leerConsentimiento,
+  leerTema,
+} from "../lib/almacen.js";
 import {
   celdasFila,
   compararDiagnosticos,
@@ -109,6 +117,7 @@ import {
   interpretarSalud,
   interpretarSesionApi,
   resultadoSinConexion,
+  siguienteIndice,
   urlEstadisticas,
   urlSalud,
   validarUrlApi,
@@ -129,6 +138,7 @@ import {
   registrarConsentimiento,
 } from "../lib/sesion.js";
 import { TEXTO_VACIO, armarTarjeta, datosCorreoAbierto, vistaResultado } from "../lib/tarjeta.js";
+import { conectarTema, etiquetaCambio } from "../lib/tema.js";
 
 // Pantallas (paso 4.2): solo una se ve a la vez. "foco" = a dónde va el foco al mostrarla.
 const PANTALLAS = {
@@ -146,11 +156,13 @@ const acceso = {
   cuenta: document.getElementById("cuenta"),
   cuentaCorreo: document.getElementById("cuenta-correo"),
   menuCuenta: document.getElementById("menu-cuenta"),
+  menuOpciones: document.getElementById("menu-opciones"),
   menuCerrarSesion: document.getElementById("menu-cerrar-sesion"),
+  bienvenidaOpciones: document.getElementById("bienvenida-opciones"),
 };
 
 const elementos = {
-  irOpciones: document.getElementById("ir-opciones"),
+  cambiarTema: document.getElementById("cambiar-tema"),
   analizar: document.getElementById("analizar"),
   analisis: document.getElementById("analisis"),
   analisisTexto: document.getElementById("analisis-texto"),
@@ -325,7 +337,7 @@ function mostrarResultado(resultado, recortado, nota = null) {
   const e = elementos;
 
   e.tarjeta.dataset.variante = t.variante;
-  e.tarjetaIcono.src = t.icono; // ruta fija de tarjeta.js, nunca de la API
+  e.tarjetaIcono.dataset.icono = t.icono; // nombre fijo de tarjeta.js (el CSS dibuja el SVG), nunca de la API
   e.tarjetaTitulo.textContent = t.titulo;
 
   e.tarjetaDetalle.textContent = t.detalle ?? "";
@@ -621,8 +633,29 @@ async function probarConexion() {
 
 // ----- Inicio -----
 
+/** Opciones (URL de la API, sesión): desde el menú de la cuenta y desde la bienvenida. */
 function abrirOpciones() {
   chrome.runtime.openOptionsPage();
+}
+
+// ----- Tema claro / oscuro (lib/tema.js) -----
+// Por defecto el del sistema; si la persona pulsa el sol/luna, la elección se guarda en
+// chrome.storage.local (solo "claro" u "oscuro") y Opciones la usa también.
+
+function iniciarTema() {
+  const tema = conectarTema({
+    raiz: document.documentElement,
+    consulta: window.matchMedia("(prefers-color-scheme: dark)"),
+    leer: leerTema,
+    guardar: guardarTema,
+    alCambiar: alCambiarTema,
+    alPintar: (actual) => {
+      const etiqueta = etiquetaCambio(actual);
+      elementos.cambiarTema.setAttribute("aria-label", etiqueta);
+      elementos.cambiarTema.title = etiqueta;
+    },
+  });
+  elementos.cambiarTema.addEventListener("click", () => tema.alternar());
 }
 
 // ----- Pestañas de la vista principal: Analizar, Bandeja y Redactar -----
@@ -1740,10 +1773,23 @@ function menuAbierto() {
   return !acceso.menuCuenta.hidden;
 }
 
+function itemsMenu() {
+  return [...acceso.menuCuenta.querySelectorAll('[role="menuitem"]')];
+}
+
 function abrirMenuCuenta() {
   acceso.menuCuenta.hidden = false;
   acceso.cuenta.setAttribute("aria-expanded", "true");
-  acceso.menuCerrarSesion.focus();
+  itemsMenu()[0].focus(); // el primer ítem (Opciones)
+}
+
+/** Flechas ↑/↓ entre los ítems del menú (patrón de menú ARIA); Esc lo cierra (abajo). */
+function moverEnMenu(evento) {
+  if (evento.key !== "ArrowDown" && evento.key !== "ArrowUp") return;
+  evento.preventDefault();
+  const items = itemsMenu();
+  const paso = evento.key === "ArrowDown" ? 1 : -1;
+  items[siguienteIndice(items.indexOf(document.activeElement), items.length, paso)].focus();
 }
 
 function cerrarMenuCuenta({ devolverFoco = true } = {}) {
@@ -1773,6 +1819,11 @@ async function cerrarSesionDesdeMenu() {
 function iniciarMenuCuenta() {
   acceso.cuenta.addEventListener("click", () => (menuAbierto() ? cerrarMenuCuenta() : abrirMenuCuenta()));
   acceso.menuCerrarSesion.addEventListener("click", cerrarSesionDesdeMenu);
+  acceso.menuOpciones.addEventListener("click", () => {
+    cerrarMenuCuenta({ devolverFoco: false });
+    abrirOpciones();
+  });
+  acceso.menuCuenta.addEventListener("keydown", moverEnMenu);
   document.addEventListener("keydown", (evento) => {
     if (evento.key === "Escape") cerrarMenuCuenta();
   });
@@ -1835,7 +1886,9 @@ async function elegirPantallaInicial() {
 }
 
 async function iniciar() {
+  iniciarTema(); // primero: el tema del sistema se aplica enseguida
   iniciarMenuCuenta();
+  acceso.bienvenidaOpciones.addEventListener("click", abrirOpciones);
   acceso.continuar.addEventListener("click", continuarConGoogle);
   acceso.aceptar.addEventListener("click", aceptarPermisos);
   acceso.ahoraNo.addEventListener("click", ahoraNo);
@@ -1843,7 +1896,6 @@ async function iniciar() {
 
   elementos.estadoVacioTexto.textContent = TEXTO_VACIO;
   mostrarVista(false);
-  elementos.irOpciones.addEventListener("click", abrirOpciones);
   elementos.analizar.addEventListener("click", analizarCorreo);
   elementos.probar.addEventListener("click", probarConexion);
   elementos.navBandeja.addEventListener("click", () => mostrarVistaPrincipal("bandeja"));

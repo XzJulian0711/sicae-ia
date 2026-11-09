@@ -40,6 +40,11 @@ describe("rutas y respuestas de la API", () => {
     assert.equal(urlDiagnosticoDisponible("http://127.0.0.1:8000"), "http://127.0.0.1:8000/diagnostico/disponible");
   });
 
+  test("API en producción: /diagnostico/disponible no existe (404) → las herramientas quedan ocultas", () => {
+    assert.equal(interpretarDisponible(404, { detail: "Not Found" }), false);
+    assert.equal(interpretarDisponible(404, null), false);
+  });
+
   test("disponible solo con 200 y exactamente true", () => {
     assert.equal(interpretarDisponible(200, { disponible: true }), true);
     for (const [estado, cuerpo] of [[200, { disponible: false }], [200, { disponible: "true" }], [200, null],

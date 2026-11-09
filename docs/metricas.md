@@ -1145,6 +1145,27 @@ de más bastan para cambiar la categoría. Por eso el resultado de la página er
 puede dar ahora un puntaje un poco más alto, porque ya no suma esos "adjuntos". Hay que volver a
 pasar la Bandeja antes de llenar `resultados.csv`.
 
+### Herramientas de prueba: solo en desarrollo
+
+"Comparar página y API" y "Exportar CSV" son herramientas de la prueba funcional, no del
+producto. Por eso aparecen **solo si se cumplen las dos condiciones**:
+1. la API corre con `SICAE_MODO=desarrollo`;
+2. la sesión es la cuenta de prueba (`SICAE_DEMO_CUENTA`, la misma regla del modo
+   demostración).
+
+**En producción** (`SICAE_MODO=produccion`, el valor por defecto) la API **no registra** las
+rutas `/diagnostico` y `/diagnostico/disponible`. Responden 404, aunque la sesión sea la
+cuenta de prueba, y el panel no muestra los botones. Las pruebas de `api/tests/test_diagnostico.py`
+revisan los dos modos.
+
+**Para usarlas en la prueba funcional:** en el `.env` de la API, `SICAE_MODO=desarrollo` y
+`SICAE_DEMO_CUENTA=<google_sub de la cuenta de prueba>`. Después, reiniciar la API.
+
+**Por qué no se borró el código.** Con el diagnóstico se encontró y se midió el hallazgo de esta
+sección (la página de Gmail metía el aviso de recorte; ver la tabla con los números). Se
+conserva como **evidencia** del hallazgo y para poder repetir la medición. Apagado en
+producción, no cambia nada para un usuario.
+
 ### Exportar la Bandeja
 
 Para no copiar a mano, la Bandeja tiene **"Exportar CSV (cuenta de prueba)"**:

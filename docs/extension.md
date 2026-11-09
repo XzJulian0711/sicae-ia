@@ -49,7 +49,7 @@ tarjeta.
 3. **Reinicia la API** (`uvicorn app.main:app --app-dir api --reload`), porque `.env` se lee al
    arrancar.
 4. **Configura la extensión** (solo si cambiaste la URL): clic derecho en el ícono → **Opciones**,
-   o el botón de ajustes (engranaje) del panel. **URL de la API:** `http://127.0.0.1:8000`. Es el
+   o en el panel: el menú de la cuenta → **Opciones**, o el enlace **Opciones** de la bienvenida. **URL de la API:** `http://127.0.0.1:8000`. Es el
    valor por defecto y, por ahora, el **único** aceptado (ver "Qué URL acepta"). Ya no hay campo
    de clave.
 5. **Prueba:** abre el panel (clic en el ícono), despliega **Estado de la conexión** al final y
@@ -564,9 +564,11 @@ que copias y pegas"). Si el navegador lo rechaza, se selecciona el texto y se pi
 
 ## Prueba funcional: diagnóstico y exportar (paso 7.1)
 
-Dos herramientas para la prueba funcional, **solo con la cuenta de prueba del proyecto**. La API
-lo decide con `GET /diagnostico/disponible`, la misma regla del modo demostración
-(`SICAE_DEMO_CUENTA`). Con cualquier otra cuenta no aparecen.
+Dos herramientas para la prueba funcional, **solo con la API en `SICAE_MODO=desarrollo` y la
+cuenta de prueba del proyecto**. La API lo decide con `GET /diagnostico/disponible`, la misma
+regla del modo demostración (`SICAE_DEMO_CUENTA`). Con cualquier otra cuenta no aparecen, y en
+producción esa ruta ni existe (404), así que tampoco. Ver docs/metricas.md, "Herramientas de
+prueba: solo en desarrollo".
 
 - **Cuándo aparecen.** El panel solo pregunta después de un análisis o de "Actualizar" en la
   Bandeja, así que no llama a la API antes del consentimiento. Al cerrar sesión se ocultan otra
@@ -651,7 +653,7 @@ arriba hacia abajo:
 
 | Parte | Qué hace |
 |---|---|
-| **Encabezado** | Escudo en un cuadro oscuro, "SICAE-IA" y el botón de **ajustes** (engranaje), que abre Opciones |
+| **Encabezado** | Escudo en un cuadro oscuro, "SICAE-IA", la cuenta (menú con **Opciones** y **Cerrar sesión**) y el botón del **tema** (luna en el tema claro, sol en el oscuro), que alterna claro/oscuro |
 | **Analizar este correo** | Botón azul (acción). El panel no lee el correo solo: espera el clic |
 | **Estado vacío** | Antes de analizar, en el lugar del resultado: escudo gris y "Abre un correo en Gmail y pulsa Analizar este correo." Desaparece al mostrar un resultado, y vuelve si la lectura falla. Nunca se ven los dos a la vez (`vistaResultado()` en `lib/tarjeta.js`) |
 | **CORREO ABIERTO** | Asunto (o "(Sin asunto)") y remitente leídos de Gmail. Se ve aunque la API falle |
@@ -702,18 +704,21 @@ En todos los casos:
   - gris `#334155`: 9,5:1.
 - **El resultado tiene `role="status"` y `aria-live="polite"`:** la tarjeta del correo y la
   franja están en ese contenedor, así que el lector de pantalla las anuncia al aparecer. El ícono
-  es decorativo (`alt=""`), porque el título ya lo dice.
+  es decorativo (`aria-hidden`), porque el título ya lo dice.
 - **En el resto del panel:**
   - los íconos son decorativos (`aria-hidden`);
-  - el botón de ajustes, que solo tiene ícono, se llama "Ajustes" (`aria-label`);
+  - el botón del tema, que solo tiene ícono, se llama "Cambiar a tema oscuro" o "Cambiar a tema
+    claro" (`aria-label` y `title`, según el tema actual);
+  - el menú de la cuenta se abre con el foco en el primer ítem (Opciones), se recorre con ↑/↓ y
+    se cierra con Esc;
   - en la barra inferior, la pestaña abierta (Analizar, Bandeja o Redactar) tiene
     `aria-current="page"`.
 - **Más contrastes,** todos ≥ 7:1:
   - rótulos, remitente y pestañas inactivas, gris `#475569` sobre blanco o sobre el fondo
     `#f6f6f4`;
   - la pestaña activa, azul sobre `#eff6ff`: 6,2:1.
-- El borde claro del botón redondo es decorativo: lo que identifica al botón es el engranaje
-  oscuro (16:1).
+- El borde claro del botón redondo es decorativo: lo que identifica al botón es el sol o la luna,
+  con el color del texto.
 
 **Seguridad:**
 - Los motivos pueden traer palabras del correo, así que se escriben **solo con `textContent`**,
@@ -987,9 +992,9 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
 
 ## Estilo
 
-- Usa **Sora** para los títulos y **DM Sans** para el texto, con **azul `#1d4ed8` para las
-  acciones** y **naranja `#c2410c` para las alertas**.
-- Los dos colores tienen contraste AA sobre fondo blanco.
+- Usa **Sora** para los títulos y **DM Sans** para el texto, con **azul para las acciones** y
+  **naranja para las alertas** (en el tema claro, `#1d4ed8` y `#c2410c`).
+- Los dos colores tienen contraste AA en los dos temas (ver "Tema claro y oscuro").
 - Los botones y campos muestran el foco con un borde azul, para quien navega con el teclado.
 - **Paso 4.5:** mover a la papelera y a cuarentena son acciones de **alerta**, así que su botón
   es naranja (`.boton-alerta`). Contrastes calculados:
@@ -998,6 +1003,46 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
   - el total elegido, azul sobre `#eff6ff`: 6,16:1;
   - el borde de los campos numéricos, `#64748b` sobre blanco: 4,76:1 (mínimo 3:1 para
     controles).
+
+### Tema claro y oscuro
+
+- **El botón redondo del encabezado alterna el tema.** Muestra la luna en el tema claro ("pasar a
+  oscuro") y el sol en el oscuro. Ya no abre Opciones: Opciones está en el menú de la cuenta y en
+  un enlace pequeño de la bienvenida (así se llega también sin sesión).
+- **Por defecto se sigue el tema del sistema** (`prefers-color-scheme`), y también sus cambios
+  mientras el panel está abierto.
+- **Si la persona elige uno, se guarda** en `chrome.storage.local` con la clave `tema`: solo la
+  palabra `claro` u `oscuro` (`guardarTema` rechaza cualquier otro valor). Es una preferencia,
+  no un dato del correo. Desde ahí, manda sobre el sistema.
+- **Opciones usa el mismo tema** y lo sigue si se cambia en el panel (`chrome.storage.onChanged`).
+- **Cómo funciona.** `lib/tema.js` pone `data-tema="claro"` u `"oscuro"` en `<html>`, y
+  `estilos/sicae.css` cambia **todas** las variables de color:
+  - el tema oscuro está dos veces con los mismos valores: en `@media (prefers-color-scheme:
+    dark)` (para que no se vea un destello claro antes de que corra el JS) y en
+    `:root[data-tema="oscuro"]`. Una prueba revisa que sean iguales;
+  - **no hay colores fijos** fuera de los bloques de variables. En el HTML, solo el logo, que es
+    igual en los dos temas, como el ícono de la extensión; en el tema oscuro el cuadro del logo
+    lleva un borde para distinguirse del fondo;
+  - los íconos de la tarjeta se dibujan con una **máscara** del SVG y el color de la variante
+    (`--tarjeta-color`). Antes eran `<img>` con el color fijo: el azul `#1d4ed8` no llega a 3:1
+    sobre ningún fondo oscuro;
+  - en el tema oscuro, los botones de color son claros con texto oscuro (`--texto-sobre-color`).
+- **Contraste AA calculado, no a ojo.** `tests/tema.test.js` lee las variables de los dos temas
+  y calcula la razón de contraste de cada par (fórmula de WCAG 2.x): texto ≥ 4,5:1; controles e
+  íconos ≥ 3:1. Con `node --test extension/tests/tema.test.js` se ve la razón de cada par. Los
+  más bajos:
+
+  | Par | Claro | Oscuro |
+  |---|---|---|
+  | Naranja sobre naranja suave (avisos, precaución) | 4,88 | 9,28 |
+  | Texto de ejemplo de los campos sobre el fondo | 4,76 | 5,71 |
+  | Azul sobre azul tenue ("Nunca haremos") | 5,77 | 5,74 |
+  | Rojo sobre rojo suave (phishing, riesgo alto) | 5,91 | 8,51 |
+  | Gris de la tarjeta de publicidad sobre su fondo | 9,45 | 8,40 |
+  | Texto de los botones azules | 6,70 | 9,90 |
+
+- **Campos de Opciones:** su borde era `#cbd5e1` (1,5:1, menos del 3:1 de un control). Ahora es el
+  de los demás campos (`--borde-control`).
 
 ### Fuentes (licencia SIL Open Font License 1.1)
 

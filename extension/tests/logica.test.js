@@ -10,6 +10,7 @@ import {
   interpretarSalud,
   interpretarSesionApi,
   resultadoSinConexion,
+  siguienteIndice,
   urlEstadisticas,
   urlSalud,
   validarUrlApi,
@@ -148,5 +149,21 @@ describe("resultadoSinConexion", () => {
     const r = resultadoSinConexion();
     assert.equal(r.tipo, "sin_conexion");
     assert.match(r.mensaje, /Sin conexión/);
+  });
+});
+
+describe("siguienteIndice (flechas del menú de la cuenta)", () => {
+  test("↓ y ↑ recorren los ítems y dan la vuelta", () => {
+    assert.equal(siguienteIndice(0, 2, 1), 1);
+    assert.equal(siguienteIndice(1, 2, 1), 0, "del último vuelve al primero");
+    assert.equal(siguienteIndice(0, 2, -1), 1, "del primero, ↑ va al último");
+    assert.equal(siguienteIndice(1, 3, -1), 0);
+  });
+
+  test("sin foco en el menú: ↓ al primero, ↑ al último; menú vacío: -1", () => {
+    assert.equal(siguienteIndice(-1, 2, 1), 0);
+    assert.equal(siguienteIndice(-1, 2, -1), 1);
+    assert.equal(siguienteIndice(7, 2, 1), 0, "un índice fuera de rango cuenta como sin foco");
+    assert.equal(siguienteIndice(0, 0, 1), -1);
   });
 });

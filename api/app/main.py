@@ -12,8 +12,9 @@ Endpoints:
   POST   /redactar        -> con sesión y consentimiento v4: borrador con IA (paso 6.2; Ollama local
                              o, solo para la cuenta de prueba, el modo demostración con Gemini).
   GET    /redactar/proveedores -> con sesión: ¿esta sesión puede usar el modo demostración? (paso 6.3)
-  GET    /diagnostico/disponible -> con sesión: ¿es la cuenta de prueba? (paso 7.1)
-  POST   /diagnostico     -> solo la cuenta de prueba: partes del puntaje, solo números (paso 7.1).
+  GET    /diagnostico/disponible -> SOLO con SICAE_MODO=desarrollo: ¿es la cuenta de prueba? (paso 7.1)
+  POST   /diagnostico     -> SOLO desarrollo y la cuenta de prueba: partes del puntaje, solo números.
+                             En producción las dos rutas no existen (404).
   GET    /estadisticas    -> con sesión: conteos por categoría y prioridad (solo números).
 
 Arrancar (desde la raíz del proyecto, con SICAE_GOOGLE_CLIENT_ID en .env):
@@ -468,46 +469,51 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
         except Exception as error:
             logger.error("No se pudo registrar el borrador (%s)", type(error).__name__)
 
-    # ---------- Diagnóstico de la prueba funcional (paso 7.1): SOLO la cuenta de prueba ----------
+    # ---------- Diagnóstico de la prueba funcional (paso 7.1): SOLO desarrollo + cuenta de prueba ----------
+    # Las dos rutas existen solo con SICAE_MODO=desarrollo: en producción no se registran y
+    # responden 404. El código se conserva como evidencia del hallazgo de la prueba funcional
+    # (docs/metricas.md). Dentro de desarrollo, además, solo la cuenta de prueba las puede usar.
 
     def es_cuenta_prueba(usuario):
         """La misma regla del modo demostración: google_sub == SICAE_DEMO_CUENTA (sin la clave de Gemini)."""
         return redaccion.es_cuenta_demo(usuario.get("google_sub"), ajustes.demo_cuenta)
 
-    @app.get(
-        "/diagnostico/disponible",
-        response_model=DiagnosticoDisponible,
-        summary="¿Esta sesión puede usar el diagnóstico y la exportación? (paso 7.1)",
-        responses={401: {"description": "Sin sesión válida"}},
-    )
-    def diagnostico_disponible(usuario=Depends(verificar_sesion)):
-        """La extensión muestra el diagnóstico y "Exportar CSV" solo si esto dice true.
-        Nunca devuelve la cuenta de prueba."""
-        return DiagnosticoDisponible(disponible=es_cuenta_prueba(usuario))
+    if desarrollo:
 
-    @app.post(
-        "/diagnostico",
-        response_model=Diagnostico,
-        summary="Partes del puntaje de un correo, solo números (paso 7.1, solo la cuenta de prueba)",
-        responses={401: {"description": "Sin sesión válida"},
-                   403: {"description": "Falta el consentimiento, o no es la cuenta de prueba"},
-                   413: {"description": "Petición demasiado grande"},
-                   422: {"description": "Entrada inválida"},
-                   429: {"description": "Demasiadas peticiones"},
-                   503: {"description": "Modelo no cargado"}},
-    )
-    def diagnosticar(correo: CorreoEntrada, request: Request, usuario=Depends(exigir_consentimiento)):
-        """Mismo modelo y misma limpieza que /analizar, separando el puntaje en sus partes.
-        NO se registra (no cuenta en /estadisticas) y no devuelve nada del texto del correo."""
-        if not es_cuenta_prueba(usuario):
-            raise ErrorConCodigo(403, "El diagnóstico solo está disponible para la cuenta de prueba del proyecto.",
-                                 "solo_cuenta_prueba")
-        recursos = recursos_o_503(request)
-        try:
-            return diagnostico.diagnosticar(correo.asunto, correo.cuerpo, correo.n_urls, correo.n_adjuntos, recursos)
-        except Exception as error:
-            logger.error("Error en el diagnóstico (%s)", type(error).__name__)
-            raise HTTPException(status_code=500, detail="Error interno en el diagnóstico.") from None
+        @app.get(
+            "/diagnostico/disponible",
+            response_model=DiagnosticoDisponible,
+            summary="¿Esta sesión puede usar el diagnóstico y la exportación? (paso 7.1)",
+            responses={401: {"description": "Sin sesión válida"}},
+        )
+        def diagnostico_disponible(usuario=Depends(verificar_sesion)):
+            """La extensión muestra el diagnóstico y "Exportar CSV" solo si esto dice true.
+            Nunca devuelve la cuenta de prueba."""
+            return DiagnosticoDisponible(disponible=es_cuenta_prueba(usuario))
+
+        @app.post(
+            "/diagnostico",
+            response_model=Diagnostico,
+            summary="Partes del puntaje de un correo, solo números (paso 7.1, solo la cuenta de prueba)",
+            responses={401: {"description": "Sin sesión válida"},
+                       403: {"description": "Falta el consentimiento, o no es la cuenta de prueba"},
+                       413: {"description": "Petición demasiado grande"},
+                       422: {"description": "Entrada inválida"},
+                       429: {"description": "Demasiadas peticiones"},
+                       503: {"description": "Modelo no cargado"}},
+        )
+        def diagnosticar(correo: CorreoEntrada, request: Request, usuario=Depends(exigir_consentimiento)):
+            """Mismo modelo y misma limpieza que /analizar, separando el puntaje en sus partes.
+            NO se registra (no cuenta en /estadisticas) y no devuelve nada del texto del correo."""
+            if not es_cuenta_prueba(usuario):
+                raise ErrorConCodigo(403, "El diagnóstico solo está disponible para la cuenta de prueba del proyecto.",
+                                     "solo_cuenta_prueba")
+            recursos = recursos_o_503(request)
+            try:
+                return diagnostico.diagnosticar(correo.asunto, correo.cuerpo, correo.n_urls, correo.n_adjuntos, recursos)
+            except Exception as error:
+                logger.error("Error en el diagnóstico (%s)", type(error).__name__)
+                raise HTTPException(status_code=500, detail="Error interno en el diagnóstico.") from None
 
     @app.get(
         "/estadisticas",

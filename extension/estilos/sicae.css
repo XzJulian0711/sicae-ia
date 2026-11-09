@@ -18,21 +18,109 @@
   font-display: swap;
 }
 
+/* ----- Colores: TODOS son variables (tests/tema.test.js revisa que no haya colores fijos
+   fuera de estos bloques y calcula el contraste WCAG AA de cada par en los dos temas). ----- */
+
+/* Tema claro (por defecto). */
 :root {
-  --azul: #1d4ed8;           /* acción: botones, enlaces, foco (contraste 6,7:1 sobre blanco) */
-  --azul-oscuro: #1e40af;
+  color-scheme: light;
+  --azul: #1d4ed8;           /* acción: botones, enlaces, foco */
+  --azul-hover: #1e40af;
   --azul-suave: #eff6ff;
-  --naranja: #c2410c;        /* alerta (contraste 5,2:1 sobre blanco) */
+  --azul-tenue: #e8eefc;     /* "Nunca haremos" */
+  --azul-borde: #bfdbfe;
+  --naranja: #c2410c;        /* alerta */
+  --naranja-hover: #9a3412;
   --naranja-suave: #fff7ed;
   --naranja-borde: #fdba74;
+  --rojo: #b91c1c;           /* phishing con confianza alta (solo la tarjeta) */
+  --rojo-suave: #fef2f2;
+  --gris-fuerte: #334155;    /* tarjeta de publicidad y números de la Bandeja */
+  --gris-suave: #f1f5f9;
   --texto: #0f172a;
   --texto-suave: #475569;
-  --borde: #e2e8f0;
-  --fondo: #ffffff;
-  --fondo-pagina: #f8fafc;
+  --texto-sobre-color: #ffffff; /* texto de los botones azules y naranjas */
+  --borde: #e2e8f0;          /* separadores (decorativos) */
+  --borde-suave: #cbd5e1;
+  --borde-punteado: #94a3b8;
+  --borde-control: #64748b;  /* bordes de campos y tonos: ≥ 3:1; texto de ejemplo: ≥ 4,5:1 */
+  --fondo: #ffffff;          /* cajas */
+  --fondo-panel: #f6f6f4;    /* fondo del panel (gris muy claro del demo) */
+  --fondo-pagina: #f8fafc;   /* fondo de Opciones */
+  --perilla: #ffffff;
+  --oscuro: #18181b;         /* cuadro del logo (igual en los dos temas, como el ícono) */
+  --logo-borde: transparent;
+  --sombra: rgba(15, 23, 42, 0.12);
+  --velo: rgba(15, 23, 42, 0.55);
   --radio: 10px;
   --titulos: "Sora", system-ui, sans-serif;
   --cuerpo: "DM Sans", system-ui, sans-serif;
+}
+
+/* Tema oscuro: si el sistema lo pide y la persona no eligió el claro… */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    color-scheme: dark;
+    --azul: #93c5fd;
+    --azul-hover: #bfdbfe;
+    --azul-suave: #172554;
+    --azul-tenue: #1e3a8a;
+    --azul-borde: #1e40af;
+    --naranja: #fdba74;
+    --naranja-hover: #fed7aa;
+    --naranja-suave: #431407;
+    --naranja-borde: #9a3412;
+    --rojo: #fca5a5;
+    --rojo-suave: #450a0a;
+    --gris-fuerte: #e2e8f0;
+    --gris-suave: #334155;
+    --texto: #f1f5f9;
+    --texto-suave: #cbd5e1;
+    --texto-sobre-color: #0f172a;
+    --borde: #334155;
+    --borde-suave: #475569;
+    --borde-punteado: #64748b;
+    --borde-control: #94a3b8;
+    --fondo: #1e293b;
+    --fondo-panel: #0f172a;
+    --fondo-pagina: #0f172a;
+    --perilla: #0f172a;
+    --logo-borde: #475569;
+    --sombra: rgba(0, 0, 0, 0.5);
+    --velo: rgba(2, 6, 23, 0.7);
+  }
+}
+
+/* …o si lo eligió con el botón del sol/luna (lib/tema.js). Mismos valores que el bloque de arriba. */
+:root[data-tema="oscuro"] {
+  color-scheme: dark;
+  --azul: #93c5fd;
+  --azul-hover: #bfdbfe;
+  --azul-suave: #172554;
+  --azul-tenue: #1e3a8a;
+  --azul-borde: #1e40af;
+  --naranja: #fdba74;
+  --naranja-hover: #fed7aa;
+  --naranja-suave: #431407;
+  --naranja-borde: #9a3412;
+  --rojo: #fca5a5;
+  --rojo-suave: #450a0a;
+  --gris-fuerte: #e2e8f0;
+  --gris-suave: #334155;
+  --texto: #f1f5f9;
+  --texto-suave: #cbd5e1;
+  --texto-sobre-color: #0f172a;
+  --borde: #334155;
+  --borde-suave: #475569;
+  --borde-punteado: #64748b;
+  --borde-control: #94a3b8;
+  --fondo: #1e293b;
+  --fondo-panel: #0f172a;
+  --fondo-pagina: #0f172a;
+  --perilla: #0f172a;
+  --logo-borde: #475569;
+  --sombra: rgba(0, 0, 0, 0.5);
+  --velo: rgba(2, 6, 23, 0.7);
 }
 
 * { box-sizing: border-box; }
@@ -71,8 +159,8 @@ p { margin: 0; }
   cursor: pointer;
 }
 
-.boton-principal { background: var(--azul); color: #ffffff; }
-.boton-principal:hover { background: var(--azul-oscuro); }
+.boton-principal { background: var(--azul); color: var(--texto-sobre-color); }
+.boton-principal:hover { background: var(--azul-hover); }
 .boton-principal:disabled { opacity: 0.6; cursor: default; }
 
 .boton-secundario { background: var(--fondo); color: var(--azul); border-color: var(--azul); }
@@ -115,7 +203,7 @@ input:focus-visible {
 }
 
 .estado[data-tipo="conectado"],
-.estado[data-tipo="sesion_correcta"] { border-color: #bfdbfe; background: var(--azul-suave); }
+.estado[data-tipo="sesion_correcta"] { border-color: var(--azul-borde); background: var(--azul-suave); }
 .estado[data-tipo="conectado"]::before,
 .estado[data-tipo="sesion_correcta"]::before { background: var(--azul); }
 
@@ -138,8 +226,6 @@ input:focus-visible {
 /* ----- Panel lateral (paso 3.4, diseño del demo) ----- */
 
 .pagina-panel {
-  --fondo-panel: #f6f6f4;   /* gris muy claro del demo */
-  --oscuro: #18181b;        /* cuadro del logo */
   --radio-caja: 14px;
   background: var(--fondo-panel);
   min-height: 100vh;
@@ -169,6 +255,7 @@ input:focus-visible {
   height: 36px;
   border-radius: 10px;
   background: var(--oscuro);
+  border: 1px solid var(--logo-borde);
 }
 
 .marca h1 { font-size: 19px; }
@@ -185,6 +272,16 @@ input:focus-visible {
   cursor: pointer;
 }
 .boton-redondo:hover { background: var(--azul-suave); color: var(--azul); }
+
+/* Botón del tema (lib/tema.js): en el tema claro muestra la luna ("pasar a oscuro"); en el
+   oscuro, el sol. */
+.icono-sol { display: none; }
+:root[data-tema="oscuro"] .icono-sol { display: block; }
+:root[data-tema="oscuro"] .icono-luna { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) .icono-sol { display: block; }
+  :root:not([data-tema="claro"]) .icono-luna { display: none; }
+}
 
 .boton-redondo:focus-visible,
 .pestana:focus-visible,
@@ -217,7 +314,7 @@ input:focus-visible {
   justify-items: center;
   gap: 8px;
   padding: 22px 16px;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--borde-suave);
   border-radius: var(--radio-caja);
   color: var(--texto-suave);
   text-align: center;
@@ -254,11 +351,11 @@ input:focus-visible {
 }
 
 /* Phishing con confianza alta: alerta fuerte (rojo, solo aquí). */
-.tarjeta[data-variante="peligro"] { --tarjeta-color: #b91c1c; --tarjeta-fondo: #fef2f2; }
+.tarjeta[data-variante="peligro"] { --tarjeta-color: var(--rojo); --tarjeta-fondo: var(--rojo-suave); }
 /* Phishing dudoso: alerta suave (naranja de la demo). */
 .tarjeta[data-variante="precaucion"] { --tarjeta-color: var(--naranja); --tarjeta-fondo: var(--naranja-suave); }
 /* Publicidad: neutro (gris). */
-.tarjeta[data-variante="neutro"] { --tarjeta-color: #334155; --tarjeta-fondo: #f1f5f9; }
+.tarjeta[data-variante="neutro"] { --tarjeta-color: var(--gris-fuerte); --tarjeta-fondo: var(--gris-suave); }
 
 .franja {
   display: flex;
@@ -269,7 +366,27 @@ input:focus-visible {
   background: var(--tarjeta-fondo);
 }
 
-.tarjeta-icono { flex: none; }
+/* Ícono de la tarjeta: la forma sale del SVG (máscara) y el color, de --tarjeta-color, así
+   cambia con el tema. -webkit- porque el mínimo es Chrome 116 (mask sin prefijo: Chrome 120). */
+.tarjeta-icono {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  background: var(--tarjeta-color);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+.tarjeta-icono[data-icono="alerta"] { -webkit-mask-image: url("../iconos/alerta.svg"); mask-image: url("../iconos/alerta.svg"); }
+.tarjeta-icono[data-icono="precaucion"] { -webkit-mask-image: url("../iconos/precaucion.svg"); mask-image: url("../iconos/precaucion.svg"); }
+.tarjeta-icono[data-icono="ok"] { -webkit-mask-image: url("../iconos/ok.svg"); mask-image: url("../iconos/ok.svg"); }
+.tarjeta-icono[data-icono="sobre"] { -webkit-mask-image: url("../iconos/sobre.svg"); mask-image: url("../iconos/sobre.svg"); }
+
+/* Íconos grandes de los estados vacíos (SVG con stroke="currentColor"). */
+.icono-vacio { color: var(--borde-control); }
 
 .franja h2 {
   color: var(--tarjeta-color);
@@ -290,7 +407,7 @@ input:focus-visible {
 /* Etiqueta de prioridad: texto + borde (no depende solo del color). */
 .tarjeta-prioridad {
   justify-self: start;
-  border: 1px solid #64748b;
+  border: 1px solid var(--borde-control);
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 13px;
@@ -333,7 +450,7 @@ input:focus-visible {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #f1f5f9;
+  background: var(--gris-suave);
   font-size: 12px;
   font-weight: 700;
 }
@@ -465,7 +582,7 @@ input:focus-visible {
   background: var(--fondo);
   border: 1px solid var(--borde);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 8px 24px var(--sombra);
 }
 
 .menu-cuenta [role="menuitem"] {
@@ -549,7 +666,7 @@ input:focus-visible {
   font-weight: 700;
   padding: 1px 8px;
   border-radius: 999px;
-  background: #f1f5f9;
+  background: var(--gris-suave);
   color: var(--texto-suave);
 }
 
@@ -558,7 +675,7 @@ input:focus-visible {
 .nunca-haremos {
   border-radius: var(--radio-caja);
   padding: 14px 16px;
-  background: #e8eefc;
+  background: var(--azul-tenue);
 }
 .nunca-titulo { color: var(--azul); font-weight: 700; margin-bottom: 4px; }
 
@@ -583,7 +700,7 @@ input:focus-visible {
   font-size: 12px;
   font-weight: 600;
   color: var(--texto-suave);
-  border: 1px dashed #94a3b8;
+  border: 1px dashed var(--borde-punteado);
   border-radius: 8px;
   padding: 3px 8px;
 }
@@ -617,7 +734,7 @@ input:focus-visible {
   font-family: var(--titulos);
   font-size: 26px;
   font-weight: 700;
-  color: #334155;
+  color: var(--gris-fuerte);
 }
 .conteo-alta .conteo-numero { color: var(--azul); }
 
@@ -675,7 +792,7 @@ input:focus-visible {
 .publicidad-cabeza { display: flex; align-items: center; gap: 10px; }
 .publicidad-cabeza h3 { font-family: var(--titulos); font-size: 16px; margin: 0; }
 /* Deshabilitado, pero legible: #475569 sobre #f1f5f9 = 6,9:1 (sin opacidad, que lo dejaría en 2,9). */
-.boton[aria-disabled="true"] { background: #f1f5f9; color: #475569; border-color: #cbd5e1; cursor: not-allowed; }
+.boton[aria-disabled="true"] { background: var(--gris-suave); color: var(--texto-suave); border-color: var(--borde-suave); cursor: not-allowed; }
 
 .fila-correo:focus-visible,
 .boton-texto:focus-visible {
@@ -712,9 +829,10 @@ input[type="url"],
 input[type="password"] {
   font: inherit;
   padding: 9px 11px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--borde-control);
   border-radius: var(--radio);
   color: var(--texto);
+  background: var(--fondo);
 }
 
 .acciones { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -735,10 +853,10 @@ input[type="password"] {
 
 /* Acción de alerta (mover a la papelera o a cuarentena): naranja.
    Blanco sobre #c2410c = 5,18:1; sobre #9a3412 (hover) = 7,31:1. */
-.boton-alerta { background: var(--naranja); color: #ffffff; }
-.boton-alerta:hover { background: #9a3412; }
+.boton-alerta { background: var(--naranja); color: var(--texto-sobre-color); }
+.boton-alerta:hover { background: var(--naranja-hover); }
 /* Deshabilitado sin opacidad: #475569 sobre #f1f5f9 = 6,92:1. */
-.boton-alerta:disabled { background: #f1f5f9; color: #475569; border-color: #cbd5e1; cursor: not-allowed; }
+.boton-alerta:disabled { background: var(--gris-suave); color: var(--texto-suave); border-color: var(--borde-suave); cursor: not-allowed; }
 
 /* Enlace de acción azul (6,70:1 sobre blanco), p. ej. "← Volver a la bandeja". */
 .boton-texto-azul {
@@ -785,7 +903,7 @@ input[type="password"] {
   font: inherit;
   width: 72px;
   padding: 5px 8px;
-  border: 1px solid #64748b;
+  border: 1px solid var(--borde-control);
   border-radius: 8px;
   color: var(--texto);
   background: var(--fondo);
@@ -845,7 +963,7 @@ input[type="password"] {
 }
 .dialogo h2 { margin-bottom: 8px; }
 .dialogo p { margin-bottom: 16px; line-height: 1.55; }
-.dialogo::backdrop { background: rgba(15, 23, 42, 0.55); }
+.dialogo::backdrop { background: var(--velo); }
 
 .boton-texto-azul:focus-visible,
 .grupo summary:focus-visible,
@@ -862,7 +980,9 @@ input[type="password"] {
   font-weight: 600;
   text-decoration: underline;
 }
-.enlace:hover { color: var(--azul-oscuro); }
+.enlace:hover { color: var(--azul-hover); }
+button.enlace { font: inherit; font-weight: 600; background: none; border: none; padding: 0; cursor: pointer; }
+.enlace-pequeno { font-size: 13px; justify-self: start; }
 .enlace:focus-visible {
   outline: 3px solid var(--azul);
   outline-offset: 2px;
@@ -886,14 +1006,14 @@ input[type="password"] {
   font: inherit;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #64748b;
+  border: 1px solid var(--borde-control);
   border-radius: var(--radio);
   color: var(--texto);
   background: var(--fondo);
   resize: vertical;
   line-height: 1.5;
 }
-.campo-texto::placeholder { color: #64748b; }
+.campo-texto::placeholder { color: var(--borde-control); }
 .campo-borrador { min-height: 180px; }
 
 /* Contador "123/500": gris #475569 sobre blanco = 7,58:1. */
@@ -913,14 +1033,14 @@ input[type="password"] {
 .tono span {
   display: inline-block;
   padding: 7px 16px;
-  border: 1px solid #64748b;
+  border: 1px solid var(--borde-control);
   border-radius: 999px;
   font-weight: 600;
   cursor: pointer;
   background: var(--fondo);
   color: var(--texto);
 }
-.tono input:checked + span { background: var(--azul); border-color: var(--azul); color: #ffffff; }
+.tono input:checked + span { background: var(--azul); border-color: var(--azul); color: var(--texto-sobre-color); }
 .tono input:focus-visible + span { outline: 3px solid var(--azul); outline-offset: 2px; }
 
 /* Interruptor del modo demostración (checkbox con role="switch").
@@ -933,7 +1053,7 @@ input[type="password"] {
   margin: 0;
   flex: none;
   border-radius: 999px;
-  background: #64748b;
+  background: var(--borde-control);
   position: relative;
   cursor: pointer;
   transition: background 0.15s;
@@ -946,7 +1066,7 @@ input[type="password"] {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--perilla);
   transition: transform 0.15s;
 }
 .interruptor input:checked { background: var(--azul); }

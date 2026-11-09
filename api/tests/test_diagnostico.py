@@ -51,7 +51,45 @@ def crear(archivos_modelo, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Solo la cuenta de prueba
+# Solo en SICAE_MODO=desarrollo (en producción las rutas no existen)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("token, consentimiento", [(TOKEN_GOOGLE, True), (TOKEN_GOOGLE, False), (None, False)])
+def test_en_produccion_las_rutas_no_existen(crear, token, consentimiento):
+    # Aunque sea la cuenta de prueba (SICAE_DEMO_CUENTA = su google_sub): 404 en las dos rutas,
+    # con o sin sesión, antes de mirar la sesión o el cuerpo.
+    cliente = crear(token=token, consentimiento=consentimiento, modo="produccion", demo_cuenta=SUB)
+    assert cliente.get("/diagnostico/disponible").status_code == 404
+    respuesta = cliente.post("/diagnostico", json=correo())
+    assert respuesta.status_code == 404
+    assert PALABRA_SECRETA not in respuesta.text
+
+
+def test_en_produccion_no_registra_nada(crear):
+    cliente = crear(modo="produccion", demo_cuenta=SUB)
+    antes = cliente.get("/estadisticas").json()["total"]
+    cliente.post("/diagnostico", json=correo())
+    assert cliente.get("/estadisticas").json()["total"] == antes
+
+
+def test_en_desarrollo_las_rutas_existen(crear):
+    cliente = crear(modo="desarrollo", demo_cuenta=SUB)
+    assert cliente.get("/diagnostico/disponible").json() == {"disponible": True}
+    assert cliente.post("/diagnostico", json=correo()).status_code == 200
+
+
+@pytest.mark.parametrize("modo, rutas", [("desarrollo", True), ("produccion", False)])
+def test_las_rutas_salen_en_la_app_solo_en_desarrollo(crear, modo, rutas):
+    cliente = crear(token=None, modo=modo, demo_cuenta=SUB)
+    caminos = {ruta.path for ruta in cliente.app.routes}
+    assert ("/diagnostico" in caminos) is rutas
+    assert ("/diagnostico/disponible" in caminos) is rutas
+    assert "/analizar" in caminos, "el resto de la API no cambia"
+
+
+# ---------------------------------------------------------------------------
+# Solo la cuenta de prueba (en desarrollo: es el modo de ajustes_para)
 # ---------------------------------------------------------------------------
 
 

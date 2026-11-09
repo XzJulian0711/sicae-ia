@@ -3,6 +3,7 @@
 // - validarUrlApi(): revisa la URL de la API que escribe el usuario en Opciones.
 // - interpretarSalud(): convierte la respuesta de GET /salud en un resultado para mostrar.
 // - interpretarSesionApi(): convierte el código de GET /estadisticas en "sesión correcta/incorrecta".
+// - siguienteIndice(): a qué ítem del menú de la cuenta va el foco con las flechas.
 //
 // Los mensajes son genéricos a propósito: nunca se muestra el texto crudo de un error.
 
@@ -129,4 +130,15 @@ export function resultadoSinConexion() {
     mensaje: "Sin conexión con la API. Revisa que esté encendida y la URL en Opciones.",
     version: null,
   };
+}
+
+/**
+ * Ítem al que pasa el foco con ↑/↓ en un menú de `total` ítems (paso = 1 o -1). Da la vuelta
+ * al llegar a un extremo. Si el foco no está en ningún ítem (actual = -1), ↓ va al primero y ↑
+ * al último.
+ */
+export function siguienteIndice(actual, total, paso) {
+  if (!Number.isInteger(total) || total <= 0) return -1;
+  if (!Number.isInteger(actual) || actual < 0 || actual >= total) return paso < 0 ? total - 1 : 0;
+  return (actual + (paso < 0 ? -1 : 1) + total) % total;
 }
