@@ -1,3 +1,38 @@
 ﻿id,asunto,cuerpo,indicacion,tono,inventado,ejemplo
 ejemplo-1,Entrega del anteproyecto,"Buenos días, grupo. Les recuerdo que el anteproyecto se entrega el 10 de octubre en la plataforma. Cualquier duda, me escriben. Coordinación académica (correo inventado).",Confirmar que entregamos el 6 de octubre y preguntar la fecha de sustentación,formal,si,si
 ejemplo-2,Almuerzo del viernes,¡Hola! ¿Te animas a almorzar el viernes después de clase? Yo invito el postre. (Correo inventado para el ejemplo.),Aceptar con gusto y proponer vernos a la 1 en la cafetería,cordial,si,si
+provisional-01,Confirmación de asistencia a reunión de seguimiento,"Buenas tardes,
+
+Por medio de este correo quisiera confirmar si la reunión de seguimiento programada para el próximo jueves continúa en pie.
+
+También quisiera saber si es necesario preparar algún documento o información específica para la reunión.
+
+Quedo pendiente de su confirmación.
+
+Muchas gracias.
+
+Atentamente,
+Carlos Torres
+Colaborador ficticio",Confirmar que la reunión continúa programada para el jueves e indicar que se recomienda tener preparados los avances de las actividades pendientes. Agradecer la confirmación.,formal,si,no
+provisional-02,Seguimiento al reporte de inconveniente técnico,"Hola, buen día.
+
+El día de ayer realicé un reporte debido a que no puedo acceder correctamente a la plataforma de trabajo. Hasta el momento no he recibido información sobre el estado de mi solicitud.
+
+¿Podrían confirmarme si el inconveniente ya está siendo revisado y cuánto tiempo podría tomar la solución?
+
+Gracias por su atención.
+
+Saludos,
+Laura Méndez
+Usuario ficticio","Disculparse por la demora, informar que la solicitud será revisada y que se realizará el seguimiento correspondiente. Evitar comprometerse con un tiempo de solución que no ha sido confirmado.",cordial,si,no
+provisional-03,Solicitud de información sobre los servicios disponibles,"Buen día,
+
+Me gustaría recibir información sobre los servicios que ofrece su empresa, específicamente los planes disponibles, sus características y los precios correspondientes.
+
+También quisiera saber si cuentan con algún tipo de asesoría para elegir el servicio que mejor se adapte a nuestras necesidades.
+
+Quedo atento a su respuesta.
+
+Cordialmente,
+Andrés Ramírez
+Cliente ficticio","Agradecer el interés, indicar que se compartirá la información sobre los planes y tarifas disponibles y mencionar que se puede brindar asesoría personalizada para resolver sus inquietudes.",formal,si,no

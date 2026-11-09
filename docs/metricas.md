@@ -916,10 +916,23 @@ nada de ese código.
   - incluir fechas, horas y cifras en el correo o en la indicación, para ver si el modelo las
     respeta o inventa otras;
   - la indicación, como la escribiría una persona ("Confirmar que entregamos el 6 de octubre y
-    preguntar la fecha de sustentación").
+    preguntar la fecha de sustentación");
+  - **un solo tono** por caso: formal, breve o cordial;
+  - **no pegar las líneas que agrega Gmail** ("Recibidos", el remitente, la fecha, "para mí"):
+    traen **nombres y correos reales**. Se copia solo el asunto y el cuerpo, del saludo a la firma.
+- **Casos con tono provisional:** si un caso todavía no tiene su tono definitivo, su `id` empieza
+  con `provisional-` (por ejemplo `provisional-01`). Esos casos **solo sirven para `--prueba`**: la
+  corrida completa se niega mientras quede alguno. Cuando el autor dé el tono, se cambian el tono y
+  el `id` (por ejemplo, a `c01`).
 
 ### Procedimiento
 
+0. **Prueba rápida (antes de todo):** `python herramientas/comparar_redaccion.py --prueba 2`.
+   - Corre solo los 2 primeros casos, con los 3 sistemas, y guarda en
+     `evaluacion/redaccion/resultados/prueba/`, una carpeta **aparte**.
+   - Sirve para revisar en `prueba/clave.csv` que Ollama y Gemini responden y cuánto tardan.
+   - **No es para calificar.** Se puede repetir: pisa solo su propia carpeta.
+   - Acepta los casos `provisional-`.
 1. **Preparar los modelos:** `ollama pull gemma4:e2b` y `ollama pull gemma4:e4b`. Para Gemini,
    `SICAE_DEMO_API_KEY` en el `.env`; sin ella, Gemini se salta.
 2. **Generar:** `python herramientas/comparar_redaccion.py`. Para cada caso y cada modelo local:

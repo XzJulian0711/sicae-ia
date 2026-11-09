@@ -24,6 +24,9 @@ Salidas en evaluacion/redaccion/resultados/ (NO se sube a Git):
   - calificacion_por_llenar.csv: una fila por código y evaluador (A y B).
 
 Correr desde la raíz:  python herramientas/comparar_redaccion.py [--sin-gemini] [--sobrescribir]
+Prueba rápida antes:   python herramientas/comparar_redaccion.py --prueba 2
+  (solo los 2 primeros casos, en resultados/prueba/; NO es para calificar. Los casos con id
+  "provisional-…" solo se aceptan en la prueba.)
 """
 
 import argparse
@@ -72,10 +75,31 @@ PAUSA_GEMINI_S = 4  # entre llamadas a Gemini (capa gratuita)
 ESPERA_LIMITE_GEMINI_S = 60  # si Gemini responde 429, se espera esto y se reintenta UNA vez
 ALFABETO_CODIGO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sin 0/O ni 1/I, que se confunden
 LARGO_CODIGO = 6
+# Casos con un tono todavía PROVISIONAL (el id empieza así): sirven para --prueba, pero la corrida
+# completa se niega hasta que cada autor dé el tono definitivo (y el id pase a c01, c02…).
+PREFIJO_PROVISIONAL = "provisional-"
+CARPETA_PRUEBA = "prueba"  # --prueba guarda en resultados/prueba/, aparte de la corrida completa
 
 
 class CasosInvalidos(Exception):
     """casos.csv no cumple las reglas (inventado=si, tono, indicación, id únicos)."""
+
+
+def casos_provisionales(casos):
+    """Los ids de los casos con tono provisional (prefijo "provisional-")."""
+    return [c["id"] for c in casos if c["id"].lower().startswith(PREFIJO_PROVISIONAL)]
+
+
+def seleccionar_prueba(casos, n):
+    """Los n primeros casos reales, en el orden del archivo (si hay menos, todos). n debe ser ≥ 1."""
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+        raise ValueError("--prueba necesita un número entero de 1 o más.")
+    return casos[:n]
+
+
+def carpeta_de_salida(salida, prueba):
+    """Con --prueba, una carpeta APARTE (resultados/prueba/): nunca se mezcla con la corrida completa."""
+    return Path(salida) / CARPETA_PRUEBA if prueba else Path(salida)
 
 
 # ---------------------------------------------------------------------------
@@ -436,20 +460,38 @@ def main(argv=None, *, ajustes=None, **inyectados):
     parser.add_argument("--sin-gemini", action="store_true", help="no usar el modo demostración")
     parser.add_argument("--pausa-gemini", type=float, default=PAUSA_GEMINI_S)
     parser.add_argument("--sobrescribir", action="store_true")
+    parser.add_argument("--prueba", type=int, metavar="N", default=None,
+                        help="corre solo los N primeros casos y guarda en resultados/prueba/ (para revisar "
+                             "que Ollama y Gemini responden; no es para calificar)")
     args = parser.parse_args(argv)
 
     sistemas = [s.strip() for s in args.sistemas.split(",") if s.strip()]
     desconocidos = [s for s in sistemas if s not in SISTEMAS]
     if desconocidos:
         parser.error(f"sistemas desconocidos: {', '.join(desconocidos)}. Opciones: {', '.join(SISTEMAS)}")
+    prueba = args.prueba is not None
+    if prueba and args.prueba < 1:
+        parser.error("--prueba necesita un número entero de 1 o más.")
 
     try:
         casos, avisos = leer_casos(args.casos)
     except (CasosInvalidos, FileNotFoundError) as error:
         print(f"No se puede comparar: {error}")
         return 2
-    for aviso in avisos:
-        print(f"Aviso: {aviso}")
+    provisionales = casos_provisionales(casos)
+    if provisionales and not prueba:
+        print(f"No se puede comparar: hay casos con tono provisional ({', '.join(provisionales)}). "
+              "Reemplázalos por el tono definitivo antes de la corrida completa (o usa --prueba N).")
+        return 2
+    if prueba:
+        total = len(casos)
+        casos = seleccionar_prueba(casos, args.prueba)
+        print(f"Prueba con {len(casos)} de {total} casos: los resultados NO son para calificar.")
+        if provisionales:
+            print(f"Aviso: casos con tono provisional ({', '.join(provisionales)}): sirven solo para la prueba.")
+    else:
+        for aviso in avisos:
+            print(f"Aviso: {aviso}")
 
     ajustes = ajustes or Ajustes()  # lee el .env (SICAE_IA_URL, SICAE_DEMO_API_KEY…)
     if args.sin_gemini or not ajustes.demo_api_key.get_secret_value().strip():
@@ -460,13 +502,20 @@ def main(argv=None, *, ajustes=None, **inyectados):
         print("No queda ningún sistema para comparar.")
         return 2
 
-    salida = Path(args.salida)
-    if not args.sobrescribir and any((salida / f"{n}.csv").exists() for n in ("borradores", "clave", "calificacion_por_llenar")):
+    salida = carpeta_de_salida(args.salida, prueba)
+    # La prueba se repite a menudo: pisa SOLO su propia carpeta. La corrida completa pide --sobrescribir.
+    sobrescribir = args.sobrescribir or prueba
+    if not sobrescribir and any((salida / f"{n}.csv").exists() for n in ("borradores", "clave", "calificacion_por_llenar")):
         print(f"Ya hay resultados en {salida}. Usa --sobrescribir para reemplazarlos.")
         return 2
 
     filas = comparar(casos, sistemas, ajustes, pausa_gemini=args.pausa_gemini, **inyectados)
-    rutas = escribir_resultados(filas, salida, sobrescribir=args.sobrescribir)
+    rutas = escribir_resultados(filas, salida, sobrescribir=sobrescribir)
+    if prueba:
+        fallidos = sum(not f["exitoso"] for f in filas)
+        print(f"Prueba lista en {salida}: {len(filas) - fallidos} de {len(filas)} generaciones bien. "
+              "Revisa clave.csv para ver los tiempos y errores. No la uses para calificar.")
+        return 0
     print(f"Listo: {len(filas)} borradores. Califícalos a ciegas con {rutas['borradores'].name} y "
           f"{rutas['calificacion_por_llenar'].name}; NO abras {rutas['clave'].name} hasta terminar.")
     return 0
