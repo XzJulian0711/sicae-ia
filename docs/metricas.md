@@ -1009,3 +1009,83 @@ acuerdo débil, de 0,41 a 0,60 moderado, de 0,61 a 0,80 bueno, y más de 0,80 mu
   "minimal"`), y los modelos locales corren sin razonamiento (`think: false`).
 - **Dos evaluadores del mismo equipo:** pueden reconocer el estilo de un modelo aunque no vean su
   nombre.
+
+## Prueba funcional (paso 7.1)
+
+**Objetivo:** comprobar que el prototipo completo funciona con correos de verdad en Gmail, desde
+la lectura del correo hasta lo que muestra el panel:
+- si la extensión lee bien el asunto, el remitente y el cuerpo;
+- qué categoría, confianza y prioridad da;
+- si los motivos se entienden.
+
+### Procedimiento
+
+1. Cada integrante escribe sus correos de prueba y dice qué categoría **espera**: `phishing`,
+   `legitimo` o `publicidad`. También entran boletines recibidos en la cuenta de prueba.
+2. Se abre cada correo en Gmail y se analiza en la pestaña **Analizar**.
+3. Se anota a mano, en `evaluacion/funcional/resultados.csv`, lo que muestra el panel: una fila
+   por correo.
+4. Se resume: `python herramientas/resumir_funcional.py`. Escribe
+   `evaluacion/funcional/reportes/resumen.json` y `tabla.md`.
+   - Si todavía no hay filas llenas, lo avisa y no escribe nada.
+   - Si un dato no es válido, dice en qué fila está y no escribe nada.
+
+### Columnas de `resultados.csv`
+
+Separado por comas, `utf-8-sig`. No importan las mayúsculas.
+
+| Columna | Valores |
+|---|---|
+| `id` | Un código único por correo (por ejemplo `f01`) |
+| `autor` | `Integrante 1`, `Integrante 2`, `Integrante 3` o `Boletín`. **Nunca el nombre de la persona** |
+| `asunto` | El asunto del correo. **No va al reporte** |
+| `esperado` | `phishing`, `legitimo` o `publicidad`. Lo dice el autor **antes** de analizar |
+| `obtenido` | La categoría que muestra el panel ("masivo / boletín" se anota como `publicidad`) |
+| `confianza` | `alta` o `dudosa` |
+| `prioridad` | `alta`, `media` o `baja`. **Vacía si salió phishing**: el panel no le da prioridad |
+| `asunto_ok`, `remitente_ok`, `cuerpo_ok` | `si`, `no` o `parcial`: si la extensión leyó bien ese campo |
+| `motivos_claros_1a5` | Opcional. De 1 (no se entienden) a 5 (muy claros) |
+| `observacion` | Texto libre. **No va al reporte** |
+
+Una fila solo con `id`, `autor` y `asunto` cuenta como **todavía sin analizar**, y el script la
+salta.
+
+### Métricas
+
+| Métrica | Cómo se calcula |
+|---|---|
+| Matriz de confusión 3×3 | Filas = esperado, columnas = obtenido, en el orden legítimo, publicidad, phishing (`sklearn.metrics.confusion_matrix`) |
+| Exactitud | Casos con obtenido = esperado, sobre el total |
+| Phishing vs. no phishing | **Phishing es la clase positiva**; legítimo y publicidad cuentan como "no phishing". Se informan VP, FP, FN y VN, y con ellos la precisión VP/(VP+FP), el recall VP/(VP+FN) y el F1 2·VP/(2·VP+FP+FN). Si un cálculo divide por 0, queda vacío |
+| Lectura correcta | Para asunto, remitente y cuerpo: % de `si`, y cuántos `parcial` y `no` |
+| Confianza | % de casos "dudosa" y cuántos de ellos fueron **errores** (obtenido ≠ esperado). Para comparar, también los errores entre los de confianza alta |
+| Boletines | De los casos con autor Boletín, cuántos salieron como publicidad |
+| Por autor | Casos y aciertos de cada Integrante N y de Boletín |
+| Motivos claros | Media ± desviación estándar muestral, solo de las filas que lo tienen |
+
+El reporte empieza con esta **advertencia**: "Muestra pequeña (N correos), escritos por el equipo.
+No es una estimación del desempeño del modelo."
+
+### Qué se sube a Git
+
+- **Se sube:**
+  - `resultados.csv`, vacío o llenado, **sin nombres ni direcciones de correo**. Una prueba lo
+    revisa:
+    - que no tenga "@" ni las líneas que agrega Gmail;
+    - que en `autor` solo haya los 4 valores permitidos;
+    - que no aparezca ninguna palabra de los nombres de la sección *Integrantes* del README.
+      La prueba lee esos nombres del README cuando corre, así que no quedan escritos en ella;
+  - `reportes/`: el JSON y la tabla, **solo números**: ni asuntos, ni observaciones, ni el id de
+    cada caso.
+- **No se pega** ninguna línea que agrega Gmail (remitente, fecha, "para mí").
+
+### Limitaciones
+
+- **Pocos casos:** un solo correo mueve mucho los porcentajes.
+- **Correos escritos por el equipo**, que conoce cómo funciona el sistema. No representan el
+  correo real de un usuario.
+- **El autor decide "esperado"** y la misma persona anota los resultados: no hay un segundo
+  evaluador ni acuerdo entre evaluadores.
+- **Por todo esto, no es una estimación del desempeño del modelo.** Esa estimación es la del
+  conjunto de prueba de SpaPhish (paso 1.5b). Esta prueba sirve para encontrar fallas del
+  prototipo: errores de lectura, motivos confusos, boletines mal clasificados.
