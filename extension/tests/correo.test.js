@@ -13,7 +13,10 @@ import {
   MAX_BYTES_LOTE,
   MAX_BYTES_POR_CORREO_LOTE,
   MAX_LOTE,
+  NOTA_RESPALDO,
+  NOTA_RESPALDO_PARCIAL,
   CABECERAS_PERMITIDAS,
+  notaRespaldo,
   interpretarLote,
   urlAnalizarLote,
   MAX_CUERPO,
@@ -254,6 +257,17 @@ describe("lote (paso 4.4)", () => {
     assert.equal(armarPeticionGmail(largo).recortado, true);
     assert.deepEqual(armarPeticionGmail(CORREO), armarPeticion(CORREO), "un correo corto no cambia");
     assert.equal(armarPeticionGmail(null).ok, false);
+  });
+
+  test("paso 7.1: notaRespaldo → null con la API; nota normal o parcial con la página", () => {
+    assert.equal(notaRespaldo({ fuente: "api", correo: { limpiezaParcial: true } }), null);
+    assert.equal(notaRespaldo({ fuente: "pagina", correo: { limpiezaParcial: false } }), NOTA_RESPALDO);
+    assert.equal(notaRespaldo({ fuente: "pagina", correo: {} }), NOTA_RESPALDO);
+    assert.equal(notaRespaldo({ fuente: "pagina", correo: { limpiezaParcial: true } }), NOTA_RESPALDO_PARCIAL);
+    assert.equal(notaRespaldo({ fuente: "pagina", correo: { limpiezaParcial: "true" } }), NOTA_RESPALDO, "solo true de verdad");
+    assert.equal(notaRespaldo(null), null);
+    assert.match(NOTA_RESPALDO, /^Leído desde la página de Gmail/);
+    assert.match(NOTA_RESPALDO_PARCIAL, /No se pudo separar del todo el aviso de Gmail/);
   });
 
   test("interpretarLote: un resultado validado por correo, null si ese falló o es raro", () => {

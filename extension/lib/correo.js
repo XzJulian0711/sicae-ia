@@ -215,6 +215,19 @@ export async function prepararAnalisis(pagina, leerDeGmail) {
   return { ...armarPeticionGmail(pagina), fuente: "pagina", correo: pagina };
 }
 
+// Nota gris de la tarjeta cuando Analizar usó el respaldo (paso 7.1). Textos fijos.
+export const NOTA_RESPALDO = "Leído desde la página de Gmail (no se pudo usar la API de Gmail): el resultado puede variar un poco respecto a la Bandeja.";
+export const NOTA_RESPALDO_PARCIAL = "Leído desde la página de Gmail (no se pudo usar la API de Gmail). No se pudo separar del todo el aviso de Gmail del texto del correo: el resultado puede variar más respecto a la Bandeja.";
+
+/**
+ * Lo que devolvió prepararAnalisis() → la nota de la tarjeta, o null si se leyó con la API.
+ * limpiezaParcial lo pone gmail/lector.js cuando tuvo que usar su protección.
+ */
+export function notaRespaldo(armado) {
+  if (armado?.fuente !== "pagina") return null;
+  return armado.correo?.limpiezaParcial === true ? NOTA_RESPALDO_PARCIAL : NOTA_RESPALDO;
+}
+
 /** URL completa de POST /analizar a partir de la URL base ya validada. */
 export function urlAnalizar(base) {
   return `${base.replace(/\/+$/, "")}/analizar`;

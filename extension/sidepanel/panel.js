@@ -25,6 +25,7 @@
 
 import { almacenSesionApi, guardarConsentimiento, leerConfiguracion, leerConsentimiento } from "../lib/almacen.js";
 import {
+  celdasFila,
   compararDiagnosticos,
   csvBandeja,
   interpretarDiagnostico,
@@ -49,6 +50,7 @@ import {
   interpretarAnalisis,
   interpretarLectura,
   interpretarLote,
+  notaRespaldo,
   prepararAnalisis,
   resultadoAnalisisSinConexion,
   resultadoNoGmail,
@@ -316,8 +318,8 @@ function mostrarCorreoAbierto(correo) {
 // Correo que muestra la tarjeta ahora (para "Mover a cuarentena"): {id de Gmail, tamaño}. Memoria.
 let tarjetaActual = { id: null, tamano: 0 };
 
-/** respaldo (paso 7.1): true si el correo se leyó de la página porque no se pudo usar la API de Gmail. */
-function mostrarResultado(resultado, recortado, respaldo = false) {
+/** nota (paso 7.1): texto fijo de notaRespaldo() si el correo se leyó de la página; si no, null. */
+function mostrarResultado(resultado, recortado, nota = null) {
   mostrarCuarentena(resultado);
   const t = armarTarjeta(resultado);
   const e = elementos;
@@ -341,7 +343,8 @@ function mostrarResultado(resultado, recortado, respaldo = false) {
   e.tarjetaMotivos.hidden = t.motivos.length === 0;
 
   e.avisoRecorte.hidden = !recortado;
-  e.notaRespaldo.hidden = !respaldo;
+  e.notaRespaldo.textContent = nota ?? "";
+  e.notaRespaldo.hidden = !nota;
   e.tarjetaNota.textContent = t.nota;
   e.tarjeta.hidden = false;
 }
@@ -380,7 +383,7 @@ async function analizarCorreo() {
     }
     const resultado = await enviarAnalisis(url.url, armado.peticion);
     if (resultado.tipo === "resultado") {
-      mostrarResultado(resultado, armado.recortado, armado.fuente === "pagina");
+      mostrarResultado(resultado, armado.recortado, notaRespaldo(armado));
       cargarCuentaPrueba(); // paso 7.1: el diagnóstico aparece solo con la cuenta de prueba
     } else if (resultado.tipo === "pedir_permisos") {
       mostrarPantalla("permisos"); // sin consentimiento válido no se registra nada solo
@@ -478,7 +481,7 @@ function pintarDiagnostico(comparacion) {
     nombre.scope = "row";
     nombre.textContent = fila.nombre;
     tr.append(nombre);
-    for (const valor of [fila.analizar, fila.bandeja, fila.diferencia]) {
+    for (const valor of celdasFila(fila)) {
       const td = document.createElement("td");
       td.textContent = valor;
       tr.append(td);

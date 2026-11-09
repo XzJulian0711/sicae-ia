@@ -758,6 +758,16 @@ describe("prueba funcional (paso 7.1): diagnóstico y exportar, SOLO la cuenta d
     const funcion = diagnostico.slice(diagnostico.indexOf("export function csvBandeja("), diagnostico.indexOf("export function nombreArchivoCsv("));
     assert.doesNotMatch(funcion, /remitente|destinatarios|cuerpo\b|\.cuerpo/);
   });
+
+  test("la tabla lee las celdas con celdasFila (no fila.<clave>) y tiene una columna por clave", async () => {
+    const pintar = seccion.slice(seccion.indexOf("function pintarDiagnostico("), seccion.indexOf("async function compararPaginaConApi("));
+    assert.match(pintar, /for \(const valor of celdasFila\(fila\)\)/);
+    assert.deepEqual([...new Set(pintar.match(/fila\.\w+/g))], ["fila.nombre"], "solo el nombre se lee directo");
+    const { COLUMNAS_DIAGNOSTICO } = await import("../lib/diagnostico.js");
+    const encabezado = panelHtml.slice(panelHtml.indexOf('<table class="tabla-diagnostico">'), panelHtml.indexOf("</thead>"));
+    const columnas = encabezado.match(/<th scope="col">/g) ?? [];
+    assert.equal(columnas.length - 1, COLUMNAS_DIAGNOSTICO.length, "las columnas de panel.html, sin «Dato»");
+  });
 });
 
 describe("Analizar lee con la API de Gmail, como la Bandeja (paso 7.1)", () => {
@@ -782,13 +792,27 @@ describe("Analizar lee con la API de Gmail, como la Bandeja (paso 7.1)", () => {
     const analizar = funcion("analizarCorreo");
     assert.match(analizar, /await prepararAnalisis\(lectura\.correo,/);
     assert.match(analizar, /leerMensajes\(clienteGmail\(/);
-    assert.match(analizar, /mostrarResultado\(resultado, armado\.recortado, armado\.fuente === "pagina"\)/);
+    assert.match(analizar, /mostrarResultado\(resultado, armado\.recortado, notaRespaldo\(armado\)\)/);
     // Nunca abre la ventana de Google (eso solo lo hace «Dar permiso»).
     assert.doesNotMatch(analizar, /iniciarSesion|pedirPermisoGmail|interactive/);
   });
 
-  test("la nota del respaldo viene oculta y es un texto fijo", () => {
-    assert.match(panelHtml, /<p class="nota-respaldo" id="nota-respaldo" hidden>Leído desde la página de Gmail/);
-    assert.deepEqual(panel.match(/notaRespaldo\.[a-zA-Z]+ = [^;]+;/g), ["notaRespaldo.hidden = !respaldo;"]);
+  test("la nota del respaldo viene oculta y vacía; solo la llena notaRespaldo() (textos fijos)", () => {
+    assert.match(panelHtml, /<p class="nota-respaldo" id="nota-respaldo" hidden><\/p>/);
+    assert.deepEqual(panel.match(/notaRespaldo\.[a-zA-Z]+ = [^;]+;/g),
+                     ["notaRespaldo.textContent = nota ?? \"\";", "notaRespaldo.hidden = !nota;"]);
+    // Las únicas llamadas a mostrarResultado con nota pasan notaRespaldo(…); las demás, ninguna.
+    const llamadas = panel.match(/(?<!function )mostrarResultado\([^)]*\)+/g) ?? [];
+    assert.ok(llamadas.length >= 2, "Analizar y «Ver motivos» de la Bandeja");
+    for (const llamada of llamadas) {
+      const argumentos = llamada.split(",").length;
+      if (argumentos >= 3) assert.match(llamada, /notaRespaldo\(armado\)/, llamada);
+    }
+  });
+
+  test("el lector (content script) arma el cuerpo sin copiar ni cambiar la página", () => {
+    const lector = sinComentarios(readFileSync(join(RAIZ, "gmail", "lector.js"), "utf8"), ".js");
+    assert.doesNotMatch(lector, /cloneNode|appendChild|removeChild|replaceChild|insertBefore|\.remove\s*\(/);
+    assert.match(lector, /function textoSin\(raiz, excluidos\)/);
   });
 });

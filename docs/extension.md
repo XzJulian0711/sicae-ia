@@ -609,12 +609,30 @@ correo, como el aviso "[Mensaje recortado] Ver todo el mensaje" y su enlace. Por
    **exactamente** lo mismo.
 2. **La página es solo el respaldo**, si no hay id, si falta el permiso de Gmail, si no hay red o
    si Gmail falla. El token se pide **sin ventana** (`interactive: false`): Analizar nunca abre
-   la de Google. En el respaldo, `gmail/lector.js` no lee ni cuenta lo que agrega Gmail:
-   - el aviso "[Mensaje recortado] Ver todo el mensaje" y su enlace (`view=lg`);
+   la de Google. En el respaldo, `gmail/lector.js` no lee ni cuenta lo que agrega Gmail, y
+   quita **solo esos nodos exactos, nunca sus contenedores**:
+   - el enlace "Ver todo el mensaje" (`view=lg`);
+   - el texto del aviso justo antes del enlace, si es algo corto entre corchetes
+     ("[Mensaje recortado]");
    - el botón "•••" del texto citado (`div.ajR`) y su imagen.
 
-   Lo hace con textos, **sin tocar la página**. La tarjeta muestra una nota pequeña: "Leído desde
-   la página de Gmail (no se pudo usar la API de Gmail)…".
+   Para eso **recorre el cuerpo solo leyendo** (`textoSin()`): no copia ni cambia la página,
+   salta esos nodos y lo que Gmail tiene oculto, y pone los saltos de línea como `innerText`. Si
+   Gmail no agregó nada, el cuerpo es el `innerText` de siempre.
+
+   **Por qué solo los nodos exactos.** Antes se restaba el texto del contenedor del aviso. Gmail
+   puede poner el aviso en el **mismo contenedor que el texto del correo**, y con un correo corto
+   eso borraba el cuerpo entero: el diagnóstico daba 0 caracteres en la página contra 731 con la
+   API. Una prueba con HTML inventado reproduce ese caso.
+
+   **Protección.** Si después de limpiar el cuerpo queda vacío y antes no lo estaba, se usa el
+   `innerText` de siempre quitando solo el texto exacto del aviso ("[Mensaje recortado]", "Ver
+   todo el mensaje"), y el correo se marca con `limpiezaParcial`.
+
+   La tarjeta muestra una nota gris con un texto fijo (`notaRespaldo()` en `lib/correo.js`):
+   - "Leído desde la página de Gmail (no se pudo usar la API de Gmail)…";
+   - con la protección, agrega: "No se pudo separar del todo el aviso de Gmail del texto del
+     correo…".
 3. **Adjuntos reales.** Ver "Qué se lee y qué no".
 
 ## Analizar un correo de Gmail
@@ -1208,8 +1226,11 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
   Bandeja (la tarjeta lo avisa):
   - el cuerpo es solo lo que se ve: el texto citado oculto detrás de "•••" no entra, y si Gmail
     recortó el correo, solo el inicio;
-  - el aviso de recorte y el "•••" se quitan por su enlace (`view=lg`) y su clase (`div.ajR`).
-    Si Gmail los cambia, se vuelven a contar: hay que revisarlo con **Inspeccionar**.
+  - el aviso de recorte y el "•••" se quitan por su enlace (`view=lg`), el texto entre
+    corchetes de al lado y su clase (`div.ajR`). Si Gmail los cambia, se vuelven a contar: hay
+    que revisarlo con **Inspeccionar**;
+  - el recorrido que arma el texto se parece a `innerText`, pero no es idéntico: decide los
+    saltos de línea por la etiqueta (`div`, `p`, `br`…), no por el CSS de Gmail.
 - **Analizar usa el límite de tamaño del lote** (unos 40 KB por correo, paso 7.1), para enviar
   lo mismo que la Bandeja. Un cuerpo más largo se recorta, y la tarjeta lo avisa.
 - **En el respaldo no se ven las cabeceras** (`List-Unsubscribe`, `List-Id`,

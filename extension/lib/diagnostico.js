@@ -83,6 +83,19 @@ export const PARTES = {
   aporte_long_cuerpo: "del largo del cuerpo",
 };
 
+// Columnas de la tabla, en el orden de panel.html (después de "Dato"). Las claves de cada fila
+// se nombran SOLO aquí: panel.js usa celdasFila() y no lee fila.<clave>.
+export const COLUMNAS_DIAGNOSTICO = Object.freeze(["pagina", "api", "diferencia"]);
+
+/**
+ * Textos de una fila para las celdas de la tabla, en el orden de COLUMNAS_DIAGNOSTICO.
+ * Si falta alguno (no es texto), pone "?" para que el error se note en vez de dejar la celda
+ * vacía. Un "" a propósito (la diferencia de "Cuerpo recortado") se respeta.
+ */
+export function celdasFila(fila) {
+  return COLUMNAS_DIAGNOSTICO.map((columna) => (typeof fila?.[columna] === "string" ? fila[columna] : "?"));
+}
+
 /**
  * Compara el diagnóstico del respaldo (página de Gmail) y de la API de Gmail (Analizar y Bandeja).
  * recortes = {pagina: ¿Gmail mostró "Mensaje recortado"?, api: ¿se recortó al límite del lote?}.

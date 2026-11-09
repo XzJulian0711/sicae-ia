@@ -201,8 +201,9 @@
           <ol class="chips" id="lista-motivos" aria-labelledby="titulo-motivos"></ol>
         </div>
         <p class="aviso" id="aviso-recorte" hidden>El correo es muy largo: se analizó solo el inicio.</p>
-        <!-- Paso 7.1: solo si no se pudo usar la API de Gmail y se leyó la página (el respaldo). -->
-        <p class="nota-respaldo" id="nota-respaldo" hidden>Leído desde la página de Gmail (no se pudo usar la API de Gmail): el resultado puede variar un poco respecto a la Bandeja.</p>
+        <!-- Paso 7.1: solo si no se pudo usar la API de Gmail y se leyó la página (el respaldo). El
+             texto lo pone panel.js con notaRespaldo() (lib/correo.js): siempre un texto fijo. -->
+        <p class="nota-respaldo" id="nota-respaldo" hidden></p>
         <!-- Paso 4.5: cuarentena de phishing (etiqueta SICAE/Cuarentena + quitar de Recibidos).
              Nunca va a la papelera. Solo se muestra en la tarjeta de phishing. -->
         <div class="cuarentena" id="cuarentena" hidden>

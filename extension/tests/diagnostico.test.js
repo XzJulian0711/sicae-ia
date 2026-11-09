@@ -7,6 +7,8 @@ import { describe, test } from "node:test";
 
 import {
   COLUMNAS_CSV,
+  COLUMNAS_DIAGNOSTICO,
+  celdasFila,
   DECIMALES,
   ENTEROS,
   MENSAJE_SOLO_PRUEBA,
@@ -108,6 +110,41 @@ describe("compararDiagnosticos", () => {
         assert.match(valor, /^(|sí|no|[+−]?\d+(,\d+)?)$/, `${fila.nombre}: ${valor}`);
       }
     }
+  });
+
+  test("celdasFila: las columnas Página y API nunca salen vacías (error de nombres del 7.1)", () => {
+    assert.deepEqual([...COLUMNAS_DIAGNOSTICO], ["pagina", "api", "diferencia"]);
+    assert.ok(Object.isFrozen(COLUMNAS_DIAGNOSTICO));
+    const { filas } = compararDiagnosticos(diagnostico(), diagnostico({ n_urls: 4 }), { pagina: true, api: false });
+    for (const fila of filas) {
+      const celdas = celdasFila(fila);
+      assert.equal(celdas.length, 3, fila.nombre);
+      assert.ok(celdas.every((c) => typeof c === "string" && c !== "?"), `${fila.nombre}: ${celdas}`);
+      assert.notEqual(celdas[0], "", `${fila.nombre}: Página vacía`);
+      assert.notEqual(celdas[1], "", `${fila.nombre}: API vacía`);
+    }
+    // Solo la diferencia de "Cuerpo recortado" va vacía, a propósito.
+    const vacias = filas.filter((f) => celdasFila(f)[2] === "").map((f) => f.nombre);
+    assert.deepEqual(vacias, ["Cuerpo recortado"]);
+    assert.deepEqual(celdasFila(filas[0]), ["3", "4", "+1"], "Enlaces (n_urls)");
+  });
+
+  test("celdasFila: con todo en 0 se ve «0» y «0,00», no vacío", () => {
+    const ceros = {
+      puntaje: 0, base: 0, aporte_texto: 0, aporte_n_urls: 0, aporte_n_adjuntos: 0, aporte_long_cuerpo: 0,
+      n_urls: 0, n_adjuntos: 0, long_cuerpo: 0, largo_texto_limpio: 0, terminos: 0,
+    };
+    const { filas } = compararDiagnosticos(ceros, ceros, { pagina: false, api: false });
+    const fila = (nombre) => celdasFila(filas.find((f) => f.nombre.startsWith(nombre)));
+    assert.deepEqual(fila("Enlaces"), ["0", "0", "0"]);
+    assert.deepEqual(fila("Puntaje"), ["0,00", "0,00", "0,00"]);
+    assert.deepEqual(fila("Cuerpo recortado"), ["no", "no", ""]);
+  });
+
+  test("celdasFila: si a la fila le falta una clave, pone «?» en vez de dejarla vacía", () => {
+    assert.deepEqual(celdasFila({ nombre: "x", analizar: "1", bandeja: "2", diferencia: "+1" }), ["?", "?", "+1"]);
+    assert.deepEqual(celdasFila({ nombre: "x", pagina: 0, api: null, diferencia: "" }), ["?", "?", ""]);
+    assert.deepEqual(celdasFila(null), ["?", "?", "?"]);
   });
 
   test("formatoNumero: coma decimal, signo y sin «−0,00»", () => {
