@@ -1009,3 +1009,183 @@ acuerdo débil, de 0,41 a 0,60 moderado, de 0,61 a 0,80 bueno, y más de 0,80 mu
   "minimal"`), y los modelos locales corren sin razonamiento (`think: false`).
 - **Dos evaluadores del mismo equipo:** pueden reconocer el estilo de un modelo aunque no vean su
   nombre.
+
+## Prueba funcional (paso 7.1)
+
+**Objetivo:** comprobar que el prototipo completo funciona con correos de verdad en Gmail, desde
+la lectura del correo hasta lo que muestra el panel:
+- si la extensión lee bien el asunto, el remitente y el cuerpo;
+- qué categoría, confianza y prioridad da;
+- si los motivos se entienden.
+
+### Procedimiento
+
+1. Cada integrante escribe sus correos de prueba y dice qué categoría **espera**: `phishing`,
+   `legitimo` o `publicidad`. También entran boletines recibidos en la cuenta de prueba.
+2. Se abre cada correo en Gmail y se analiza en la pestaña **Analizar**.
+3. Se anota a mano, en `evaluacion/funcional/resultados.csv`, lo que muestra el panel: una fila
+   por correo.
+4. Se resume: `python herramientas/resumir_funcional.py`. Escribe
+   `evaluacion/funcional/reportes/resumen.json` y `tabla.md`.
+   - Si todavía no hay filas llenas, lo avisa y no escribe nada.
+   - Si un dato no es válido, dice en qué fila está y no escribe nada.
+
+### Columnas de `resultados.csv`
+
+Separado por comas, `utf-8-sig`. No importan las mayúsculas.
+
+| Columna | Valores |
+|---|---|
+| `id` | Un código único por correo (por ejemplo `f01`) |
+| `autor` | `Integrante 1`, `Integrante 2`, `Integrante 3` o `Boletín`. **Nunca el nombre de la persona** |
+| `asunto` | El asunto del correo. **No va al reporte** |
+| `esperado` | `phishing`, `legitimo` o `publicidad`. Lo dice el autor **antes** de analizar |
+| `obtenido` | La categoría que muestra el panel ("masivo / boletín" se anota como `publicidad`) |
+| `confianza` | `alta` o `dudosa` |
+| `prioridad` | `alta`, `media` o `baja`. **Vacía si salió phishing**: el panel no le da prioridad |
+| `asunto_ok`, `remitente_ok`, `cuerpo_ok` | `si`, `no` o `parcial`: si la extensión leyó bien ese campo |
+| `motivos_claros_1a5` | Opcional. De 1 (no se entienden) a 5 (muy claros) |
+| `observacion` | Texto libre. **No va al reporte** |
+
+Una fila solo con `id`, `autor` y `asunto` cuenta como **todavía sin analizar**, y el script la
+salta.
+
+### Métricas
+
+| Métrica | Cómo se calcula |
+|---|---|
+| Matriz de confusión 3×3 | Filas = esperado, columnas = obtenido, en el orden legítimo, publicidad, phishing (`sklearn.metrics.confusion_matrix`) |
+| Exactitud | Casos con obtenido = esperado, sobre el total |
+| Phishing vs. no phishing | **Phishing es la clase positiva**; legítimo y publicidad cuentan como "no phishing". Se informan VP, FP, FN y VN, y con ellos la precisión VP/(VP+FP), el recall VP/(VP+FN) y el F1 2·VP/(2·VP+FP+FN). Si un cálculo divide por 0, queda vacío |
+| Lectura correcta | Para asunto, remitente y cuerpo: % de `si`, y cuántos `parcial` y `no` |
+| Confianza | % de casos "dudosa" y cuántos de ellos fueron **errores** (obtenido ≠ esperado). Para comparar, también los errores entre los de confianza alta |
+| Boletines | De los casos con autor Boletín, cuántos salieron como publicidad |
+| Por autor | Casos y aciertos de cada Integrante N y de Boletín |
+| Motivos claros | Media ± desviación estándar muestral, solo de las filas que lo tienen |
+
+El reporte empieza con esta **advertencia**: "Muestra pequeña (N correos), escritos por el equipo.
+No es una estimación del desempeño del modelo."
+
+### Qué se sube a Git
+
+- **Se sube:**
+  - `resultados.csv`, vacío o llenado, **sin nombres ni direcciones de correo**. Una prueba lo
+    revisa:
+    - que no tenga "@" ni las líneas que agrega Gmail;
+    - que en `autor` solo haya los 4 valores permitidos;
+    - que no aparezca ninguna palabra de los nombres de la sección *Integrantes* del README.
+      La prueba lee esos nombres del README cuando corre, así que no quedan escritos en ella;
+  - `reportes/`: el JSON y la tabla, **solo números**: ni asuntos, ni observaciones, ni el id de
+    cada caso.
+- **No se pega** ninguna línea que agrega Gmail (remitente, fecha, "para mí").
+
+### Hallazgo: el mismo correo da resultados distintos en Analizar y en Bandeja
+
+**Qué se vio.** Un correo de prueba ("Recordatorio de entrega del proyecto", en el que Gmail
+muestra "Mensaje recortado") dio **legítimo dudoso** en Analizar y **posible phishing** en la
+Bandeja.
+
+**Por qué pasaba.** El modelo y las reglas son los mismos, pero cada camino leía el correo de
+una forma distinta, así que a la API **no le llegaban los mismos datos**. Así era antes de la
+corrección:
+
+| Qué se envía | Analizar (leía la página de Gmail) | Bandeja (lee la API de Gmail) |
+|---|---|---|
+| Cuerpo | El texto que Gmail **muestra**. Con "Mensaje recortado", Gmail solo cargó el inicio del HTML (unos 102 KB). El texto citado que está oculto no entra, y sí entra el aviso "[Mensaje recortado] Ver todo el mensaje" | La primera parte `text/plain`, **completa**: la versión de texto que arma quien envía, con las URL entre `<>`, `[image: …]` y el texto citado. Solo si no la hay, se usa el HTML convertido |
+| Enlaces (`n_urls`) | `href` y `src` de la parte visible, con las URL de imágenes que reescribe Gmail y el enlace "Ver todo el mensaje" | Todos los `<a>` e `<img>` del HTML completo |
+| Adjuntos (`n_adjuntos`) | Las tarjetas de adjunto que se ven | Toda parte con nombre de archivo, **incluidas las imágenes en línea** (por ejemplo, logos de firmas) |
+| Recorte | 50.000 caracteres / 200 KB | Unos **40 KB por correo**, porque se envían 50 en un lote |
+| Cabeceras | Ninguna (la página no las muestra) | `List-*` e `In-Reply-To`. Cambian la publicidad y la prioridad, **no el puntaje** |
+
+**Qué dice el modelo.** Los tres números restan puntaje: los pesos son `n_urls` −0,252,
+`n_adjuntos` −1,808 y `long_cuerpo` −1,354 (`ml/reports/palabras_clave.md`). Más enlaces, más
+adjuntos o un cuerpo más largo empujan hacia **legítimo**. Si la Bandeja manda un cuerpo más
+largo, con más enlaces y adjuntos, y aun así da phishing, la diferencia viene del **texto**.
+
+**Cómo se midió.** Con el diagnóstico de la pestaña Analizar (solo la cuenta de prueba; ver
+docs/extension.md). Entonces se llamaba "Comparar con la Bandeja"; ahora es "Comparar página y
+API":
+- `POST /diagnostico` separa el puntaje en sus partes:
+  base + aporte del texto + aporte de los enlaces + aporte de los adjuntos + aporte del largo;
+- como el modelo es lineal, esa separación es **exacta** (`contribuciones()` de
+  `ml/sicae_ml/explicar.py`);
+- la tabla compara las partes de los dos caminos y dice cuál explica la mayor diferencia;
+- todo son números: nunca palabras del correo.
+
+**Causa confirmada (con números).** En el correo del ejemplo, lo que leía Analizar traía el
+aviso de Gmail "[Mensaje recortado] Ver todo el mensaje" y su enlace. Contra lo que lee la API de
+Gmail, eso sumaba:
+
+| Dato | Analizar (página) − API de Gmail |
+|---|---|
+| Enlaces (`n_urls`) | +1 (el enlace "Ver todo el mensaje") |
+| Largo del cuerpo | +34 caracteres (el texto del aviso) |
+| Términos del modelo en el texto | +7 |
+| Puntaje | −0,02 en la página contra 0,25 con la API: cruza el 0 y cambia de categoría |
+
+El aviso no es del correo: lo agrega Gmail. Con un puntaje tan cerca de 0, unas pocas palabras
+de más bastan para cambiar la categoría. Por eso el resultado de la página era "legítimo dudoso".
+
+**Corrección (paso 7.1).** No cambia el modelo ni las reglas, solo cómo se lee el correo:
+1. **Analizar lee con la API de Gmail**, con el mismo lector y el mismo armado que la Bandeja
+   (`armarPeticionGmail`, con el mismo límite de unos 40 KB por correo). El id del mensaje sale
+   de la página, como en Redactar. Una prueba comprueba que, para el mismo correo simulado,
+   Analizar y la Bandeja envían **exactamente** la misma petición a la API.
+2. **La página es solo el respaldo** (sin id, sin permiso de Gmail o sin red). En ese caso se
+   quitan el aviso de recorte, su enlace y el botón "•••" del texto citado, y la tarjeta muestra
+   una nota.
+3. **Adjuntos reales.** La Bandeja contaba como adjunto toda parte con nombre de archivo,
+   **incluidas las imágenes de la firma** (logos en línea). Como `n_adjuntos` empuja hacia
+   legítimo (peso −1,808), eso podía esconder un phishing con logos. Ahora cuenta solo los
+   adjuntos de verdad: `Content-Disposition: attachment`, o sin esa cabecera y sin
+   `Content-ID`. Así cuenta SpaPhish (`attachments_count`, "files attached") y así se ven las
+   tarjetas de adjunto en Gmail.
+
+**Ojo con las bandejas medidas antes de la corrección:** un correo con imágenes en la firma
+puede dar ahora un puntaje un poco más alto, porque ya no suma esos "adjuntos". Hay que volver a
+pasar la Bandeja antes de llenar `resultados.csv`.
+
+### Herramientas de prueba: solo en desarrollo
+
+"Comparar página y API" y "Exportar CSV" son herramientas de la prueba funcional, no del
+producto. Por eso aparecen **solo si se cumplen las dos condiciones**:
+1. la API corre con `SICAE_MODO=desarrollo`;
+2. la sesión es la cuenta de prueba (`SICAE_DEMO_CUENTA`, la misma regla del modo
+   demostración).
+
+**En producción** (`SICAE_MODO=produccion`, el valor por defecto) la API **no registra** las
+rutas `/diagnostico` y `/diagnostico/disponible`. Responden 404, aunque la sesión sea la
+cuenta de prueba, y el panel no muestra los botones. Las pruebas de `api/tests/test_diagnostico.py`
+revisan los dos modos.
+
+**Para usarlas en la prueba funcional:** en el `.env` de la API, `SICAE_MODO=desarrollo` y
+`SICAE_DEMO_CUENTA=<google_sub de la cuenta de prueba>`. Después, reiniciar la API.
+
+**Por qué no se borró el código.** Con el diagnóstico se encontró y se midió el hallazgo de esta
+sección (la página de Gmail metía el aviso de recorte; ver la tabla con los números). Se
+conserva como **evidencia** del hallazgo y para poder repetir la medición. Apagado en
+producción, no cambia nada para un usuario.
+
+### Exportar la Bandeja
+
+Para no copiar a mano, la Bandeja tiene **"Exportar CSV (cuenta de prueba)"**:
+- descarga local de la última Bandeja, con `asunto`, `categoria`, `confianza`, `prioridad` y
+  `cuerpo_completo` ("no" si el cuerpo se recortó antes de enviarlo a la API);
+- sin remitentes ni cuerpos;
+- de ahí se copian a `resultados.csv` las columnas `asunto`, `obtenido` (la `categoria`),
+  `confianza` y `prioridad`. `autor`, `esperado`, la lectura y los motivos se siguen llenando a
+  mano.
+
+**Ojo:** el CSV exportado tiene los asuntos de la cuenta de prueba. No se sube a Git tal cual:
+solo lo que se pase a `resultados.csv`, que la prueba revisa (sin nombres ni direcciones).
+
+### Limitaciones
+
+- **Pocos casos:** un solo correo mueve mucho los porcentajes.
+- **Correos escritos por el equipo**, que conoce cómo funciona el sistema. No representan el
+  correo real de un usuario.
+- **El autor decide "esperado"** y la misma persona anota los resultados: no hay un segundo
+  evaluador ni acuerdo entre evaluadores.
+- **Por todo esto, no es una estimación del desempeño del modelo.** Esa estimación es la del
+  conjunto de prueba de SpaPhish (paso 1.5b). Esta prueba sirve para encontrar fallas del
+  prototipo: errores de lectura, motivos confusos, boletines mal clasificados.

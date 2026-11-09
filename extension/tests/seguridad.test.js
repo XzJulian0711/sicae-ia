@@ -258,7 +258,28 @@ describe("panel (paso 3.4)", () => {
   });
 
   test("los botones de solo ícono tienen nombre accesible", () => {
-    assert.match(panel, /id="ir-opciones"[^>]*aria-label="Ajustes"/);
+    assert.match(panel, /id="cambiar-tema"[^>]*aria-label="Cambiar a tema oscuro"[^>]*title="Cambiar a tema oscuro"/);
+  });
+
+  test("el botón del sol/luna alterna el tema y ya NO abre Opciones", () => {
+    assert.doesNotMatch(panel, /id="ir-opciones"/);
+    const codigo = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    const iniciarTema = codigo.slice(codigo.indexOf("function iniciarTema("), codigo.indexOf("\nfunction ", codigo.indexOf("function iniciarTema(") + 1));
+    assert.match(iniciarTema, /elementos\.cambiarTema\.addEventListener\("click", \(\) => tema\.alternar\(\)\)/);
+    assert.doesNotMatch(iniciarTema, /abrirOpciones|openOptionsPage/);
+    // Los íconos se eligen por CSS (luna en claro, sol en oscuro), sin tocar el SVG desde JS.
+    assert.match(panel, /<svg class="icono-sol"[^>]*aria-hidden="true"/);
+    assert.match(panel, /<svg class="icono-luna"[^>]*aria-hidden="true"/);
+  });
+
+  test("Opciones sigue accesible: en el menú de la cuenta y en la bienvenida", () => {
+    assert.match(panel, /role="menuitem" id="menu-opciones">Opciones<\/button>\s*<button type="button" role="menuitem" id="menu-cerrar-sesion">/);
+    const bienvenida = panel.slice(panel.indexOf('id="pantalla-bienvenida"'), panel.indexOf('id="pantalla-permisos"'));
+    assert.match(bienvenida, /<button type="button" class="enlace enlace-pequeno" id="bienvenida-opciones">Opciones<\/button>/);
+    const codigo = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+    assert.match(codigo, /acceso\.bienvenidaOpciones\.addEventListener\("click", abrirOpciones\)/);
+    assert.match(codigo, /acceso\.menuOpciones\.addEventListener\("click", \(\) => \{\s*cerrarMenuCuenta\(\{ devolverFoco: false \}\);\s*abrirOpciones\(\);/);
+    assert.equal((codigo.match(/chrome\.runtime\.openOptionsPage\(\)/g) || []).length, 1, "solo desde abrirOpciones()");
   });
 
   test("Bandeja (4.4) y Redactar (6.3) ya funcionan; Analizar es la actual al cargar", () => {
@@ -399,24 +420,27 @@ describe("lectura de Gmail (content script)", () => {
     }
   });
 
-  test("solo almacen.js usa chrome.storage: en local solo urlApi y consentimiento (ya no hay clave)", () => {
+  test("solo almacen.js usa chrome.storage: en local solo urlApi, consentimiento y tema (ya no hay clave)", () => {
     for (const { nombre, codigo } of leer(".js")) {
       if (nombre.replaceAll("\\", "/") !== "lib/almacen.js") {
         assert.doesNotMatch(codigo, /\bchrome\.storage\b/, `${nombre} usa chrome.storage`);
       }
     }
     const almacen = codigoDe("lib/almacen.js");
-    assert.match(almacen, /const CLAVES = \{ url: "urlApi", consentimiento: "consentimiento" \};/);
+    assert.match(almacen, /const CLAVES = \{ url: "urlApi", consentimiento: "consentimiento", tema: "tema" \};/);
+    // El tema es solo una preferencia: se guarda solo "claro" u "oscuro" (esTema lo revisa antes).
+    assert.match(almacen, /export async function guardarTema\(tema\) \{\s*if \(!esTema\(tema\)\) return;\s*await chrome\.storage\.local\.set\(\{ \[CLAVES\.tema\]: tema \}\);/);
     assert.doesNotMatch(almacen, /claveApi/);
     const guardados = [...almacen.matchAll(/chrome\.storage\.local\.set\(\{\s*\[CLAVES\.(\w+)\]: (.+?) \}\);/g)];
     assert.equal(guardados.length, (almacen.match(/chrome\.storage\.local\.set\(/g) || []).length,
                  "cada set guarda una sola clave de CLAVES");
     for (const [, clave, valor] of guardados) {
-      assert.ok(["url", "consentimiento"].includes(clave), clave);
+      assert.ok(["url", "consentimiento", "tema"].includes(clave), clave);
       if (clave === "consentimiento") {
         // Del consentimiento solo se guardan estos 3 campos.
         assert.equal(valor.trim(), "{ aceptado, version, fecha }");
       }
+      if (clave === "tema") assert.equal(valor.trim(), "tema");
     }
   });
 
@@ -707,5 +731,112 @@ describe("Redactar (paso 6.3): demo oculto sin permiso, aviso con Cancelar, nada
     const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
     assert.ok(!manifest.permissions.includes("clipboardWrite") && !manifest.permissions.includes("clipboardRead"));
     assert.match(cuerpoDe(panel, "copiarBorrador"), /navigator\.clipboard\.writeText\(red\.borrador\.value\)/);
+  });
+});
+
+describe("prueba funcional (paso 7.1): diagnóstico y exportar, SOLO la cuenta de prueba", () => {
+  const panelHtml = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+  const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+  const diagnostico = sinComentarios(readFileSync(join(RAIZ, "lib", "diagnostico.js"), "utf8"), ".js");
+  const seccion = panel.slice(panel.indexOf("const d = {"), panel.indexOf("function iniciarHerramientasPrueba("));
+
+  test("el diagnóstico y «Exportar CSV» vienen ocultos en el HTML", () => {
+    assert.match(panelHtml, /<section class="caja diagnostico" id="diagnostico"[^>]*hidden>/);
+    assert.match(panelHtml, /<div class="exportar" id="exportar" hidden>/);
+    assert.match(panelHtml, /<div class="tabla-desplazable" id="diagnostico-resultado" hidden>/);
+  });
+
+  test("solo los muestra cuentaPrueba, que solo pone true GET /diagnostico/disponible", () => {
+    const muestras = panel.match(/d\.(caja|exportar)\.hidden = [^;]+;/g) ?? [];
+    assert.deepEqual(muestras, ["d.caja.hidden = !cuentaPrueba;", "d.exportar.hidden = !(cuentaPrueba && itemsBandeja.length > 0);"]);
+    const asignaciones = panel.match(/cuentaPrueba = [^;]+;/g) ?? [];
+    assert.deepEqual(asignaciones, [
+      "cuentaPrueba = false;", // valor inicial
+      "cuentaPrueba = intento.ok && interpretarDisponible(intento.respuesta.status, cuerpo);",
+      "cuentaPrueba = false;", // si falla
+      "cuentaPrueba = false;", // al cerrar sesión
+    ]);
+    assert.match(panel, /function ocultarCuenta\(\) \{\s*correoSesion = null;\s*olvidarCuentaPrueba\(\);/);
+    assert.match(panel, /function exportarBandeja\(\) \{\s*if \(!cuentaPrueba \|\| itemsBandeja\.length === 0\) return;/);
+  });
+
+  test("nada se guarda ni va a la consola; todo se muestra con textContent", () => {
+    assert.ok(seccion.length > 1000);
+    for (const codigo of [seccion, diagnostico]) {
+      assert.doesNotMatch(codigo, /chrome\.storage|localStorage|sessionStorage|indexedDB|console\./);
+      assert.doesNotMatch(codigo, /innerHTML|outerHTML|insertAdjacentHTML/);
+    }
+    assert.match(seccion, /td\.textContent = valor;/);
+  });
+
+  test("el CSV es una descarga local: no pasa por la API ni pide el permiso downloads", () => {
+    const exportar = seccion.slice(seccion.indexOf("function exportarBandeja("));
+    assert.match(exportar, /URL\.createObjectURL\(new Blob\(\[csvBandeja\(itemsBandeja\)\]/);
+    assert.match(exportar, /URL\.revokeObjectURL\(archivo\)/);
+    assert.doesNotMatch(exportar, /pedir\(|fetch\(/);
+    const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
+    assert.ok(!manifest.permissions.includes("downloads"));
+  });
+
+  test("el CSV nunca lleva remitente, destinatarios ni cuerpo", () => {
+    const funcion = diagnostico.slice(diagnostico.indexOf("export function csvBandeja("), diagnostico.indexOf("export function nombreArchivoCsv("));
+    assert.doesNotMatch(funcion, /remitente|destinatarios|cuerpo\b|\.cuerpo/);
+  });
+
+  test("la tabla lee las celdas con celdasFila (no fila.<clave>) y tiene una columna por clave", async () => {
+    const pintar = seccion.slice(seccion.indexOf("function pintarDiagnostico("), seccion.indexOf("async function compararPaginaConApi("));
+    assert.match(pintar, /for \(const valor of celdasFila\(fila\)\)/);
+    assert.deepEqual([...new Set(pintar.match(/fila\.\w+/g))], ["fila.nombre"], "solo el nombre se lee directo");
+    const { COLUMNAS_DIAGNOSTICO } = await import("../lib/diagnostico.js");
+    const encabezado = panelHtml.slice(panelHtml.indexOf('<table class="tabla-diagnostico">'), panelHtml.indexOf("</thead>"));
+    const columnas = encabezado.match(/<th scope="col">/g) ?? [];
+    assert.equal(columnas.length - 1, COLUMNAS_DIAGNOSTICO.length, "las columnas de panel.html, sin «Dato»");
+  });
+});
+
+describe("Analizar lee con la API de Gmail, como la Bandeja (paso 7.1)", () => {
+  const panelHtml = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+  const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+  /** El código de una función de panel.js, hasta la siguiente función de primer nivel. */
+  const funcion = (nombre) => {
+    const inicio = panel.indexOf(`function ${nombre}(`);
+    assert.ok(inicio >= 0, `falta ${nombre}`);
+    const fin = panel.indexOf("\nfunction ", inicio + 1);
+    return panel.slice(inicio, fin === -1 ? undefined : fin);
+  };
+
+  test("una sola forma de armar la petición: armarPeticionGmail (nada de armarPeticion suelto)", () => {
+    assert.doesNotMatch(panel, /\barmarPeticion\(/);
+    assert.doesNotMatch(panel, /MAX_BYTES_POR_CORREO_LOTE/);
+    assert.match(funcion("actualizarBandeja"), /armarPeticionGmail\(m\.correo\)/);
+    assert.match(panel, /lote\.map\(\(item\) => armarPeticionGmail\(item\.correo\)\)/, "Liberar espacio");
+  });
+
+  test("Analizar usa prepararAnalisis con leerMensajes (el lector de la Bandeja)", () => {
+    const analizar = funcion("analizarCorreo");
+    assert.match(analizar, /await prepararAnalisis\(lectura\.correo,/);
+    assert.match(analizar, /leerMensajes\(clienteGmail\(/);
+    assert.match(analizar, /mostrarResultado\(resultado, armado\.recortado, notaRespaldo\(armado\)\)/);
+    // Nunca abre la ventana de Google (eso solo lo hace «Dar permiso»).
+    assert.doesNotMatch(analizar, /iniciarSesion|pedirPermisoGmail|interactive/);
+  });
+
+  test("la nota del respaldo viene oculta y vacía; solo la llena notaRespaldo() (textos fijos)", () => {
+    assert.match(panelHtml, /<p class="nota-respaldo" id="nota-respaldo" hidden><\/p>/);
+    assert.deepEqual(panel.match(/notaRespaldo\.[a-zA-Z]+ = [^;]+;/g),
+                     ["notaRespaldo.textContent = nota ?? \"\";", "notaRespaldo.hidden = !nota;"]);
+    // Las únicas llamadas a mostrarResultado con nota pasan notaRespaldo(…); las demás, ninguna.
+    const llamadas = panel.match(/(?<!function )mostrarResultado\([^)]*\)+/g) ?? [];
+    assert.ok(llamadas.length >= 2, "Analizar y «Ver motivos» de la Bandeja");
+    for (const llamada of llamadas) {
+      const argumentos = llamada.split(",").length;
+      if (argumentos >= 3) assert.match(llamada, /notaRespaldo\(armado\)/, llamada);
+    }
+  });
+
+  test("el lector (content script) arma el cuerpo sin copiar ni cambiar la página", () => {
+    const lector = sinComentarios(readFileSync(join(RAIZ, "gmail", "lector.js"), "utf8"), ".js");
+    assert.doesNotMatch(lector, /cloneNode|appendChild|removeChild|replaceChild|insertBefore|\.remove\s*\(/);
+    assert.match(lector, /function textoSin\(raiz, excluidos\)/);
   });
 });

@@ -2,7 +2,7 @@
 // categoría × confianza. Correr desde la raíz:  node --test "extension/tests/*.test.js"
 
 import assert from "node:assert/strict";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 
@@ -61,7 +61,7 @@ describe("armarTarjeta: cada combinación de categoría × confianza", () => {
     test(`${caso.categoria} + ${caso.confianza}`, () => {
       const t = armarTarjeta({ categoria: caso.categoria, confianza: caso.confianza, prioridad: caso.prioridad, motivos: [] });
       assert.equal(t.variante, caso.variante);
-      assert.equal(t.icono, `../iconos/${caso.icono}`);
+      assert.equal(`${t.icono}.svg`, caso.icono);
       assert.equal(t.titulo, caso.titulo);
       assert.equal(t.detalle, caso.detalle);
       assert.deepEqual(t.consejos, [...caso.consejos]);
@@ -202,10 +202,19 @@ describe("datosCorreoAbierto", () => {
 });
 
 describe("íconos", () => {
-  test("los 4 SVG existen y salen de la tabla fija", () => {
+  test("los 4 SVG existen y salen de la tabla fija (nombres, no rutas)", () => {
     assert.deepEqual(Object.keys(ICONOS).sort(), ["informativo", "neutro", "peligro", "precaucion"]);
-    for (const ruta of Object.values(ICONOS)) {
-      assert.ok(statSync(join(PANEL, ruta)).isFile(), ruta);
+    for (const nombre of Object.values(ICONOS)) {
+      assert.match(nombre, /^[a-z]+$/, "solo un nombre: nada de rutas");
+      assert.ok(statSync(join(PANEL, "..", "iconos", `${nombre}.svg`)).isFile(), nombre);
     }
+  });
+
+  test("cada nombre tiene su máscara en el CSS (el color sale del tema, no del SVG)", () => {
+    const css = readFileSync(join(PANEL, "..", "estilos", "sicae.css"), "utf8");
+    for (const nombre of Object.values(ICONOS)) {
+      assert.match(css, new RegExp(`\\.tarjeta-icono\\[data-icono="${nombre}"\\] \\{ -webkit-mask-image: url\\("\\.\\./iconos/${nombre}\\.svg"\\); mask-image: url\\("\\.\\./iconos/${nombre}\\.svg"\\); \\}`));
+    }
+    assert.match(css, /\.tarjeta-icono \{[^}]*background: var\(--tarjeta-color\);/);
   });
 });

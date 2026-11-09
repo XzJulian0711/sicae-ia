@@ -49,7 +49,7 @@ tarjeta.
 3. **Reinicia la API** (`uvicorn app.main:app --app-dir api --reload`), porque `.env` se lee al
    arrancar.
 4. **Configura la extensión** (solo si cambiaste la URL): clic derecho en el ícono → **Opciones**,
-   o el botón de ajustes (engranaje) del panel. **URL de la API:** `http://127.0.0.1:8000`. Es el
+   o en el panel: el menú de la cuenta → **Opciones**, o el enlace **Opciones** de la bienvenida. **URL de la API:** `http://127.0.0.1:8000`. Es el
    valor por defecto y, por ahora, el **único** aceptado (ver "Qué URL acepta"). Ya no hay campo
    de clave.
 5. **Prueba:** abre el panel (clic en el ícono), despliega **Estado de la conexión** al final y
@@ -330,7 +330,8 @@ muestra. Por eso, **en Bandeja**:
   `Precedence: bulk`);
 - la regla de prioridad "es una respuesta" (`In-Reply-To`) sí funciona.
 
-En **Analizar**, que lee la página, sigue la limitación de siempre.
+Desde el paso 7.1, **Analizar** también lee con la API de Gmail, así que tiene las mismas
+cabeceras. Solo en su respaldo (la página) faltan.
 
 **Errores:**
 
@@ -561,6 +562,81 @@ que copias y pegas"). Si el navegador lo rechaza, se selecciona el texto y se pi
 - no cita el correo original ni agrega adjuntos;
 - no usa `Reply-To`: Para es siempre el remitente original.
 
+## Prueba funcional: diagnóstico y exportar (paso 7.1)
+
+Dos herramientas para la prueba funcional, **solo con la API en `SICAE_MODO=desarrollo` y la
+cuenta de prueba del proyecto**. La API lo decide con `GET /diagnostico/disponible`, la misma
+regla del modo demostración (`SICAE_DEMO_CUENTA`). Con cualquier otra cuenta no aparecen, y en
+producción esa ruta ni existe (404), así que tampoco. Ver docs/metricas.md, "Herramientas de
+prueba: solo en desarrollo".
+
+- **Cuándo aparecen.** El panel solo pregunta después de un análisis o de "Actualizar" en la
+  Bandeja, así que no llama a la API antes del consentimiento. Al cerrar sesión se ocultan otra
+  vez.
+- **"Comparar página y API"**, debajo de la tarjeta de Analizar:
+  - lee el correo abierto de la página (el respaldo de Analizar) y el mismo mensaje con la API
+    de Gmail (lo que usan Analizar y la Bandeja);
+  - arma los dos igual (`armarPeticionGmail`) y los envía a `POST /diagnostico`. Así la única
+    diferencia es de dónde se leyó;
+  - muestra una tabla **solo con números**:
+    - enlaces, adjuntos y largo del cuerpo de cada camino;
+    - si el cuerpo vino recortado;
+    - el puntaje y cuánto aporta cada parte: el texto, los enlaces, los adjuntos y el largo.
+
+  Nada del texto del correo se muestra ni se guarda.
+- **"Exportar CSV (cuenta de prueba)"**, en la Bandeja:
+  - descarga **local** de la última Bandeja (`sicae-bandeja-AAAA-MM-DD.csv`), con `asunto`,
+    `categoria`, `confianza`, `prioridad` y `cuerpo_completo`;
+  - **sin remitentes ni cuerpos**;
+  - no pasa por la API y no pide el permiso `downloads`;
+  - si un asunto empieza con `=`, `+`, `-` o `@`, se le antepone `'` para que la hoja de cálculo
+    no lo ejecute como fórmula.
+- **"Mensaje recortado".** Con un correo de más de ~102 KB, Gmail muestra "[Mensaje recortado]
+  Ver todo el mensaje" y solo carga el inicio. `gmail/lector.js` lo detecta por el enlace con
+  `view=lg` (`SICAE_MARCAS` en `gmail/selectores.js`). Si Gmail cambia ese enlace, el diagnóstico
+  dirá "no" en un correo recortado: hay que revisarlo con **Inspeccionar**.
+
+### Analizar lee con la API de Gmail (paso 7.1)
+
+El diagnóstico mostró que el mismo correo daba resultados distintos en Analizar y en la Bandeja
+(ver "Hallazgo" en `docs/metricas.md`). La causa: la página de Gmail mete cosas que no son del
+correo, como el aviso "[Mensaje recortado] Ver todo el mensaje" y su enlace. Por eso:
+
+1. **Analizar usa el mismo lector que la Bandeja.** El content script lee la página solo para
+   sacar el id del mensaje (`data-legacy-message-id`, como Redactar). Con ese id, el panel lee
+   el mensaje con la API de Gmail (`leerMensajes` → `interpretarMensaje`) y arma la petición
+   con `armarPeticionGmail`, la misma función que usan la Bandeja y Liberar espacio. Mismo
+   cuerpo, enlaces, adjuntos, cabeceras y límite de tamaño (el de cada correo del lote, unos
+   40 KB). Una prueba comprueba que, para el mismo correo simulado, Analizar y la Bandeja envían
+   **exactamente** lo mismo.
+2. **La página es solo el respaldo**, si no hay id, si falta el permiso de Gmail, si no hay red o
+   si Gmail falla. El token se pide **sin ventana** (`interactive: false`): Analizar nunca abre
+   la de Google. En el respaldo, `gmail/lector.js` no lee ni cuenta lo que agrega Gmail, y
+   quita **solo esos nodos exactos, nunca sus contenedores**:
+   - el enlace "Ver todo el mensaje" (`view=lg`);
+   - el texto del aviso justo antes del enlace, si es algo corto entre corchetes
+     ("[Mensaje recortado]");
+   - el botón "•••" del texto citado (`div.ajR`) y su imagen.
+
+   Para eso **recorre el cuerpo solo leyendo** (`textoSin()`): no copia ni cambia la página,
+   salta esos nodos y lo que Gmail tiene oculto, y pone los saltos de línea como `innerText`. Si
+   Gmail no agregó nada, el cuerpo es el `innerText` de siempre.
+
+   **Por qué solo los nodos exactos.** Antes se restaba el texto del contenedor del aviso. Gmail
+   puede poner el aviso en el **mismo contenedor que el texto del correo**, y con un correo corto
+   eso borraba el cuerpo entero: el diagnóstico daba 0 caracteres en la página contra 731 con la
+   API. Una prueba con HTML inventado reproduce ese caso.
+
+   **Protección.** Si después de limpiar el cuerpo queda vacío y antes no lo estaba, se usa el
+   `innerText` de siempre quitando solo el texto exacto del aviso ("[Mensaje recortado]", "Ver
+   todo el mensaje"), y el correo se marca con `limpiezaParcial`.
+
+   La tarjeta muestra una nota gris con un texto fijo (`notaRespaldo()` en `lib/correo.js`):
+   - "Leído desde la página de Gmail (no se pudo usar la API de Gmail)…";
+   - con la protección, agrega: "No se pudo separar del todo el aviso de Gmail del texto del
+     correo…".
+3. **Adjuntos reales.** Ver "Qué se lee y qué no".
+
 ## Analizar un correo de Gmail
 
 1. Abre Gmail en Chrome con una **cuenta de prueba**. Si la pestaña ya estaba abierta antes de
@@ -577,7 +653,7 @@ arriba hacia abajo:
 
 | Parte | Qué hace |
 |---|---|
-| **Encabezado** | Escudo en un cuadro oscuro, "SICAE-IA" y el botón de **ajustes** (engranaje), que abre Opciones |
+| **Encabezado** | Escudo en un cuadro oscuro, "SICAE-IA", la cuenta (menú con **Opciones** y **Cerrar sesión**) y el botón del **tema** (luna en el tema claro, sol en el oscuro), que alterna claro/oscuro |
 | **Analizar este correo** | Botón azul (acción). El panel no lee el correo solo: espera el clic |
 | **Estado vacío** | Antes de analizar, en el lugar del resultado: escudo gris y "Abre un correo en Gmail y pulsa Analizar este correo." Desaparece al mostrar un resultado, y vuelve si la lectura falla. Nunca se ven los dos a la vez (`vistaResultado()` en `lib/tarjeta.js`) |
 | **CORREO ABIERTO** | Asunto (o "(Sin asunto)") y remitente leídos de Gmail. Se ve aunque la API falle |
@@ -628,18 +704,21 @@ En todos los casos:
   - gris `#334155`: 9,5:1.
 - **El resultado tiene `role="status"` y `aria-live="polite"`:** la tarjeta del correo y la
   franja están en ese contenedor, así que el lector de pantalla las anuncia al aparecer. El ícono
-  es decorativo (`alt=""`), porque el título ya lo dice.
+  es decorativo (`aria-hidden`), porque el título ya lo dice.
 - **En el resto del panel:**
   - los íconos son decorativos (`aria-hidden`);
-  - el botón de ajustes, que solo tiene ícono, se llama "Ajustes" (`aria-label`);
+  - el botón del tema, que solo tiene ícono, se llama "Cambiar a tema oscuro" o "Cambiar a tema
+    claro" (`aria-label` y `title`, según el tema actual);
+  - el menú de la cuenta se abre con el foco en el primer ítem (Opciones), se recorre con ↑/↓ y
+    se cierra con Esc;
   - en la barra inferior, la pestaña abierta (Analizar, Bandeja o Redactar) tiene
     `aria-current="page"`.
 - **Más contrastes,** todos ≥ 7:1:
   - rótulos, remitente y pestañas inactivas, gris `#475569` sobre blanco o sobre el fondo
     `#f6f6f4`;
   - la pestaña activa, azul sobre `#eff6ff`: 6,2:1.
-- El borde claro del botón redondo es decorativo: lo que identifica al botón es el engranaje
-  oscuro (16:1).
+- El borde claro del botón redondo es decorativo: lo que identifica al botón es el sol o la luna,
+  con el color del texto.
 
 **Seguridad:**
 - Los motivos pueden traer palabras del correo, así que se escriben **solo con `textContent`**,
@@ -707,12 +786,16 @@ Qué pasa por dentro:
 | Asunto | Título de la conversación |
 | Remitente | Solo la dirección, no el nombre |
 | Destinatarios | Direcciones de Para y CC. La regla de prioridad "Dirigido solo a ti" los usa |
-| Cuerpo | Texto plano, tal como se ve en pantalla |
-| Cantidad de enlaces (`n_urls`) | `href` de los enlaces y `src` de las imágenes del cuerpo, **sin repetidos**: así cuenta `url_count` en SpaPhish, incluidos `#` y `mailto:`. Las direcciones se cuentan pero no se envían |
-| Cantidad de adjuntos (`n_adjuntos`) | Tarjetas de adjuntos del mensaje. No se abren |
+| Cuerpo | Con la API de Gmail: la parte `text/plain` (o el HTML pasado a texto). En el respaldo: el texto que se ve en pantalla, sin el aviso de recorte ni el "•••" de Gmail |
+| Cantidad de enlaces (`n_urls`) | `href` de los enlaces y `src` de las imágenes, **sin repetidos**: así cuenta `url_count` en SpaPhish, incluidos `#` y `mailto:`. Con la API, los del HTML completo; en el respaldo, los del cuerpo sin los de Gmail. Las direcciones se cuentan pero no se envían |
+| Cantidad de adjuntos (`n_adjuntos`) | Solo los **adjuntos reales**: `Content-Disposition: attachment`, o sin esa cabecera y sin `Content-ID`. Las imágenes de una firma (en línea) no cuentan (paso 7.1). En el respaldo, las tarjetas de adjuntos. No se abren |
+| Cabeceras | Con la API: `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id`, `Precedence` e `In-Reply-To`. En el respaldo no se ven |
+
+Desde el paso 7.1, Analizar lee **con la API de Gmail** (como la Bandeja) y la página es solo
+el respaldo: ver "Analizar lee con la API de Gmail (paso 7.1)".
 
 **No se lee:**
-- las cabeceras;
+- otras cabeceras (como `Received` o `Reply-To`);
 - el contenido de los adjuntos;
 - la bandeja y los otros correos;
 - los mensajes anteriores del hilo. Si hay varios desplegados, se usa **el último**.
@@ -800,7 +883,7 @@ los dos lugares.
 | Alcance | Para qué |
 |---|---|
 | `openid` y `https://www.googleapis.com/auth/userinfo.email` | Saber quién eres por tu correo (pasos 4.2 y 4.3) |
-| `https://www.googleapis.com/auth/gmail.modify` (paso 4.5; en el 4.4 era `gmail.readonly`) | **Leer** tus correos (Bandeja y Liberar espacio), **moverlos a la papelera** y sacarlos, y **poner o quitar etiquetas** (cuarentena). Una prueba revisa que sean exactamente estos tres alcances, sin `mail.google.com/` ni otros de Gmail (`gmail.send`, `gmail.compose`…) |
+| `https://www.googleapis.com/auth/gmail.modify` (paso 4.5; en el 4.4 era `gmail.readonly`) | **Leer** tus correos (Analizar desde el paso 7.1, Bandeja y Liberar espacio), **moverlos a la papelera** y sacarlos, y **poner o quitar etiquetas** (cuarentena). Una prueba revisa que sean exactamente estos tres alcances, sin `mail.google.com/` ni otros de Gmail (`gmail.send`, `gmail.compose`…) |
 
 **Por qué `gmail.modify` y no `https://mail.google.com/`** (según la
 [lista oficial de alcances](https://developers.google.com/workspace/gmail/api/auth/scopes),
@@ -909,9 +992,9 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
 
 ## Estilo
 
-- Usa **Sora** para los títulos y **DM Sans** para el texto, con **azul `#1d4ed8` para las
-  acciones** y **naranja `#c2410c` para las alertas**.
-- Los dos colores tienen contraste AA sobre fondo blanco.
+- Usa **Sora** para los títulos y **DM Sans** para el texto, con **azul para las acciones** y
+  **naranja para las alertas** (en el tema claro, `#1d4ed8` y `#c2410c`).
+- Los dos colores tienen contraste AA en los dos temas (ver "Tema claro y oscuro").
 - Los botones y campos muestran el foco con un borde azul, para quien navega con el teclado.
 - **Paso 4.5:** mover a la papelera y a cuarentena son acciones de **alerta**, así que su botón
   es naranja (`.boton-alerta`). Contrastes calculados:
@@ -920,6 +1003,46 @@ el ID fijo `kaabamgfaihcpmchpeacpohpchlgildf`.
   - el total elegido, azul sobre `#eff6ff`: 6,16:1;
   - el borde de los campos numéricos, `#64748b` sobre blanco: 4,76:1 (mínimo 3:1 para
     controles).
+
+### Tema claro y oscuro
+
+- **El botón redondo del encabezado alterna el tema.** Muestra la luna en el tema claro ("pasar a
+  oscuro") y el sol en el oscuro. Ya no abre Opciones: Opciones está en el menú de la cuenta y en
+  un enlace pequeño de la bienvenida (así se llega también sin sesión).
+- **Por defecto se sigue el tema del sistema** (`prefers-color-scheme`), y también sus cambios
+  mientras el panel está abierto.
+- **Si la persona elige uno, se guarda** en `chrome.storage.local` con la clave `tema`: solo la
+  palabra `claro` u `oscuro` (`guardarTema` rechaza cualquier otro valor). Es una preferencia,
+  no un dato del correo. Desde ahí, manda sobre el sistema.
+- **Opciones usa el mismo tema** y lo sigue si se cambia en el panel (`chrome.storage.onChanged`).
+- **Cómo funciona.** `lib/tema.js` pone `data-tema="claro"` u `"oscuro"` en `<html>`, y
+  `estilos/sicae.css` cambia **todas** las variables de color:
+  - el tema oscuro está dos veces con los mismos valores: en `@media (prefers-color-scheme:
+    dark)` (para que no se vea un destello claro antes de que corra el JS) y en
+    `:root[data-tema="oscuro"]`. Una prueba revisa que sean iguales;
+  - **no hay colores fijos** fuera de los bloques de variables. En el HTML, solo el logo, que es
+    igual en los dos temas, como el ícono de la extensión; en el tema oscuro el cuadro del logo
+    lleva un borde para distinguirse del fondo;
+  - los íconos de la tarjeta se dibujan con una **máscara** del SVG y el color de la variante
+    (`--tarjeta-color`). Antes eran `<img>` con el color fijo: el azul `#1d4ed8` no llega a 3:1
+    sobre ningún fondo oscuro;
+  - en el tema oscuro, los botones de color son claros con texto oscuro (`--texto-sobre-color`).
+- **Contraste AA calculado, no a ojo.** `tests/tema.test.js` lee las variables de los dos temas
+  y calcula la razón de contraste de cada par (fórmula de WCAG 2.x): texto ≥ 4,5:1; controles e
+  íconos ≥ 3:1. Con `node --test extension/tests/tema.test.js` se ve la razón de cada par. Los
+  más bajos:
+
+  | Par | Claro | Oscuro |
+  |---|---|---|
+  | Naranja sobre naranja suave (avisos, precaución) | 4,88 | 9,28 |
+  | Texto de ejemplo de los campos sobre el fondo | 4,76 | 5,71 |
+  | Azul sobre azul tenue ("Nunca haremos") | 5,77 | 5,74 |
+  | Rojo sobre rojo suave (phishing, riesgo alto) | 5,91 | 8,51 |
+  | Gris de la tarjeta de publicidad sobre su fondo | 9,45 | 8,40 |
+  | Texto de los botones azules | 6,70 | 9,90 |
+
+- **Campos de Opciones:** su borde era `#cbd5e1` (1,5:1, menos del 3:1 de un control). Ahora es el
+  de los demás campos (`--borde-control`).
 
 ### Fuentes (licencia SIL Open Font License 1.1)
 
@@ -1143,7 +1266,19 @@ Se necesita Node 22 o más nuevo. La CI las corre en cada pull request en **su p
 - **Solo funciona con la API en `http://127.0.0.1:8000`.** Para usar otra dirección hay que
   agregarla en `host_permissions` del manifest **y** en `ORIGENES_PERMITIDOS`. Una API que no
   esté en tu equipo debería usar https, para que la sesión no viaje sin cifrar.
-- **Desde la página de Gmail no se ven las cabeceras** (`List-Unsubscribe`, `List-Id`,
+- **Respaldo de Analizar (paso 7.1).** Si no se puede usar la API de Gmail (sin id, sin
+  permiso, sin red), Analizar lee la página, y el resultado puede variar un poco respecto a la
+  Bandeja (la tarjeta lo avisa):
+  - el cuerpo es solo lo que se ve: el texto citado oculto detrás de "•••" no entra, y si Gmail
+    recortó el correo, solo el inicio;
+  - el aviso de recorte y el "•••" se quitan por su enlace (`view=lg`), el texto entre
+    corchetes de al lado y su clase (`div.ajR`). Si Gmail los cambia, se vuelven a contar: hay
+    que revisarlo con **Inspeccionar**;
+  - el recorrido que arma el texto se parece a `innerText`, pero no es idéntico: decide los
+    saltos de línea por la etiqueta (`div`, `p`, `br`…), no por el CSS de Gmail.
+- **Analizar usa el límite de tamaño del lote** (unos 40 KB por correo, paso 7.1), para enviar
+  lo mismo que la Bandeja. Un cuerpo más largo se recorta, y la tarjeta lo avisa.
+- **En el respaldo no se ven las cabeceras** (`List-Unsubscribe`, `List-Id`,
   `Precedence`, `In-Reply-To`, `Cc`…). Se envía `cabeceras: {}`, y por eso:
   - la **publicidad** solo se reconoce por las señales débiles: frases de baja y remitente
     masivo; se necesitan las dos. Las señales fuertes por cabecera no llegan, así que un boletín

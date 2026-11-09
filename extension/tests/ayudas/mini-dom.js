@@ -1,7 +1,8 @@
 // DOM mínimo SOLO para las pruebas (Node no trae DOM y no usamos npm, así que no hay jsdom).
 //
 // Convierte HTML INVENTADO en elementos con lo poco que usa gmail/lector.js:
-//   querySelector, querySelectorAll, getAttribute, textContent e innerText.
+//   querySelector, querySelectorAll, getAttribute, parentElement, contains, textContent, innerText,
+//   childNodes (con nodos de texto), nodeType, tagName y checkVisibility().
 // Selectores que entiende: etiqueta, .clase, [atributo] y el espacio (descendiente).
 // No es un navegador: el comportamiento real se revisa a mano en Chrome.
 
@@ -16,16 +17,69 @@ function decodificar(texto) {
   return texto.replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (e) => ENTIDADES[e]);
 }
 
+/** Un nodo de texto (nodeType 3), como en el navegador. */
+class Texto {
+  constructor(texto, padre) {
+    this.texto = texto;
+    this.padre = padre;
+  }
+
+  get nodeType() {
+    return 3;
+  }
+
+  get nodeValue() {
+    return this.texto;
+  }
+}
+
+// Atributo SOLO de las pruebas: el elemento "no se ve" para checkVisibility() (como un
+// display: none de Gmail). innerText de mini-dom lo ignora a propósito, para poder simular
+// que el recorrido del lector y innerText no coinciden.
+const OCULTO_EN_PRUEBA = "data-oculto-en-prueba";
+
 class Elemento {
   constructor(etiqueta, atributos = {}, padre = null) {
     this.etiqueta = etiqueta;
     this.atributos = atributos;
     this.padre = padre;
-    this.hijos = []; // Elemento o {texto}
+    this.hijos = []; // Elemento o Texto
+  }
+
+  get nodeType() {
+    return 1;
+  }
+
+  get tagName() {
+    return this.etiqueta.toUpperCase();
+  }
+
+  get childNodes() {
+    return [...this.hijos];
+  }
+
+  /** Como Element.checkVisibility(): false si él o un ancestro "no se ve". */
+  checkVisibility() {
+    for (let nodo = this; nodo; nodo = nodo.padre) {
+      if (nodo.getAttribute(OCULTO_EN_PRUEBA) !== null) return false;
+    }
+    return true;
   }
 
   getAttribute(nombre) {
     return Object.hasOwn(this.atributos, nombre) ? this.atributos[nombre] : null;
+  }
+
+  get parentElement() {
+    return this.padre;
+  }
+
+  /** Como Node.contains: true si `otro` es este elemento o está dentro de él. */
+  contains(otro) {
+    for (let nodo = otro; nodo; nodo = nodo.padre) {
+      if (nodo === this) return true;
+    }
+    return false;
   }
 
   get textContent() {
@@ -109,7 +163,7 @@ export function crearDocumento(html) {
   const fichas = /<!--[\s\S]*?-->|<\/([a-z][a-z0-9]*)\s*>|<([a-z][a-z0-9]*)((?:\s+[^\s=\/>]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>|([^<]+)/gi;
   for (const [, cierre, apertura, textoAtributos, texto] of html.matchAll(fichas)) {
     if (texto !== undefined) {
-      actual.hijos.push({ texto: decodificar(texto) });
+      actual.hijos.push(new Texto(decodificar(texto), actual));
     } else if (apertura) {
       const atributos = {};
       for (const [, nombre, v1, v2, v3] of (textoAtributos || "").matchAll(/([^\s=\/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {

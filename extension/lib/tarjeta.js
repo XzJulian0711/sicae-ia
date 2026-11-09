@@ -17,11 +17,13 @@ const LARGO_MAX_MOTIVO = 200;
 export const NOTA = "Resultado automático: puede equivocarse.";
 const REVISA = ", pero revisa con cuidado";
 
+// Nombre del ícono de cada variante: panel.js lo pone en data-icono y el CSS dibuja
+// iconos/<nombre>.svg como máscara con el color del tema (paso 7.1, tema oscuro).
 export const ICONOS = Object.freeze({
-  peligro: "../iconos/alerta.svg",
-  precaucion: "../iconos/precaucion.svg",
-  informativo: "../iconos/ok.svg",
-  neutro: "../iconos/sobre.svg",
+  peligro: "alerta",
+  precaucion: "precaucion",
+  informativo: "ok",
+  neutro: "sobre",
 });
 
 export const CONSEJOS_PHISHING = Object.freeze([

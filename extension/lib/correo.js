@@ -5,6 +5,7 @@
 // - contarEnlaces(): cuenta los href/src distintos, como url_count de SpaPhish.
 // - recortarCuerpo(): deja el cuerpo dentro del límite de la API.
 // - armarPeticion(): arma el JSON exacto que pide POST /analizar (api/app/esquemas.py).
+// - armarPeticionGmail() y prepararAnalisis(): el mismo armado en todo el panel (paso 7.1).
 // - interpretarAnalisis(): convierte la respuesta de /analizar en lo que se muestra.
 //
 // Nada de esto guarda el correo: solo transforma datos que viven en memoria.
@@ -183,6 +184,48 @@ export function armarPeticion(correo, { maxBytes = MAX_BYTES } = {}) {
     return { ok: false, resultado: { tipo: "error", mensaje: "El correo es demasiado grande para la API." } };
   }
   return { ok: true, recortado: cuerpo.recortado || peticion !== armada, peticion };
+}
+
+/**
+ * La ÚNICA forma de armar la petición en el panel (paso 7.1): Analizar, Bandeja, Liberar espacio
+ * y el diagnóstico usan el mismo límite, el de cada correo del lote. Así el mismo correo llega
+ * igual a la API venga de donde venga.
+ */
+export function armarPeticionGmail(correo) {
+  return armarPeticion(correo, { maxBytes: MAX_BYTES_POR_CORREO_LOTE });
+}
+
+/**
+ * Analizar (paso 7.1): el correo abierto se lee con la API de Gmail, con el MISMO lector que la
+ * Bandeja. La página es solo el respaldo (sin id, sin permiso de Gmail, sin red, o si falla).
+ * - pagina: lo que leyó el content script (trae idGmail).
+ * - leerDeGmail(id): devuelve el mensaje interpretado (interpretarMensaje) o null; puede lanzar.
+ * → lo de armarPeticionGmail() + {fuente: "api" | "pagina", correo}.
+ */
+export async function prepararAnalisis(pagina, leerDeGmail) {
+  if (pagina?.idGmail && typeof leerDeGmail === "function") {
+    try {
+      const mensaje = await leerDeGmail(pagina.idGmail);
+      const armado = mensaje?.correo ? armarPeticionGmail(mensaje.correo) : null;
+      if (armado?.ok) return { ...armado, fuente: "api", correo: mensaje.correo };
+    } catch {
+      // Sin permiso de Gmail, sin red o Gmail falló: se usa la página (sin detalles).
+    }
+  }
+  return { ...armarPeticionGmail(pagina), fuente: "pagina", correo: pagina };
+}
+
+// Nota gris de la tarjeta cuando Analizar usó el respaldo (paso 7.1). Textos fijos.
+export const NOTA_RESPALDO = "Leído desde la página de Gmail (no se pudo usar la API de Gmail): el resultado puede variar un poco respecto a la Bandeja.";
+export const NOTA_RESPALDO_PARCIAL = "Leído desde la página de Gmail (no se pudo usar la API de Gmail). No se pudo separar del todo el aviso de Gmail del texto del correo: el resultado puede variar más respecto a la Bandeja.";
+
+/**
+ * Lo que devolvió prepararAnalisis() → la nota de la tarjeta, o null si se leyó con la API.
+ * limpiezaParcial lo pone gmail/lector.js cuando tuvo que usar su protección.
+ */
+export function notaRespaldo(armado) {
+  if (armado?.fuente !== "pagina") return null;
+  return armado.correo?.limpiezaParcial === true ? NOTA_RESPALDO_PARCIAL : NOTA_RESPALDO;
 }
 
 /** URL completa de POST /analizar a partir de la URL base ya validada. */

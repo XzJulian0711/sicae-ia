@@ -4,13 +4,27 @@
 // verifica (lib/sesion.js). Todo el texto se muestra con textContent (nunca innerHTML).
 
 import {
+  alCambiarTema,
   almacenSesionApi,
   borrarConsentimiento,
+  guardarTema,
   guardarUrl,
   leerConfiguracion,
+  leerTema,
 } from "../lib/almacen.js";
 import { validarUrlApi } from "../lib/logica.js";
 import { cerrarSesionCompleta, retirarConsentimiento } from "../lib/sesion.js";
+import { conectarTema } from "../lib/tema.js";
+
+// El mismo tema que el panel (lo guardado, o el del sistema). Aquí no hay botón: se cambia en
+// el panel y esta página lo sigue (alCambiarTema).
+conectarTema({
+  raiz: document.documentElement,
+  consulta: window.matchMedia("(prefers-color-scheme: dark)"),
+  leer: leerTema,
+  guardar: guardarTema,
+  alCambiar: alCambiarTema,
+});
 
 const elementos = {
   formulario: document.getElementById("formulario"),
