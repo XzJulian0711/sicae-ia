@@ -12,6 +12,8 @@ Endpoints:
   POST   /redactar        -> con sesión y consentimiento v4: borrador con IA (paso 6.2; Ollama local
                              o, solo para la cuenta de prueba, el modo demostración con Gemini).
   GET    /redactar/proveedores -> con sesión: ¿esta sesión puede usar el modo demostración? (paso 6.3)
+  GET    /diagnostico/disponible -> con sesión: ¿es la cuenta de prueba? (paso 7.1)
+  POST   /diagnostico     -> solo la cuenta de prueba: partes del puntaje, solo números (paso 7.1).
   GET    /estadisticas    -> con sesión: conteos por categoría y prioridad (solo números).
 
 Arrancar (desde la raíz del proyecto, con SICAE_GOOGLE_CLIENT_ID en .env):
@@ -39,12 +41,14 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import redaccion, registro, usuarios
+from app import diagnostico, redaccion, registro, usuarios
 from app.config import obtener_ajustes
 from app.esquemas import (
     AccionEntrada,
     Borrador,
     ConsentimientoEntrada,
+    Diagnostico,
+    DiagnosticoDisponible,
     Estadisticas,
     Proveedores,
     Resultado,
@@ -176,7 +180,7 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
         description="Clasifica correos en legítimo, publicidad o phishing y les asigna prioridad. "
                     "Prototipo académico: no guarda el contenido de los correos, no los borra ni "
                     "los envía.",
-        version="0.5.0",
+        version="0.6.0",
         lifespan=lifespan,
         # /docs, /redoc y /openapi.json solo en desarrollo.
         docs_url="/docs" if desarrollo else None,
@@ -463,6 +467,47 @@ def crear_app(ajustes=None, reloj=None, sha256_modelo=SHA256_MODELO, verificar_g
             registro.registrar_borrador(ajustes.db_path, proveedor, modelo, segundos, exitoso)
         except Exception as error:
             logger.error("No se pudo registrar el borrador (%s)", type(error).__name__)
+
+    # ---------- Diagnóstico de la prueba funcional (paso 7.1): SOLO la cuenta de prueba ----------
+
+    def es_cuenta_prueba(usuario):
+        """La misma regla del modo demostración: google_sub == SICAE_DEMO_CUENTA (sin la clave de Gemini)."""
+        return redaccion.es_cuenta_demo(usuario.get("google_sub"), ajustes.demo_cuenta)
+
+    @app.get(
+        "/diagnostico/disponible",
+        response_model=DiagnosticoDisponible,
+        summary="¿Esta sesión puede usar el diagnóstico y la exportación? (paso 7.1)",
+        responses={401: {"description": "Sin sesión válida"}},
+    )
+    def diagnostico_disponible(usuario=Depends(verificar_sesion)):
+        """La extensión muestra el diagnóstico y "Exportar CSV" solo si esto dice true.
+        Nunca devuelve la cuenta de prueba."""
+        return DiagnosticoDisponible(disponible=es_cuenta_prueba(usuario))
+
+    @app.post(
+        "/diagnostico",
+        response_model=Diagnostico,
+        summary="Partes del puntaje de un correo, solo números (paso 7.1, solo la cuenta de prueba)",
+        responses={401: {"description": "Sin sesión válida"},
+                   403: {"description": "Falta el consentimiento, o no es la cuenta de prueba"},
+                   413: {"description": "Petición demasiado grande"},
+                   422: {"description": "Entrada inválida"},
+                   429: {"description": "Demasiadas peticiones"},
+                   503: {"description": "Modelo no cargado"}},
+    )
+    def diagnosticar(correo: CorreoEntrada, request: Request, usuario=Depends(exigir_consentimiento)):
+        """Mismo modelo y misma limpieza que /analizar, separando el puntaje en sus partes.
+        NO se registra (no cuenta en /estadisticas) y no devuelve nada del texto del correo."""
+        if not es_cuenta_prueba(usuario):
+            raise ErrorConCodigo(403, "El diagnóstico solo está disponible para la cuenta de prueba del proyecto.",
+                                 "solo_cuenta_prueba")
+        recursos = recursos_o_503(request)
+        try:
+            return diagnostico.diagnosticar(correo.asunto, correo.cuerpo, correo.n_urls, correo.n_adjuntos, recursos)
+        except Exception as error:
+            logger.error("Error en el diagnóstico (%s)", type(error).__name__)
+            raise HTTPException(status_code=500, detail="Error interno en el diagnóstico.") from None
 
     @app.get(
         "/estadisticas",

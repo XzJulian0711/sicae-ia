@@ -201,6 +201,8 @@
           <ol class="chips" id="lista-motivos" aria-labelledby="titulo-motivos"></ol>
         </div>
         <p class="aviso" id="aviso-recorte" hidden>El correo es muy largo: se analizó solo el inicio.</p>
+        <!-- Paso 7.1: solo si no se pudo usar la API de Gmail y se leyó la página (el respaldo). -->
+        <p class="nota-respaldo" id="nota-respaldo" hidden>Leído desde la página de Gmail (no se pudo usar la API de Gmail): el resultado puede variar un poco respecto a la Bandeja.</p>
         <!-- Paso 4.5: cuarentena de phishing (etiqueta SICAE/Cuarentena + quitar de Recibidos).
              Nunca va a la papelera. Solo se muestra en la tarjeta de phishing. -->
         <div class="cuarentena" id="cuarentena" hidden>
@@ -213,6 +215,27 @@
         <p class="tarjeta-nota" id="tarjeta-nota"></p>
       </section>
     </div>
+
+    <!-- Paso 7.1 (prueba funcional): SOLO la cuenta de prueba (lo decide GET /diagnostico/disponible).
+         Compara, solo con números, lo que se envía al leer el correo abierto de la página de Gmail
+         (el respaldo de Analizar) y con la API de Gmail (Analizar y Bandeja). Nada del texto del
+         correo se muestra ni se guarda. -->
+    <section class="caja diagnostico" id="diagnostico" aria-labelledby="titulo-diagnostico" hidden>
+      <h3 class="rotulo" id="titulo-diagnostico">Diagnóstico (cuenta de prueba)</h3>
+      <p class="suave nota-pequena">Compara, solo con números, lo que se envía al leer el correo abierto de la página de Gmail (el respaldo) y con la API de Gmail (lo que usan Analizar y la Bandeja).</p>
+      <button type="button" class="boton boton-secundario" id="comparar-api">Comparar página y API</button>
+      <p class="estado" id="diagnostico-estado" role="status" aria-live="polite" hidden></p>
+      <div class="tabla-desplazable" id="diagnostico-resultado" hidden>
+        <table class="tabla-diagnostico">
+          <caption class="suave nota-pequena">Diferencia = API − página.</caption>
+          <thead>
+            <tr><th scope="col">Dato</th><th scope="col">Página (respaldo)</th><th scope="col">API de Gmail</th><th scope="col">Diferencia</th></tr>
+          </thead>
+          <tbody id="cuerpo-diagnostico"></tbody>
+        </table>
+        <p class="diagnostico-frase" id="diagnostico-frase"></p>
+      </div>
+    </section>
     </div><!-- fin de #vista-analizar -->
 
     <!-- Vista "Bandeja" (paso 4.4, demo página 4): SOLO LECTURA. Lee los últimos 50 correos de
@@ -276,6 +299,13 @@
         </section>
 
         <p class="suave nota-pequena" id="bandeja-sin-clasificar" hidden></p>
+
+        <!-- Paso 7.1: SOLO la cuenta de prueba. Descarga LOCAL (no pasa por la API): asunto,
+             categoría, confianza, prioridad y si el cuerpo llegó completo. Sin remitentes ni cuerpos. -->
+        <div class="exportar" id="exportar" hidden>
+          <button type="button" class="boton boton-secundario" id="exportar-bandeja">Exportar CSV (cuenta de prueba)</button>
+          <p class="suave nota-pequena">Solo asunto, categoría, confianza, prioridad y si el cuerpo llegó completo. Sin remitentes ni cuerpos.</p>
+        </div>
       </div>
     </section>
 

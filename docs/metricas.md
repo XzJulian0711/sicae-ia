@@ -1079,6 +1079,85 @@ No es una estimación del desempeño del modelo."
     cada caso.
 - **No se pega** ninguna línea que agrega Gmail (remitente, fecha, "para mí").
 
+### Hallazgo: el mismo correo da resultados distintos en Analizar y en Bandeja
+
+**Qué se vio.** Un correo de prueba ("Recordatorio de entrega del proyecto", en el que Gmail
+muestra "Mensaje recortado") dio **legítimo dudoso** en Analizar y **posible phishing** en la
+Bandeja.
+
+**Por qué pasaba.** El modelo y las reglas son los mismos, pero cada camino leía el correo de
+una forma distinta, así que a la API **no le llegaban los mismos datos**. Así era antes de la
+corrección:
+
+| Qué se envía | Analizar (leía la página de Gmail) | Bandeja (lee la API de Gmail) |
+|---|---|---|
+| Cuerpo | El texto que Gmail **muestra**. Con "Mensaje recortado", Gmail solo cargó el inicio del HTML (unos 102 KB). El texto citado que está oculto no entra, y sí entra el aviso "[Mensaje recortado] Ver todo el mensaje" | La primera parte `text/plain`, **completa**: la versión de texto que arma quien envía, con las URL entre `<>`, `[image: …]` y el texto citado. Solo si no la hay, se usa el HTML convertido |
+| Enlaces (`n_urls`) | `href` y `src` de la parte visible, con las URL de imágenes que reescribe Gmail y el enlace "Ver todo el mensaje" | Todos los `<a>` e `<img>` del HTML completo |
+| Adjuntos (`n_adjuntos`) | Las tarjetas de adjunto que se ven | Toda parte con nombre de archivo, **incluidas las imágenes en línea** (por ejemplo, logos de firmas) |
+| Recorte | 50.000 caracteres / 200 KB | Unos **40 KB por correo**, porque se envían 50 en un lote |
+| Cabeceras | Ninguna (la página no las muestra) | `List-*` e `In-Reply-To`. Cambian la publicidad y la prioridad, **no el puntaje** |
+
+**Qué dice el modelo.** Los tres números restan puntaje: los pesos son `n_urls` −0,252,
+`n_adjuntos` −1,808 y `long_cuerpo` −1,354 (`ml/reports/palabras_clave.md`). Más enlaces, más
+adjuntos o un cuerpo más largo empujan hacia **legítimo**. Si la Bandeja manda un cuerpo más
+largo, con más enlaces y adjuntos, y aun así da phishing, la diferencia viene del **texto**.
+
+**Cómo se midió.** Con el diagnóstico de la pestaña Analizar (solo la cuenta de prueba; ver
+docs/extension.md). Entonces se llamaba "Comparar con la Bandeja"; ahora es "Comparar página y
+API":
+- `POST /diagnostico` separa el puntaje en sus partes:
+  base + aporte del texto + aporte de los enlaces + aporte de los adjuntos + aporte del largo;
+- como el modelo es lineal, esa separación es **exacta** (`contribuciones()` de
+  `ml/sicae_ml/explicar.py`);
+- la tabla compara las partes de los dos caminos y dice cuál explica la mayor diferencia;
+- todo son números: nunca palabras del correo.
+
+**Causa confirmada (con números).** En el correo del ejemplo, lo que leía Analizar traía el
+aviso de Gmail "[Mensaje recortado] Ver todo el mensaje" y su enlace. Contra lo que lee la API de
+Gmail, eso sumaba:
+
+| Dato | Analizar (página) − API de Gmail |
+|---|---|
+| Enlaces (`n_urls`) | +1 (el enlace "Ver todo el mensaje") |
+| Largo del cuerpo | +34 caracteres (el texto del aviso) |
+| Términos del modelo en el texto | +7 |
+| Puntaje | −0,02 en la página contra 0,25 con la API: cruza el 0 y cambia de categoría |
+
+El aviso no es del correo: lo agrega Gmail. Con un puntaje tan cerca de 0, unas pocas palabras
+de más bastan para cambiar la categoría. Por eso el resultado de la página era "legítimo dudoso".
+
+**Corrección (paso 7.1).** No cambia el modelo ni las reglas, solo cómo se lee el correo:
+1. **Analizar lee con la API de Gmail**, con el mismo lector y el mismo armado que la Bandeja
+   (`armarPeticionGmail`, con el mismo límite de unos 40 KB por correo). El id del mensaje sale
+   de la página, como en Redactar. Una prueba comprueba que, para el mismo correo simulado,
+   Analizar y la Bandeja envían **exactamente** la misma petición a la API.
+2. **La página es solo el respaldo** (sin id, sin permiso de Gmail o sin red). En ese caso se
+   quitan el aviso de recorte, su enlace y el botón "•••" del texto citado, y la tarjeta muestra
+   una nota.
+3. **Adjuntos reales.** La Bandeja contaba como adjunto toda parte con nombre de archivo,
+   **incluidas las imágenes de la firma** (logos en línea). Como `n_adjuntos` empuja hacia
+   legítimo (peso −1,808), eso podía esconder un phishing con logos. Ahora cuenta solo los
+   adjuntos de verdad: `Content-Disposition: attachment`, o sin esa cabecera y sin
+   `Content-ID`. Así cuenta SpaPhish (`attachments_count`, "files attached") y así se ven las
+   tarjetas de adjunto en Gmail.
+
+**Ojo con las bandejas medidas antes de la corrección:** un correo con imágenes en la firma
+puede dar ahora un puntaje un poco más alto, porque ya no suma esos "adjuntos". Hay que volver a
+pasar la Bandeja antes de llenar `resultados.csv`.
+
+### Exportar la Bandeja
+
+Para no copiar a mano, la Bandeja tiene **"Exportar CSV (cuenta de prueba)"**:
+- descarga local de la última Bandeja, con `asunto`, `categoria`, `confianza`, `prioridad` y
+  `cuerpo_completo` ("no" si el cuerpo se recortó antes de enviarlo a la API);
+- sin remitentes ni cuerpos;
+- de ahí se copian a `resultados.csv` las columnas `asunto`, `obtenido` (la `categoria`),
+  `confianza` y `prioridad`. `autor`, `esperado`, la lectura y los motivos se siguen llenando a
+  mano.
+
+**Ojo:** el CSV exportado tiene los asuntos de la cuenta de prueba. No se sube a Git tal cual:
+solo lo que se pase a `resultados.csv`, que la prueba revisa (sin nombres ni direcciones).
+
 ### Limitaciones
 
 - **Pocos casos:** un solo correo mueve mucho los porcentajes.

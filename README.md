@@ -390,6 +390,8 @@ uvicorn app.main:app --app-dir api --reload
 | `POST /acciones` | Con sesión y consentimiento: `{"accion": "papelera", "cantidad": 40, "mb": 12.5}` → 204. Solo anota la acción que la extensión hizo en Gmail (fecha, acción, cantidad, MB), sin identificadores ni remitentes (paso 4.5) |
 | `POST /redactar` | Con sesión y **consentimiento "4"** (paso 6.2): `{"indicacion", "tono", "asunto", "cuerpo", "modo"}` → `{"borrador", "proveedor", "modelo", "segundos", "enlaces_quitados", "cuerpo_recortado", "avisos"}`. Ver "Redacción con IA". Los errores traen además `codigo` (paso 6.3), para que la extensión elija su propio mensaje |
 | `GET /redactar/proveedores` | Con sesión (paso 6.3): `{"local": true, "modelo_local": "gemma4:e4b", "demostracion": bool}`. `demostracion` es `true` solo si hay clave **y** la sesión es la cuenta de prueba. Nunca devuelve la clave ni la cuenta |
+| `GET /diagnostico/disponible` | Con sesión (paso 7.1): `{"disponible": bool}`, `true` solo si la sesión es la cuenta de prueba (`SICAE_DEMO_CUENTA`; no hace falta la clave de Gemini). Nunca devuelve la cuenta |
+| `POST /diagnostico` | Con sesión, consentimiento y **solo la cuenta de prueba** (si no, 403 con `codigo: "solo_cuenta_prueba"`). Recibe lo mismo que `/analizar` y devuelve **solo números**: el puntaje separado en base + aporte del texto, de los enlaces, de los adjuntos y del largo del cuerpo. No cuenta en `/estadisticas`. Ver docs/metricas.md, paso 7.1 |
 | `GET /estadisticas` | Con sesión |
 | `POST /auth/cerrar` | Cierra esa sesión |
 | `DELETE /cuenta` | Borra el usuario y todas sus sesiones |

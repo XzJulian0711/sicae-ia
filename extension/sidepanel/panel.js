@@ -1,12 +1,18 @@
 // Panel lateral de SICAE-IA.
 //
 // "Analizar este correo":
-//   1. pide a la pestaña activa (Gmail) el correo abierto (gmail/lector.js);
-//   2. arma la petición (lib/correo.js) y la envía a POST /analizar con la sesión de la API
+//   1. pide a la pestaña activa (Gmail) el correo abierto (gmail/lector.js): de ahí sale el id
+//      del mensaje;
+//   2. lee ese mensaje con la API de Gmail, con el MISMO lector y armado que la Bandeja (paso
+//      7.1, prepararAnalisis en lib/correo.js). Si no se puede (sin id, sin permiso de Gmail,
+//      sin red), usa lo leído de la página y la tarjeta lo dice con una nota;
+//   3. envía la petición a POST /analizar con la sesión de la API
 //      (Authorization: Bearer; si responde 401, la sesión se renueva una vez: lib/sesion.js);
-//   3. muestra la tarjeta "CORREO ABIERTO" (asunto y remitente) y la franja de resultado con
+//   4. muestra la tarjeta "CORREO ABIERTO" (asunto y remitente) y la franja de resultado con
 //      sus motivos (lib/tarjeta.js decide estilo, textos y secciones).
 // Barra inferior: Bandeja y Redactar solo dicen "Próximamente" (llegan con la API de Gmail).
+// Paso 7.1 (prueba funcional), SOLO con la cuenta de prueba: "Comparar página y API" en
+// Analizar (POST /diagnostico, solo números) y "Exportar CSV" en la Bandeja (descarga local).
 // "Probar conexión":
 //   1. GET /salud (pública): ¿responde la API? ¿hay modelo cargado?
 //   2. GET /estadisticas con la sesión: ¿la API acepta la sesión? (solo se usa el código)
@@ -19,6 +25,15 @@
 
 import { almacenSesionApi, guardarConsentimiento, leerConfiguracion, leerConsentimiento } from "../lib/almacen.js";
 import {
+  compararDiagnosticos,
+  csvBandeja,
+  interpretarDiagnostico,
+  interpretarDisponible,
+  nombreArchivoCsv,
+  urlDiagnostico,
+  urlDiagnosticoDisponible,
+} from "../lib/diagnostico.js";
+import {
   MENSAJE_OTRA_CUENTA,
   formatearHora,
   formatearNumero,
@@ -29,12 +44,12 @@ import {
   textoAvisoPhishing,
 } from "../lib/bandeja.js";
 import {
-  MAX_BYTES_POR_CORREO_LOTE,
-  armarPeticion,
+  armarPeticionGmail,
   esPestanaGmail,
   interpretarAnalisis,
   interpretarLectura,
   interpretarLote,
+  prepararAnalisis,
   resultadoAnalisisSinConexion,
   resultadoNoGmail,
   resultadoRecargarGmail,
@@ -157,6 +172,7 @@ const elementos = {
   listaMotivos: document.getElementById("lista-motivos"),
   tarjetaNota: document.getElementById("tarjeta-nota"),
   avisoRecorte: document.getElementById("aviso-recorte"),
+  notaRespaldo: document.getElementById("nota-respaldo"),
   probar: document.getElementById("probar"),
   estado: document.getElementById("estado"),
   estadoTexto: document.getElementById("estado-texto"),
@@ -300,7 +316,8 @@ function mostrarCorreoAbierto(correo) {
 // Correo que muestra la tarjeta ahora (para "Mover a cuarentena"): {id de Gmail, tamaño}. Memoria.
 let tarjetaActual = { id: null, tamano: 0 };
 
-function mostrarResultado(resultado, recortado) {
+/** respaldo (paso 7.1): true si el correo se leyó de la página porque no se pudo usar la API de Gmail. */
+function mostrarResultado(resultado, recortado, respaldo = false) {
   mostrarCuarentena(resultado);
   const t = armarTarjeta(resultado);
   const e = elementos;
@@ -324,6 +341,7 @@ function mostrarResultado(resultado, recortado) {
   e.tarjetaMotivos.hidden = t.motivos.length === 0;
 
   e.avisoRecorte.hidden = !recortado;
+  e.notaRespaldo.hidden = !respaldo;
   e.tarjetaNota.textContent = t.nota;
   e.tarjeta.hidden = false;
 }
@@ -350,14 +368,20 @@ async function analizarCorreo() {
     }
     mostrarCorreoAbierto(lectura.correo); // se ve el correo leído aunque la API falle
     tarjetaActual = { id: lectura.correo.idGmail ?? null, tamano: 0 };
-    const armado = armarPeticion(lectura.correo);
+    // Paso 7.1: el mismo lector que la Bandeja (API de Gmail); la página solo es el respaldo.
+    // El token de Gmail se pide sin ventana (interactive: false): nunca abre la de Google.
+    const armado = await prepararAnalisis(lectura.correo, async (id) => {
+      const [mensaje] = await leerMensajes(clienteGmail(() => {}), [id]);
+      return mensaje ?? null;
+    });
     if (!armado.ok) {
       mostrar(elementos.analisis, elementos.analisisTexto, armado.resultado);
       return;
     }
     const resultado = await enviarAnalisis(url.url, armado.peticion);
     if (resultado.tipo === "resultado") {
-      mostrarResultado(resultado, armado.recortado);
+      mostrarResultado(resultado, armado.recortado, armado.fuente === "pagina");
+      cargarCuentaPrueba(); // paso 7.1: el diagnóstico aparece solo con la cuenta de prueba
     } else if (resultado.tipo === "pedir_permisos") {
       mostrarPantalla("permisos"); // sin consentimiento válido no se registra nada solo
     } else {
@@ -367,6 +391,179 @@ async function analizarCorreo() {
     elementos.analizar.disabled = false;
     elementos.analizar.textContent = "Analizar este correo";
   }
+}
+
+// ----- Paso 7.1 (prueba funcional): diagnóstico y exportar, SOLO la cuenta de prueba -----
+// La API decide si la sesión es la cuenta de prueba (GET /diagnostico/disponible). Se pregunta
+// después de un análisis (ya hay consentimiento), nunca antes. Todo vive en memoria.
+
+const d = {
+  caja: document.getElementById("diagnostico"),
+  comparar: document.getElementById("comparar-api"),
+  estado: document.getElementById("diagnostico-estado"),
+  resultado: document.getElementById("diagnostico-resultado"),
+  cuerpo: document.getElementById("cuerpo-diagnostico"),
+  frase: document.getElementById("diagnostico-frase"),
+  exportar: document.getElementById("exportar"),
+  botonExportar: document.getElementById("exportar-bandeja"),
+};
+
+let cuentaPrueba = false; // lo dice la API; se olvida al cerrar sesión
+
+/** Muestra u oculta el diagnóstico y "Exportar CSV" según cuentaPrueba. */
+function pintarHerramientasPrueba() {
+  d.caja.hidden = !cuentaPrueba;
+  d.exportar.hidden = !(cuentaPrueba && itemsBandeja.length > 0);
+}
+
+/** GET /diagnostico/disponible. Si falla o dice false, todo queda oculto. */
+async function cargarCuentaPrueba() {
+  try {
+    const url = validarUrlApi((await leerConfiguracion()).urlApi);
+    if (!url.ok) return;
+    const intento = await conSesion(await contextoSesion(url.url), (sesion) => pedir(urlDiagnosticoDisponible(url.url), {
+      cabeceras: { Authorization: `Bearer ${sesion.token}` },
+    }));
+    let cuerpo = null;
+    if (intento.ok && intento.respuesta.status === 200) {
+      try {
+        cuerpo = await intento.respuesta.json();
+      } catch {
+        cuerpo = null;
+      }
+    }
+    cuentaPrueba = intento.ok && interpretarDisponible(intento.respuesta.status, cuerpo);
+  } catch {
+    cuentaPrueba = false;
+  }
+  pintarHerramientasPrueba();
+}
+
+function olvidarCuentaPrueba() {
+  cuentaPrueba = false;
+  d.resultado.hidden = true;
+  d.cuerpo.replaceChildren();
+  estadoDiagnostico(null);
+  pintarHerramientasPrueba();
+}
+
+function estadoDiagnostico(texto, tipo = "conectado") {
+  d.estado.dataset.tipo = tipo;
+  d.estado.textContent = texto ?? "";
+  d.estado.hidden = !texto;
+}
+
+/** POST /diagnostico con la sesión (se renueva una vez con 401). → resultado de interpretarDiagnostico. */
+async function pedirDiagnostico(base, peticion) {
+  const intento = await conSesion(await contextoSesion(base), (sesion) => pedir(urlDiagnostico(base), {
+    metodo: "POST",
+    cabeceras: { "Content-Type": "application/json", Authorization: `Bearer ${sesion.token}` },
+    cuerpo: JSON.stringify(peticion),
+  }));
+  if (!intento.ok) return { tipo: "error", mensaje: intento.mensaje };
+  let cuerpo = null;
+  try {
+    cuerpo = await intento.respuesta.json();
+  } catch {
+    cuerpo = null;
+  }
+  return interpretarDiagnostico(intento.respuesta.status, cuerpo);
+}
+
+/** La tabla del diagnóstico: solo números y textos fijos, con textContent. */
+function pintarDiagnostico(comparacion) {
+  d.cuerpo.replaceChildren(...comparacion.filas.map((fila) => {
+    const tr = document.createElement("tr");
+    const nombre = document.createElement("th");
+    nombre.scope = "row";
+    nombre.textContent = fila.nombre;
+    tr.append(nombre);
+    for (const valor of [fila.analizar, fila.bandeja, fila.diferencia]) {
+      const td = document.createElement("td");
+      td.textContent = valor;
+      tr.append(td);
+    }
+    return tr;
+  }));
+  d.frase.textContent = comparacion.frase;
+  d.resultado.hidden = false;
+}
+
+/**
+ * "Comparar página y API": el correo abierto se lee de la página (el respaldo de Analizar) y con
+ * la API de Gmail (Analizar y Bandeja). Los dos se arman igual (armarPeticionGmail) y se envían
+ * a /diagnostico: la diferencia es solo de dónde se leyó.
+ */
+async function compararPaginaConApi() {
+  estadoDiagnostico(null);
+  d.resultado.hidden = true;
+  const url = validarUrlApi((await leerConfiguracion()).urlApi);
+  if (!url.ok) {
+    estadoDiagnostico(URL_NO_VALIDA.mensaje, "error");
+    return;
+  }
+  d.comparar.disabled = true;
+  try {
+    estadoDiagnostico("Leyendo el correo de la página…");
+    const lectura = await leerCorreoDeLaPestana();
+    if (!lectura.ok) {
+      estadoDiagnostico(lectura.resultado.mensaje, "error");
+      return;
+    }
+    const pagina = lectura.correo;
+    if (!pagina.idGmail) {
+      estadoDiagnostico("No se encontró el id del mensaje en la página de Gmail: no se puede leer con la API.", "error");
+      return;
+    }
+    const deLaPagina = armarPeticionGmail(pagina);
+    if (!deLaPagina.ok) {
+      estadoDiagnostico(deLaPagina.resultado.mensaje, "error");
+      return;
+    }
+
+    estadoDiagnostico("Leyendo el mismo correo con la API de Gmail…");
+    const [mensaje] = await leerMensajes(clienteGmail((texto) => estadoDiagnostico(texto)), [pagina.idGmail]);
+    const deLaApi = mensaje ? armarPeticionGmail(mensaje.correo) : null;
+    if (!deLaApi?.ok) {
+      estadoDiagnostico(deLaApi?.resultado?.mensaje || "No se pudo leer el correo con la API de Gmail.", "error");
+      return;
+    }
+
+    estadoDiagnostico("Calculando…");
+    const [conLaPagina, conLaApi] = await Promise.all([pedirDiagnostico(url.url, deLaPagina.peticion),
+                                                       pedirDiagnostico(url.url, deLaApi.peticion)]);
+    for (const resultado of [conLaPagina, conLaApi]) {
+      if (resultado.tipo !== "diagnostico") {
+        estadoDiagnostico(resultado.mensaje, "error");
+        return;
+      }
+    }
+    estadoDiagnostico(null);
+    pintarDiagnostico(compararDiagnosticos(conLaPagina.datos, conLaApi.datos, {
+      pagina: pagina.recortadoGmail === true || deLaPagina.recortado,
+      api: deLaApi.recortado,
+    }));
+  } catch (error) {
+    estadoDiagnostico(error?.message || "No se pudo hacer el diagnóstico.", "error");
+  } finally {
+    d.comparar.disabled = false;
+  }
+}
+
+/** "Exportar CSV": descarga LOCAL (no pasa por la API) de la última Bandeja. Sin remitentes ni cuerpos. */
+function exportarBandeja() {
+  if (!cuentaPrueba || itemsBandeja.length === 0) return;
+  const archivo = URL.createObjectURL(new Blob([csvBandeja(itemsBandeja)], { type: "text/csv;charset=utf-8" }));
+  const enlace = document.createElement("a");
+  enlace.href = archivo;
+  enlace.download = nombreArchivoCsv();
+  enlace.click();
+  setTimeout(() => URL.revokeObjectURL(archivo), 10_000); // la descarga ya empezó
+}
+
+function iniciarHerramientasPrueba() {
+  d.comparar.addEventListener("click", compararPaginaConApi);
+  d.botonExportar.addEventListener("click", exportarBandeja);
 }
 
 // ----- Probar conexión -----
@@ -603,9 +800,10 @@ async function actualizarBandeja() {
     }
 
     // Cada correo se recorta a su parte del lote; los que no se pueden armar quedan sin clasificar.
-    const armados = lectura.mensajes.map((m) => armarPeticion(m.correo, { maxBytes: MAX_BYTES_POR_CORREO_LOTE }));
+    const armados = lectura.mensajes.map((m) => armarPeticionGmail(m.correo));
     const enviables = armados.map((a, i) => ({ a, i })).filter(({ a }) => a.ok);
-    const items = lectura.mensajes.map((m) => ({ ...m, resultado: null }));
+    // recortado (paso 7.1): para "cuerpo_completo" de Exportar CSV.
+    const items = lectura.mensajes.map((m, i) => ({ ...m, resultado: null, recortado: armados[i].ok ? armados[i].recortado : null }));
 
     if (enviables.length > 0) {
       mostrarProgresoBandeja("Clasificando…");
@@ -629,6 +827,7 @@ async function actualizarBandeja() {
       pintarBandeja(items, await datosPromociones(lectura.cliente));
     }
     b.ultimo.textContent = `Último análisis: ${formatearHora(Date.now())}`;
+    cargarCuentaPrueba(); // paso 7.1: "Exportar CSV" aparece solo con la cuenta de prueba
   } finally {
     mostrarProgresoBandeja(null);
     b.actualizar.disabled = false;
@@ -1011,7 +1210,7 @@ async function buscarParaLiberar(evento) {
     for (const lote of enLotes(sinResultado)) {
       if (fueCancelado()) break;
       progresoLiberar(`Clasificando ${clasificados} de ${sinResultado.length}…`);
-      const armados = lote.map((item) => armarPeticion(item.correo, { maxBytes: MAX_BYTES_POR_CORREO_LOTE }));
+      const armados = lote.map((item) => armarPeticionGmail(item.correo));
       const enviables = armados.map((a, i) => ({ a, i })).filter(({ a }) => a.ok);
       if (enviables.length > 0) {
         const respuesta = await clasificarLote(url.url, enviables.map(({ a }) => a.peticion), { registrar: false });
@@ -1515,6 +1714,7 @@ let correoSesion = null;
 
 function ocultarCuenta() {
   correoSesion = null;
+  olvidarCuentaPrueba(); // paso 7.1: otra sesión puede no ser la cuenta de prueba
   cerrarMenuCuenta({ devolverFoco: false });
   acceso.cuenta.hidden = true;
   acceso.cuentaCorreo.textContent = "";
@@ -1647,6 +1847,7 @@ async function iniciar() {
   elementos.navAnalizar.addEventListener("click", () => mostrarVistaPrincipal("analizar"));
   iniciarRedactar();
   iniciarBandeja();
+  iniciarHerramientasPrueba();
 }
 
 iniciar();

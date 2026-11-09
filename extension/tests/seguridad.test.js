@@ -709,3 +709,86 @@ describe("Redactar (paso 6.3): demo oculto sin permiso, aviso con Cancelar, nada
     assert.match(cuerpoDe(panel, "copiarBorrador"), /navigator\.clipboard\.writeText\(red\.borrador\.value\)/);
   });
 });
+
+describe("prueba funcional (paso 7.1): diagnóstico y exportar, SOLO la cuenta de prueba", () => {
+  const panelHtml = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+  const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+  const diagnostico = sinComentarios(readFileSync(join(RAIZ, "lib", "diagnostico.js"), "utf8"), ".js");
+  const seccion = panel.slice(panel.indexOf("const d = {"), panel.indexOf("function iniciarHerramientasPrueba("));
+
+  test("el diagnóstico y «Exportar CSV» vienen ocultos en el HTML", () => {
+    assert.match(panelHtml, /<section class="caja diagnostico" id="diagnostico"[^>]*hidden>/);
+    assert.match(panelHtml, /<div class="exportar" id="exportar" hidden>/);
+    assert.match(panelHtml, /<div class="tabla-desplazable" id="diagnostico-resultado" hidden>/);
+  });
+
+  test("solo los muestra cuentaPrueba, que solo pone true GET /diagnostico/disponible", () => {
+    const muestras = panel.match(/d\.(caja|exportar)\.hidden = [^;]+;/g) ?? [];
+    assert.deepEqual(muestras, ["d.caja.hidden = !cuentaPrueba;", "d.exportar.hidden = !(cuentaPrueba && itemsBandeja.length > 0);"]);
+    const asignaciones = panel.match(/cuentaPrueba = [^;]+;/g) ?? [];
+    assert.deepEqual(asignaciones, [
+      "cuentaPrueba = false;", // valor inicial
+      "cuentaPrueba = intento.ok && interpretarDisponible(intento.respuesta.status, cuerpo);",
+      "cuentaPrueba = false;", // si falla
+      "cuentaPrueba = false;", // al cerrar sesión
+    ]);
+    assert.match(panel, /function ocultarCuenta\(\) \{\s*correoSesion = null;\s*olvidarCuentaPrueba\(\);/);
+    assert.match(panel, /function exportarBandeja\(\) \{\s*if \(!cuentaPrueba \|\| itemsBandeja\.length === 0\) return;/);
+  });
+
+  test("nada se guarda ni va a la consola; todo se muestra con textContent", () => {
+    assert.ok(seccion.length > 1000);
+    for (const codigo of [seccion, diagnostico]) {
+      assert.doesNotMatch(codigo, /chrome\.storage|localStorage|sessionStorage|indexedDB|console\./);
+      assert.doesNotMatch(codigo, /innerHTML|outerHTML|insertAdjacentHTML/);
+    }
+    assert.match(seccion, /td\.textContent = valor;/);
+  });
+
+  test("el CSV es una descarga local: no pasa por la API ni pide el permiso downloads", () => {
+    const exportar = seccion.slice(seccion.indexOf("function exportarBandeja("));
+    assert.match(exportar, /URL\.createObjectURL\(new Blob\(\[csvBandeja\(itemsBandeja\)\]/);
+    assert.match(exportar, /URL\.revokeObjectURL\(archivo\)/);
+    assert.doesNotMatch(exportar, /pedir\(|fetch\(/);
+    const manifest = JSON.parse(readFileSync(join(RAIZ, "manifest.json"), "utf8"));
+    assert.ok(!manifest.permissions.includes("downloads"));
+  });
+
+  test("el CSV nunca lleva remitente, destinatarios ni cuerpo", () => {
+    const funcion = diagnostico.slice(diagnostico.indexOf("export function csvBandeja("), diagnostico.indexOf("export function nombreArchivoCsv("));
+    assert.doesNotMatch(funcion, /remitente|destinatarios|cuerpo\b|\.cuerpo/);
+  });
+});
+
+describe("Analizar lee con la API de Gmail, como la Bandeja (paso 7.1)", () => {
+  const panelHtml = readFileSync(join(RAIZ, "sidepanel", "panel.html"), "utf8");
+  const panel = sinComentarios(readFileSync(join(RAIZ, "sidepanel", "panel.js"), "utf8"), ".js");
+  /** El código de una función de panel.js, hasta la siguiente función de primer nivel. */
+  const funcion = (nombre) => {
+    const inicio = panel.indexOf(`function ${nombre}(`);
+    assert.ok(inicio >= 0, `falta ${nombre}`);
+    const fin = panel.indexOf("\nfunction ", inicio + 1);
+    return panel.slice(inicio, fin === -1 ? undefined : fin);
+  };
+
+  test("una sola forma de armar la petición: armarPeticionGmail (nada de armarPeticion suelto)", () => {
+    assert.doesNotMatch(panel, /\barmarPeticion\(/);
+    assert.doesNotMatch(panel, /MAX_BYTES_POR_CORREO_LOTE/);
+    assert.match(funcion("actualizarBandeja"), /armarPeticionGmail\(m\.correo\)/);
+    assert.match(panel, /lote\.map\(\(item\) => armarPeticionGmail\(item\.correo\)\)/, "Liberar espacio");
+  });
+
+  test("Analizar usa prepararAnalisis con leerMensajes (el lector de la Bandeja)", () => {
+    const analizar = funcion("analizarCorreo");
+    assert.match(analizar, /await prepararAnalisis\(lectura\.correo,/);
+    assert.match(analizar, /leerMensajes\(clienteGmail\(/);
+    assert.match(analizar, /mostrarResultado\(resultado, armado\.recortado, armado\.fuente === "pagina"\)/);
+    // Nunca abre la ventana de Google (eso solo lo hace «Dar permiso»).
+    assert.doesNotMatch(analizar, /iniciarSesion|pedirPermisoGmail|interactive/);
+  });
+
+  test("la nota del respaldo viene oculta y es un texto fijo", () => {
+    assert.match(panelHtml, /<p class="nota-respaldo" id="nota-respaldo" hidden>Leído desde la página de Gmail/);
+    assert.deepEqual(panel.match(/notaRespaldo\.[a-zA-Z]+ = [^;]+;/g), ["notaRespaldo.hidden = !respaldo;"]);
+  });
+});

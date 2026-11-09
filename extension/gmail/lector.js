@@ -10,6 +10,7 @@
 
 (() => {
   const S = globalThis.SICAE_SELECTORES;
+  const M = globalThis.SICAE_MARCAS;
 
   /** Texto de un elemento como se ve en pantalla (innerText respeta los saltos de línea). */
   function texto(elemento) {
@@ -18,10 +19,49 @@
     return (valor || "").trim();
   }
 
+  // Paso 7.1: el contenedor del aviso "[Mensaje recortado] Ver todo el mensaje" es corto. Si el
+  // padre del enlace tiene más texto que esto, no es el aviso: se excluye solo el enlace.
+  const LARGO_MAX_AVISO = 200;
+
+  function escapar(textoLiteral) {
+    return textoLiteral.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  /**
+   * Quita de `completo` la ÚLTIMA aparición de `parte`, con espacios flexibles (innerText puede
+   * separar los espacios distinto en el contenedor y en el cuerpo). Solo trabaja con textos: la
+   * página no se toca.
+   */
+  function quitarTexto(completo, parte) {
+    const palabras = parte.split(/\s+/).filter(Boolean);
+    if (palabras.length === 0) return completo;
+    let ultima = null;
+    for (const m of completo.matchAll(new RegExp(palabras.map(escapar).join("\\s+"), "g"))) ultima = m;
+    if (!ultima) return completo;
+    return completo.slice(0, ultima.index) + completo.slice(ultima.index + ultima[0].length);
+  }
+
+  /**
+   * Paso 7.1: elementos que Gmail AGREGA dentro del cuerpo y que no son del correo:
+   * - el aviso "[Mensaje recortado] Ver todo el mensaje" (el padre del enlace con view=lg);
+   * - el botón "•••" del texto citado.
+   */
+  function agregadosDeGmail(cuerpo) {
+    const agregados = [];
+    for (const enlace of cuerpo.querySelectorAll(S.enlaces)) {
+      if (!(enlace.getAttribute("href") || "").includes(M.recorte)) continue;
+      const padre = enlace.parentElement;
+      const esAviso = padre && padre !== cuerpo && texto(padre).length <= LARGO_MAX_AVISO;
+      agregados.push(esAviso ? padre : enlace);
+    }
+    agregados.push(...cuerpo.querySelectorAll(S.textoCitado));
+    return agregados;
+  }
+
   /**
    * Lee el correo abierto en `documento`.
    * Devuelve {ok: true, correo} o {ok: false, motivo: "sin_correo" | "incompleto", falta}.
-   * correo = {asunto, remitente, destinatarios, cuerpo, enlaces, nAdjuntos}.
+   * correo = {asunto, remitente, destinatarios, cuerpo, enlaces, nAdjuntos, idGmail, recortadoGmail}.
    */
   function leerCorreoAbierto(documento) {
     const mensajes = documento.querySelectorAll(S.mensaje);
@@ -39,10 +79,18 @@
       return { ok: false, motivo: "incompleto", falta: "cuerpo" };
     }
 
+    // Lo que agrega Gmail no se cuenta ni se lee (paso 7.1).
+    const agregados = agregadosDeGmail(cuerpo);
+    const deGmail = (el) => agregados.some((agregado) => agregado.contains(el));
     const enlaces = [
-      ...[...cuerpo.querySelectorAll(S.enlaces)].map((a) => a.getAttribute("href")),
-      ...[...cuerpo.querySelectorAll(S.imagenes)].map((img) => img.getAttribute("src")),
+      ...[...cuerpo.querySelectorAll(S.enlaces)].filter((a) => !deGmail(a)).map((a) => a.getAttribute("href")),
+      ...[...cuerpo.querySelectorAll(S.imagenes)].filter((img) => !deGmail(img)).map((img) => img.getAttribute("src")),
     ];
+    let textoCuerpo = texto(cuerpo);
+    if (agregados.length > 0) {
+      for (const agregado of agregados) textoCuerpo = quitarTexto(textoCuerpo, texto(agregado));
+      textoCuerpo = textoCuerpo.replace(/\n{3,}/g, "\n\n").trim();
+    }
     const destinatarios = [...mensaje.querySelectorAll(S.destinatarios)].map((d) => d.getAttribute("email"));
 
     // Id del mensaje en la API de Gmail (paso 4.5). Solo si tiene forma de id (hexadecimal).
@@ -50,16 +98,22 @@
     const idCrudo = mensaje.getAttribute(atributoId) || mensaje.querySelector(S.idMensaje)?.getAttribute(atributoId) || "";
     const idGmail = /^[0-9a-f]{8,32}$/i.test(idCrudo) ? idCrudo : null;
 
+    // Paso 7.1: ¿Gmail recortó el mensaje ("Ver todo el mensaje")? Entonces el cuerpo que se ve
+    // es solo el inicio. Solo se mira el href; no se sigue el enlace.
+    const recortadoGmail = [...mensaje.querySelectorAll(S.enlaces)]
+      .some((a) => (a.getAttribute("href") || "").includes(M.recorte));
+
     return {
       ok: true,
       correo: {
         asunto: texto(documento.querySelector(S.asunto)),
         remitente,
         destinatarios,
-        cuerpo: texto(cuerpo),
+        cuerpo: textoCuerpo,
         enlaces,
         nAdjuntos: mensaje.querySelectorAll(S.adjuntos).length,
         idGmail,
+        recortadoGmail,
       },
     };
   }

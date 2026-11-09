@@ -97,6 +97,54 @@ describe("leerCorreoAbierto", () => {
                      { ok: false, motivo: "incompleto", falta: "cuerpo" });
   });
 
+  test("recortadoGmail (paso 7.1): true solo si está el enlace «Ver todo el mensaje» (view=lg)", () => {
+    const recortado = `Inicio del correo largo…
+      <div class="iX"><span>[Mensaje recortado]</span> <a href="https://mail.google.com/mail/u/0?ui=2&amp;ik=abc&amp;view=lg&amp;permmsgid=msg-f:1">Ver todo el mensaje</a></div>`;
+    assert.equal(leerCorreoAbierto(pagina(mensaje({ cuerpo: recortado }))).correo.recortadoGmail, true);
+    const normal = `Hola <a href="https://www.example.org/calendario">calendario</a>`;
+    assert.equal(leerCorreoAbierto(pagina(mensaje({ cuerpo: normal }))).correo.recortadoGmail, false);
+    assert.equal(leerCorreoAbierto(pagina(mensaje({ cuerpo: "Sin enlaces" }))).correo.recortadoGmail, false);
+  });
+
+  test("respaldo (paso 7.1): no lee ni cuenta el aviso de recorte ni el «•••» de Gmail", () => {
+    const cuerpo = `<p>Recordatorio: la entrega es el viernes.</p>
+      <p>Rúbrica en <a href="https://campus.example.edu/rubrica">el campus</a>.</p>
+      <div class="ajR" role="button"><img class="ajT" src="//ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif"></div>
+      <div class="iX"><span>[Mensaje recortado]</span>  <a href="https://mail.google.com/mail/u/0?ui=2&amp;view=lg&amp;permmsgid=msg-f:1">Ver todo el mensaje</a></div>`;
+    const r = leerCorreoAbierto(pagina(mensaje({ cuerpo })));
+    assert.equal(r.correo.cuerpo, "Recordatorio: la entrega es el viernes.\nRúbrica en el campus.");
+    assert.deepEqual(r.correo.enlaces, ["https://campus.example.edu/rubrica"]);
+    assert.equal(r.correo.recortadoGmail, true, "sigue avisando que Gmail recortó el correo");
+    assert.equal(armarPeticion(r.correo).peticion.n_urls, 1);
+  });
+
+  test("respaldo: el mismo correo con o sin lo que agrega Gmail envía lo mismo", () => {
+    const base = `<p>Hola, adjunto el calendario.</p><p><a href="https://www.example.org/calendario">calendario</a></p>`;
+    const conAgregados = `${base}<div class="ajR"><img class="ajT" src="//ssl.gstatic.com/cleardot.gif"></div>`
+      + `<div class="iX"><span>[Mensaje recortado]</span> <a href="https://mail.google.com/mail/u/0?view=lg">Ver todo el mensaje</a></div>`;
+    const limpio = armarPeticion(leerCorreoAbierto(pagina(mensaje({ cuerpo: base }))).correo).peticion;
+    const sucio = armarPeticion(leerCorreoAbierto(pagina(mensaje({ cuerpo: conAgregados }))).correo).peticion;
+    assert.deepEqual(sucio, limpio);
+  });
+
+  test("respaldo: si el padre del enlace view=lg es largo, solo se excluye el enlace (no el texto del correo)", () => {
+    const cuerpo = `<p>${"Texto del correo que sigue. ".repeat(10)}<a href="https://mail.google.com/mail/u/0?view=lg">Ver todo el mensaje</a></p>`;
+    const r = leerCorreoAbierto(pagina(mensaje({ cuerpo })));
+    assert.match(r.correo.cuerpo, /^(Texto del correo que sigue\. ){9}Texto del correo que sigue\.$/);
+    assert.deepEqual(r.correo.enlaces, []);
+  });
+
+  test("respaldo: una frase igual en el correo no se borra, solo la del aviso (la última)", () => {
+    const cuerpo = `<p>Ver todo el mensaje en la web.</p>`
+      + `<div class="iX"><span>[Mensaje recortado]</span> <a href="https://mail.google.com/mail/u/0?view=lg">Ver todo el mensaje</a></div>`;
+    assert.equal(leerCorreoAbierto(pagina(mensaje({ cuerpo }))).correo.cuerpo, "Ver todo el mensaje en la web.");
+  });
+
+  test("las marcas de Gmail tampoco se pueden cambiar", () => {
+    assert.ok(Object.isFrozen(globalThis.SICAE_MARCAS));
+    assert.equal(globalThis.SICAE_MARCAS.recorte, "view=lg");
+  });
+
   test("sin asunto devuelve asunto vacío", () => {
     const doc = crearDocumento(`<div role="main">${mensaje({ cuerpo: "Texto" })}</div>`);
     const r = leerCorreoAbierto(doc);

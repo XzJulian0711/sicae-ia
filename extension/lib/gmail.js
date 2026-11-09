@@ -149,12 +149,29 @@ function charsetDe(parte) {
   return /charset\s*=\s*"?([\w.:-]+)/i.exec(tipo)?.[1] ?? "utf-8";
 }
 
+/**
+ * ¿Esta parte con nombre de archivo es un adjunto de verdad? (paso 7.1)
+ * Las imágenes de una firma también traen nombre, pero van DENTRO del HTML: no son adjuntos.
+ * - Content-Disposition: attachment → sí; inline → no.
+ * - Sin Content-Disposition: sí, salvo que tenga Content-ID (una imagen que usa el HTML).
+ * Así se cuentan "los archivos adjuntos", como attachments_count de SpaPhish y las tarjetas
+ * que muestra Gmail.
+ */
+export function esAdjuntoReal(parte) {
+  if (!parte?.filename) return false;
+  const disposicion = cabecera(parte.headers, "Content-Disposition").trim().toLowerCase();
+  if (disposicion.startsWith("attachment")) return true;
+  if (disposicion.startsWith("inline")) return false;
+  return !cabecera(parte.headers, "Content-ID").trim();
+}
+
 /** Recorre las partes MIME: primer text/plain, primer text/html y cantidad de adjuntos. */
 function recorrerPartes(parte, acumulado = { plano: null, html: null, adjuntos: 0 }) {
   if (!parte || typeof parte !== "object") return acumulado;
   const tipo = String(parte.mimeType || "").toLowerCase();
   if (parte.filename) {
-    acumulado.adjuntos += 1; // un adjunto: no se abre ni se lee
+    // Un archivo (adjunto o imagen en línea): no se abre ni se lee como cuerpo.
+    if (esAdjuntoReal(parte)) acumulado.adjuntos += 1;
   } else if (tipo === "text/plain" && acumulado.plano === null && parte.body?.data) {
     acumulado.plano = decodificarBase64Url(parte.body.data, charsetDe(parte));
   } else if (tipo === "text/html" && acumulado.html === null && parte.body?.data) {

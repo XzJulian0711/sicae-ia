@@ -226,6 +226,31 @@ class Proveedores(BaseModel):
     demostracion: bool = Field(description="Si ESTA sesión puede usar el modo demostración (Gemini).")
 
 
+class DiagnosticoDisponible(BaseModel):
+    """Respuesta de GET /diagnostico/disponible (paso 7.1). Nunca trae la cuenta de prueba."""
+
+    disponible: bool = Field(description="Si ESTA sesión es la de la cuenta de prueba del proyecto.")
+
+
+class Diagnostico(BaseModel):
+    """Respuesta de POST /diagnostico (paso 7.1): SOLO números, nunca texto del correo.
+    Se cumple: puntaje = base + aporte_texto + aporte_n_urls + aporte_n_adjuntos + aporte_long_cuerpo."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    puntaje: float = Field(description="Puntaje del modelo: mayor que 0 = phishing.")
+    base: float = Field(description="Intercepto + el aporte del correo promedio de entrenamiento.")
+    aporte_texto: float = Field(description="Suma de lo que aportan las palabras del asunto y el cuerpo.")
+    aporte_n_urls: float
+    aporte_n_adjuntos: float
+    aporte_long_cuerpo: float
+    n_urls: int = Field(ge=0)
+    n_adjuntos: int = Field(ge=0)
+    long_cuerpo: int = Field(ge=0, description="Caracteres del cuerpo que llegó.")
+    largo_texto_limpio: int = Field(ge=0, description="Caracteres del texto después de limpiar_texto().")
+    terminos: int = Field(ge=0, description="Cuántos términos del vocabulario del modelo aparecen (no cuáles).")
+
+
 class Salud(BaseModel):
     estado: Literal["ok", "sin_modelo"]
     modelo_cargado: bool

@@ -1,7 +1,7 @@
 // DOM mínimo SOLO para las pruebas (Node no trae DOM y no usamos npm, así que no hay jsdom).
 //
 // Convierte HTML INVENTADO en elementos con lo poco que usa gmail/lector.js:
-//   querySelector, querySelectorAll, getAttribute, textContent e innerText.
+//   querySelector, querySelectorAll, getAttribute, parentElement, contains, textContent e innerText.
 // Selectores que entiende: etiqueta, .clase, [atributo] y el espacio (descendiente).
 // No es un navegador: el comportamiento real se revisa a mano en Chrome.
 
@@ -26,6 +26,18 @@ class Elemento {
 
   getAttribute(nombre) {
     return Object.hasOwn(this.atributos, nombre) ? this.atributos[nombre] : null;
+  }
+
+  get parentElement() {
+    return this.padre;
+  }
+
+  /** Como Node.contains: true si `otro` es este elemento o está dentro de él. */
+  contains(otro) {
+    for (let nodo = otro; nodo; nodo = nodo.padre) {
+      if (nodo === this) return true;
+    }
+    return false;
   }
 
   get textContent() {

@@ -83,7 +83,7 @@ API muestra la dirección local, el método y la ruta de cada petición (por eje
 | Permiso | Para qué |
 |---|---|
 | `openid` y `userinfo.email` | Saber quién eres al iniciar sesión y mostrar tu correo en el panel |
-| `gmail.modify` | Leer tus correos para clasificarlos (Bandeja y Liberar espacio), moverlos a la papelera o sacarlos de ella, poner o quitar la etiqueta de cuarentena y **guardar un borrador** de respuesta (sección 11) |
+| `gmail.modify` | Leer tus correos para clasificarlos (Analizar, Bandeja y Liberar espacio), moverlos a la papelera o sacarlos de ella, poner o quitar la etiqueta de cuarentena y **guardar un borrador** de respuesta (sección 11) |
 
 Google describe `gmail.modify` como «leer, redactar y enviar». Es el permiso más pequeño que
 existe para mover a la papelera. **SICAE-IA nunca envía correos ni los borra de forma

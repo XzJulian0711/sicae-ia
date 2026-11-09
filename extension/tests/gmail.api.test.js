@@ -28,6 +28,7 @@ import {
   enParalelo,
   enlacesDeHtml,
   enlacesDeTexto,
+  esAdjuntoReal,
   esReintentable,
   esperaReintento,
   esperaRetryAfter,
@@ -44,6 +45,7 @@ import {
   rutaPostPermitida,
   sacarDePapelera,
 } from "../lib/gmail.js";
+import { armarPeticionGmail, prepararAnalisis } from "../lib/correo.js";
 
 const TOKEN = "ya29.token-de-gmail-inventado";
 const b64 = (texto) => Buffer.from(texto, "utf8").toString("base64url");
@@ -216,6 +218,41 @@ describe("interpretarMensaje", () => {
     assert.equal(r.correo.cuerpo, "Adjunto el acta.");
   });
 
+  test("paso 7.1: las imágenes de la firma (en línea) NO son adjuntos", () => {
+    const disposicion = (valor) => ({ name: "Content-Disposition", value: valor });
+    const cid = (valor) => ({ name: "Content-ID", value: valor });
+    const partes = {
+      mimeType: "multipart/mixed",
+      parts: [
+        {
+          mimeType: "multipart/related",
+          parts: [
+            { mimeType: "text/html", body: { data: b64('<p>Saludos</p><img src="cid:logo01"><img src="cid:red02">') } },
+            // Logo de la firma: inline y con Content-ID.
+            { mimeType: "image/png", filename: "logo.png", headers: [disposicion('inline; filename="logo.png"'), cid("<logo01>")], body: { attachmentId: "i1" } },
+            // Ícono de red social: solo Content-ID, sin Content-Disposition.
+            { mimeType: "image/png", filename: "red.png", headers: [cid("<red02>")], body: { attachmentId: "i2" } },
+          ],
+        },
+        // Adjunto de verdad (mayúsculas en la cabecera, como pueden venir).
+        { mimeType: "application/pdf", filename: "acta.pdf", headers: [disposicion('ATTACHMENT; filename="acta.pdf"')], body: { attachmentId: "a1" } },
+      ],
+    };
+    assert.equal(interpretarMensaje(mensaje("a6", { partes })).correo.nAdjuntos, 1);
+  });
+
+  test("esAdjuntoReal: attachment sí, inline no, Content-ID sin disposición no, solo nombre sí", () => {
+    const parte = (headers) => ({ filename: "x.pdf", headers });
+    assert.equal(esAdjuntoReal(parte([{ name: "Content-Disposition", value: "attachment" }])), true);
+    assert.equal(esAdjuntoReal(parte([{ name: "content-disposition", value: "inline" }])), false);
+    assert.equal(esAdjuntoReal(parte([{ name: "Content-ID", value: "<img1>" }])), false);
+    // attachment manda aunque traiga Content-ID (algunos programas ponen los dos).
+    assert.equal(esAdjuntoReal(parte([{ name: "Content-Disposition", value: "attachment" }, { name: "Content-ID", value: "<x>" }])), true);
+    assert.equal(esAdjuntoReal(parte(undefined)), true, "sin cabeceras: Gmail lo muestra como adjunto");
+    assert.equal(esAdjuntoReal({ mimeType: "text/plain" }), false, "sin nombre de archivo no es adjunto");
+    assert.equal(esAdjuntoReal(null), false);
+  });
+
   test("cabeceras enormes se recortan a 2.000 caracteres", () => {
     const r = interpretarMensaje(mensaje("a5", { cabecerasExtra: [{ name: "List-Unsubscribe", value: "x".repeat(5000) }] }));
     assert.equal(r.correo.cabeceras["List-Unsubscribe"].length, 2000);
@@ -330,6 +367,102 @@ describe("leerBandeja", () => {
       assert.equal(r.codigo, codigo);
       assert.ok(!JSON.stringify(r).includes(TOKEN));
     }
+  });
+});
+
+// ===================== Paso 7.1: Analizar lee con la API, igual que la Bandeja =====================
+
+describe("Analizar y Bandeja envían EXACTAMENTE lo mismo a la API (paso 7.1)", () => {
+  const ID = "18c0ffee01";
+  const partes = {
+    mimeType: "multipart/mixed",
+    parts: [
+      {
+        mimeType: "multipart/related",
+        parts: [
+          {
+            mimeType: "multipart/alternative",
+            parts: [
+              { mimeType: "text/plain", body: { data: b64("Recordatorio: la entrega es el viernes.\n[image: logo.png]\nhttps://campus.example.edu/entregas") } },
+              { mimeType: "text/html", body: { data: b64('<p>Recordatorio: la entrega es el viernes.</p><img src="cid:logo01"><a href="https://campus.example.edu/entregas">Campus</a>') } },
+            ],
+          },
+          { mimeType: "image/png", filename: "logo.png", headers: [{ name: "Content-Disposition", value: "inline" }, { name: "Content-ID", value: "<logo01>" }], body: { attachmentId: "i1" } },
+        ],
+      },
+      { mimeType: "application/pdf", filename: "rubrica.pdf", headers: [{ name: "Content-Disposition", value: "attachment" }], body: { attachmentId: "a1" } },
+    ],
+  };
+  const correoGmail = mensaje(ID, {
+    asunto: "Recordatorio de entrega",
+    partes,
+    cabecerasExtra: [{ name: "List-Unsubscribe", value: "<https://baja.example.edu/x>" }],
+  });
+  // Lo que lee la página (inventado): trae el aviso de recorte y su enlace, como en el hallazgo.
+  const pagina = {
+    asunto: "Recordatorio de entrega",
+    remitente: "coord@uni.example.edu",
+    destinatarios: ["yo@example.org"],
+    cuerpo: "Recordatorio: la entrega es el viernes.\n[Mensaje recortado]  Ver todo el mensaje",
+    enlaces: ["https://campus.example.edu/entregas", "https://mail.google.com/mail/u/0/?view=lg&permmsgid=x"],
+    nAdjuntos: 1,
+    idGmail: ID,
+    recortadoGmail: true,
+  };
+
+  /** Lo mismo que hace panel.js: leerMensajes con el cliente de Gmail, para un solo id. */
+  const lectorApi = (gmail, identidad = identidadFalsa()) => async (id) => {
+    const cliente = crearClienteGmail({ identidad, pedir: gmail.pedir, esperar: sinEspera });
+    return (await leerMensajes(cliente, [id]))[0] ?? null;
+  };
+
+  test("mismo correo simulado → misma petición, campo por campo", async () => {
+    const gmail = gmailFalso({ mensajes: [correoGmail] });
+    const bandeja = await leerBandeja({ identidad: identidadFalsa(), pedir: gmail.pedir });
+    const deLaBandeja = armarPeticionGmail(bandeja.mensajes[0].correo);
+
+    const identidad = identidadFalsa();
+    const deAnalizar = await prepararAnalisis(pagina, lectorApi(gmail, identidad));
+
+    assert.equal(deAnalizar.fuente, "api");
+    assert.deepEqual(deAnalizar.peticion, deLaBandeja.peticion);
+    assert.equal(deAnalizar.recortado, deLaBandeja.recortado);
+    // Y es la del correo, no la de la página:
+    assert.ok(!deAnalizar.peticion.cuerpo.includes("Mensaje recortado"));
+    assert.equal(deAnalizar.peticion.n_urls, 2, "cid:logo01 y el enlace del campus; nada de view=lg");
+    assert.equal(deAnalizar.peticion.n_adjuntos, 1, "el logo de la firma no cuenta");
+    assert.deepEqual(deAnalizar.peticion.cabeceras, { "List-Unsubscribe": "<https://baja.example.edu/x>" });
+    // Nunca abre la ventana de Google.
+    assert.ok(identidad.llamadas.getAuthToken.every((o) => o.interactive === false));
+  });
+
+  test("respaldo con la página: sin id, sin permiso de Gmail, 404 y sin red", async () => {
+    const conLaPagina = armarPeticionGmail(pagina).peticion;
+    const lista = `/messages/${ID}?format=full`;
+    const casos = [
+      ["sin id", { ...pagina, idGmail: null }, lectorApi(gmailFalso({ mensajes: [correoGmail] }))],
+      ["sin permiso", pagina, lectorApi(gmailFalso({ mensajes: [correoGmail] }), identidadFalsa(new Error("OAuth2 not granted or revoked.")))],
+      ["404", pagina, lectorApi(gmailFalso({ respuestas: { [lista]: { estado: 404 } } }))],
+      ["sin red", pagina, lectorApi(gmailFalso({ respuestas: { [lista]: "sin-red" } }))],
+    ];
+    for (const [nombre, deLaPagina, leer] of casos) {
+      const r = await prepararAnalisis(deLaPagina, leer);
+      assert.equal(r.fuente, "pagina", nombre);
+      assert.equal(r.ok, true, nombre);
+      if (nombre !== "sin id") assert.deepEqual(r.peticion, conLaPagina, nombre);
+    }
+  });
+
+  test("sin id no llama a Gmail", async () => {
+    let llamadas = 0;
+    const r = await prepararAnalisis({ ...pagina, idGmail: null }, async () => { llamadas += 1; return null; });
+    assert.equal(r.fuente, "pagina");
+    assert.equal(llamadas, 0);
+  });
+
+  test("si lo de la API no se puede armar (p. ej. sin remitente), usa la página", async () => {
+    const r = await prepararAnalisis(pagina, async () => ({ correo: { ...interpretarMensaje(correoGmail).correo, remitente: "" } }));
+    assert.equal(r.fuente, "pagina");
   });
 });
 

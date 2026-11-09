@@ -340,6 +340,14 @@ input:focus-visible {
 
 .tarjeta-nota { font-size: 12px; color: var(--texto-suave); }
 
+/* Paso 7.1: el correo se leyó de la página (respaldo). Es información, no una alerta: gris. */
+.nota-respaldo {
+  font-size: 12px;
+  color: var(--texto-suave);
+  border-left: 2px solid var(--borde);
+  padding-left: 8px;
+}
+
 /* ----- Estado de la conexión (plegable) ----- */
 
 .conexion { padding: 0; }
@@ -966,3 +974,19 @@ input[type="password"] {
 @media (prefers-reduced-motion: reduce) {
   .interruptor input, .interruptor input::after { transition: none; }
 }
+
+/* Paso 7.1: diagnóstico Analizar vs. Bandeja y exportar (solo la cuenta de prueba). */
+.diagnostico, .exportar { display: grid; gap: 8px; margin-top: 12px; }
+.tabla-desplazable { overflow-x: auto; display: grid; gap: 8px; }
+.tabla-desplazable[hidden] { display: none; }
+.tabla-diagnostico { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tabla-diagnostico caption { text-align: left; padding-bottom: 4px; }
+.tabla-diagnostico th, .tabla-diagnostico td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--borde);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tabla-diagnostico th:first-child, .tabla-diagnostico td:first-child { text-align: left; }
+.tabla-diagnostico thead th { font-family: var(--titulos); font-weight: 600; color: var(--texto-suave); }
+.diagnostico-frase { margin: 0; font-weight: 500; }

@@ -5,6 +5,7 @@
 // - contarEnlaces(): cuenta los href/src distintos, como url_count de SpaPhish.
 // - recortarCuerpo(): deja el cuerpo dentro del límite de la API.
 // - armarPeticion(): arma el JSON exacto que pide POST /analizar (api/app/esquemas.py).
+// - armarPeticionGmail() y prepararAnalisis(): el mismo armado en todo el panel (paso 7.1).
 // - interpretarAnalisis(): convierte la respuesta de /analizar en lo que se muestra.
 //
 // Nada de esto guarda el correo: solo transforma datos que viven en memoria.
@@ -183,6 +184,35 @@ export function armarPeticion(correo, { maxBytes = MAX_BYTES } = {}) {
     return { ok: false, resultado: { tipo: "error", mensaje: "El correo es demasiado grande para la API." } };
   }
   return { ok: true, recortado: cuerpo.recortado || peticion !== armada, peticion };
+}
+
+/**
+ * La ÚNICA forma de armar la petición en el panel (paso 7.1): Analizar, Bandeja, Liberar espacio
+ * y el diagnóstico usan el mismo límite, el de cada correo del lote. Así el mismo correo llega
+ * igual a la API venga de donde venga.
+ */
+export function armarPeticionGmail(correo) {
+  return armarPeticion(correo, { maxBytes: MAX_BYTES_POR_CORREO_LOTE });
+}
+
+/**
+ * Analizar (paso 7.1): el correo abierto se lee con la API de Gmail, con el MISMO lector que la
+ * Bandeja. La página es solo el respaldo (sin id, sin permiso de Gmail, sin red, o si falla).
+ * - pagina: lo que leyó el content script (trae idGmail).
+ * - leerDeGmail(id): devuelve el mensaje interpretado (interpretarMensaje) o null; puede lanzar.
+ * → lo de armarPeticionGmail() + {fuente: "api" | "pagina", correo}.
+ */
+export async function prepararAnalisis(pagina, leerDeGmail) {
+  if (pagina?.idGmail && typeof leerDeGmail === "function") {
+    try {
+      const mensaje = await leerDeGmail(pagina.idGmail);
+      const armado = mensaje?.correo ? armarPeticionGmail(mensaje.correo) : null;
+      if (armado?.ok) return { ...armado, fuente: "api", correo: mensaje.correo };
+    } catch {
+      // Sin permiso de Gmail, sin red o Gmail falló: se usa la página (sin detalles).
+    }
+  }
+  return { ...armarPeticionGmail(pagina), fuente: "pagina", correo: pagina };
 }
 
 /** URL completa de POST /analizar a partir de la URL base ya validada. */

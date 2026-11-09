@@ -39,4 +39,18 @@ globalThis.SICAE_SELECTORES = Object.freeze({
 
   // Cada adjunto del mensaje (las "tarjetas" que aparecen debajo del cuerpo).
   adjuntos: "div.aQH span.aZo",
+
+  // Paso 7.1: el botón "•••" (Mostrar contenido recortado) que Gmail pone dentro del cuerpo
+  // cuando hay texto citado. Lo agrega Gmail, no es del correo: trae una imagen (cleardot.gif)
+  // que no se cuenta como enlace. Revisarlo con Inspeccionar sobre el "•••".
+  textoCitado: "div.ajR",
+});
+
+// Marcas de Gmail que NO son selectores (texto dentro de un atributo). Mismo aviso: Gmail las
+// puede cambiar sin aviso.
+globalThis.SICAE_MARCAS = Object.freeze({
+  // Paso 7.1: con un correo de más de ~102 KB, Gmail muestra "[Mensaje recortado] Ver todo el
+  // mensaje" y solo carga el inicio. El enlace "Ver todo el mensaje" lleva "view=lg" en su href.
+  // Revisarlo con Inspeccionar sobre ese enlace si el diagnóstico dice "no" en un correo recortado.
+  recorte: "view=lg",
 });

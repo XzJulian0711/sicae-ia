@@ -19,6 +19,7 @@ import {
   MAX_CUERPO,
   MAX_DESTINATARIOS,
   armarPeticion,
+  armarPeticionGmail,
   bytesJson,
   contarEnlaces,
   esPestanaGmail,
@@ -245,6 +246,14 @@ describe("lote (paso 4.4)", () => {
     assert.ok(bytesJson(lote) <= MAX_BYTES_LOTE, `${bytesJson(lote)} bytes`);
     // Sin tope de lote, el mismo correo cabe entero en /analizar.
     assert.equal(armarPeticion(largo).recortado, false);
+  });
+
+  test("paso 7.1: armarPeticionGmail usa SIEMPRE el límite de cada correo del lote", () => {
+    const largo = { ...CORREO, cuerpo: "palabra ".repeat(6_000) };
+    assert.deepEqual(armarPeticionGmail(largo), armarPeticion(largo, { maxBytes: MAX_BYTES_POR_CORREO_LOTE }));
+    assert.equal(armarPeticionGmail(largo).recortado, true);
+    assert.deepEqual(armarPeticionGmail(CORREO), armarPeticion(CORREO), "un correo corto no cambia");
+    assert.equal(armarPeticionGmail(null).ok, false);
   });
 
   test("interpretarLote: un resultado validado por correo, null si ese falló o es raro", () => {
